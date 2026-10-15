@@ -87,7 +87,14 @@ async function dev(): Promise<void> {
   // Run Vite inside this process: a separately spawned Vite can outlive this
   // script on Windows (killing a process does not kill its children) and would
   // keep holding its port for later runs.
-  const server = await createServer({ root: projectRoot })
+  //
+  // Bind to the literal loopback address and load that URL: no name resolution
+  // is involved, so proxy or VPN/TUN handling cannot interfere with the page or
+  // its HMR websocket.
+  const server = await createServer({
+    root: projectRoot,
+    server: { host: '127.0.0.1' },
+  })
   await server.listen()
   viteServer = server
 
