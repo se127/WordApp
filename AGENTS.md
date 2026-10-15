@@ -23,6 +23,14 @@
   `bun run preview`, `vite`, `vite preview`) — not even for verification. The user runs
   the app themselves.
 
+## shadcn/ui components — `src/components/ui` is off-limits
+
+- Never touch the shadcn components in `src/components/ui` — no edits, refactors, fixes,
+  moves, or anything else, ever. Treat them as read-only vendored code.
+- At the start of every session, read the shadcn components in `src/components/ui` to be
+  familiar with how to use them: which components exist and their props, structure, and
+  exports.
+
 ## Pre-commit checks — mandatory, in this order
 
 Before any commit, run all three and fix whatever they report:
