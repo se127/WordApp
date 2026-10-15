@@ -39,6 +39,15 @@
   URLs, which must be lowercase), use `wordapp`.
 - No other variant is allowed: `Wordapp`, `wordApp`, `WORDAPP`, `word-app`, etc.
 
+## Farsi text — never use zero-width characters
+
+- In any Farsi (Persian) text anywhere in this project (UI copy, docs, comments, code
+  strings), never use zero-width characters: ZWNJ (zero-width non-joiner, U+200C), ZWSP
+  (zero-width space, U+200B), or ZWJ (zero-width joiner, U+200D). These are the invisible
+  "half space" (نیم فاصله) characters.
+- Always type a normal space instead. Write `می روم`, never the version with a hidden
+  zero-width character between `می` and `روم`.
+
 ## Never run the dev or dist scripts
 
 - Never run the dev server or the installer build (`bun dev`, `bun run dev`, `vite`,
