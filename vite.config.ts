@@ -6,6 +6,8 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Relative asset paths so the renderer works when loaded from file:// inside Electron.
+  base: './',
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),

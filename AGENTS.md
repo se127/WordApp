@@ -9,6 +9,28 @@
   `npm run x` → `bun run x`.
 - Only fall back to Node/npm when the user explicitly asks for it.
 
+## Install packages as devDependencies by default
+
+- Add every package with `bun add -d <pkg>` (devDependency). The renderer is bundled
+  by Vite and `electron/main.ts` + `electron/preload.ts` are bundled by `bun build`
+  (`scripts/electron.ts`), so almost nothing needs to exist in the packaged app's
+  `node_modules`.
+- Only use `bun add <pkg>` (production dependency) when the package must be present
+  in `node_modules` inside the packaged app at runtime. That is essentially limited
+  to:
+  - native modules (`*.node` binaries) used by the main/preload process, e.g.
+    `better-sqlite3`, `sharp` — native binaries cannot be bundled;
+  - packages that cannot be bundled because they read their own files at runtime
+    (e.g. `__dirname`-relative assets, `.wasm`) and are required unbundled by the
+    main process.
+- Renderer packages are never production dependencies: the renderer runs in a
+  browser-like context without `node_modules`.
+- If a production dependency is ever added, also set `"npmRebuild": true` in the
+  `build` config of `package.json` so electron-builder rebuilds native modules
+  against Electron's ABI.
+- `electron` itself must stay a devDependency (electron-builder expects it there);
+  the Electron runtime ships inside the packaged app.
+
 ## App name: WordApp
 
 - Always write the app name exactly as `WordApp` — uppercase `W` and `A` — in every context
@@ -17,11 +39,13 @@
   URLs, which must be lowercase), use `wordapp`.
 - No other variant is allowed: `Wordapp`, `wordApp`, `WORDAPP`, `word-app`, etc.
 
-## Never run the dev or preview scripts
+## Never run the dev or dist scripts
 
-- Never run the dev or preview servers (`bun dev`, `bun preview`, `bun run dev`,
-  `bun run preview`, `vite`, `vite preview`) — not even for verification. The user runs
-  the app themselves.
+- Never run the dev server or the installer build (`bun dev`, `bun run dev`, `vite`,
+  `bun run dist`, `electron-builder`) — not even for verification. The user runs the app
+  and builds installers themselves.
+- `bun run build` is the only exception: it compiles the renderer and the main/preload
+  bundles but never launches Electron, and it is required by the pre-commit checks below.
 
 ## shadcn/ui components — `src/components/ui` is off-limits
 
