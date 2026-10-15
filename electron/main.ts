@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
 import path from 'node:path'
 import { rendererReadyChannel } from './ipc.ts'
 
@@ -37,6 +37,11 @@ ipcMain.on(rendererReadyChannel, (event) => {
   revealWindow(browserWindow)
 })
 
+// ERR_NETWORK_CHANGED: Chromium aborted the in-flight request because the
+// network changed, which VPN/TUN adapters or their route changes cause.
+const errNetworkChanged = -106
+const maxLoadAttempts = 5
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     minWidth: 800,
@@ -50,6 +55,23 @@ function createWindow(): void {
     },
   })
 
+  const loadPage = (): void => {
+    if (mainWindow.isDestroyed()) {
+      return
+    }
+
+    if (devServerUrl) {
+      void mainWindow.loadURL(devServerUrl)
+    } else {
+      void mainWindow.loadFile(path.join(appRoot, 'dist', 'index.html'))
+    }
+  }
+
+  let loadAttempts = 0
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    loadAttempts = 0
+  })
   // Safety net: if the renderer dies or its main frame fails to load, reveal the
   // window anyway so a broken renderer is visible instead of an invisible app.
   mainWindow.webContents.on('render-process-gone', () => {
@@ -57,10 +79,20 @@ function createWindow(): void {
   })
   mainWindow.webContents.on(
     'did-fail-load',
-    (_event, _errorCode, _errorDescription, _validatedUrl, isMainFrame) => {
-      if (isMainFrame) {
-        revealWindow(mainWindow)
+    (_event, errorCode, _errorDescription, _validatedUrl, isMainFrame) => {
+      if (!isMainFrame) {
+        return
       }
+
+      // A TUN network change during startup can abort the load; retry briefly
+      // instead of treating it as a real failure.
+      if (errorCode === errNetworkChanged && loadAttempts < maxLoadAttempts) {
+        loadAttempts += 1
+        setTimeout(loadPage, 500)
+        return
+      }
+
+      revealWindow(mainWindow)
     },
   )
 
@@ -69,17 +101,23 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  if (devServerUrl) {
-    void mainWindow.loadURL(devServerUrl)
-  } else {
-    void mainWindow.loadFile(path.join(appRoot, 'dist', 'index.html'))
-  }
+  loadPage()
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.wordapp.app')
   }
+
+  // Keep loopback requests (the dev server page and its HMR websocket) off the
+  // system proxy: VPN/TUN proxy clients otherwise intercept them, failing the
+  // load with ERR_NETWORK_CHANGED and killing HMR. Setting this on the session
+  // is the only way that works — the `--proxy-bypass-list` switch only takes
+  // effect together with `--proxy-server`, which we deliberately do not set.
+  await session.defaultSession.setProxy({
+    mode: 'system',
+    proxyBypassRules: '<local>',
+  })
 
   createWindow()
 
