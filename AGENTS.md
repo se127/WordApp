@@ -22,3 +22,19 @@
 - Never run the dev or preview servers (`bun dev`, `bun preview`, `bun run dev`,
   `bun run preview`, `vite`, `vite preview`) — not even for verification. The user runs
   the app themselves.
+
+## Pre-commit checks — mandatory, in this order
+
+Before any commit, run all three and fix whatever they report:
+
+1. Lint: `bun run lint` — fix all reported problems.
+2. Format: `bun run format` (Prettier) — fix all reported problems.
+3. Build: `bun run build` — must finish successfully.
+
+If any check fails, you are not allowed to commit. Fix the problems first, then re-run
+all three checks, and repeat until everything passes.
+
+## Never commit without permission
+
+- Always ask the user for explicit permission before running `git commit`, even when all
+  pre-commit checks pass.
