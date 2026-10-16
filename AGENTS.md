@@ -53,8 +53,8 @@
 - Never run the dev server or the installer build (`bun dev`, `bun run dev`, `vite`,
   `bun run dist`, `electron-builder`) — not even for verification. The user runs the app
   and builds installers themselves.
-- `bun run build` is the only exception: it compiles the renderer and the main/preload
-  bundles but never launches Electron, and it is required by the pre-commit checks below.
+- `bun run build` and `bun run test` are the only exceptions: they compile or test the
+  code without launching Electron, and they are required by the pre-commit checks below.
 
 ## shadcn/ui components — `src/components/ui` is off-limits
 
@@ -64,16 +64,30 @@
   familiar with how to use them: which components exist and their props, structure, and
   exports.
 
+## Tests — always in step with the code
+
+- Always write tests for the code you add or change, in the same commit. When you remove
+  code, check whether its tests are now redundant and remove them too.
+- Tests live in `tests/`, split by runtime: `tests/dom/` for renderer code (`src/**`,
+  runs under happy-dom) and `tests/node/` for main/preload code (`electron/**`, runs
+  under plain Node). Run them with `bun run test`; use `bun run test:watch` while
+  developing.
+- Coverage is opt-in: `bun run test:coverage` prints a per-file table and writes an
+  HTML report to `coverage/`.
+- Do not write tests for the vendored shadcn components in `src/components/ui` — they
+  are installed code, not ours. Test the app's own behavior around them.
+
 ## Pre-commit checks — mandatory, in this order
 
-Before any commit, run all three and fix whatever they report:
+Before any commit, run all four and fix whatever they report:
 
 1. Lint: `bun run lint` — fix all reported problems.
 2. Format: `bun run format` (Prettier) — fix all reported problems.
-3. Build: `bun run build` — must finish successfully.
+3. Tests: `bun run test` (Vitest) — all tests must pass.
+4. Build: `bun run build` — must finish successfully.
 
 If any check fails, you are not allowed to commit. Fix the problems first, then re-run
-all three checks, and repeat until everything passes.
+all four checks, and repeat until everything passes.
 
 ## Never commit without permission
 
