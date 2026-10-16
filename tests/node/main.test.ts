@@ -12,7 +12,6 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
   windowMaximizedChangedChannel,
@@ -39,6 +38,7 @@ const mocks = vi.hoisted(() => {
     loadURL: vi.fn(async () => {}),
     loadFile: vi.fn(async () => {}),
     on: vi.fn(),
+    once: vi.fn(),
     webContents: {
       on: vi.fn(),
       send: vi.fn(),
@@ -152,8 +152,12 @@ function handlerFor(emitter: 'on' | 'handle', channel: string) {
   return call[1] as (...args: unknown[]) => unknown
 }
 
-function listenerOn(emitter: { on: unknown }, event: string) {
-  const call = asMock(emitter.on).mock.calls.find(([name]) => name === event)
+function listenerOn(emitter: { on?: unknown; once?: unknown }, event: string) {
+  const calls = [
+    ...(emitter.on ? asMock(emitter.on).mock.calls : []),
+    ...(emitter.once ? asMock(emitter.once).mock.calls : []),
+  ]
+  const call = calls.find(([name]) => name === event)
   if (!call) {
     throw new Error(`No listener registered for ${event}`)
   }
@@ -259,20 +263,21 @@ describe('dev run', () => {
   })
 })
 
-describe('renderer ready', () => {
-  it('maximizes, snaps to the work area, and shows the window exactly once', async () => {
+describe('window reveal', () => {
+  it('maximizes, snaps to the work area, and shows the window when the first frame is painted', async () => {
     stubPlatform('win32')
     await importMain()
 
-    const notifyReady = handlerFor('on', rendererReadyChannel)
-    const event = { sender: {} }
+    const painted = listenerOn(mocks.win, 'ready-to-show')
 
-    notifyReady(event)
+    painted()
     expect(mocks.win.maximize).toHaveBeenCalledOnce()
     expect(mocks.win.setBounds).toHaveBeenCalledWith(mocks.workArea)
     expect(mocks.win.show).toHaveBeenCalledOnce()
 
-    notifyReady(event)
+    // A late reveal request (e.g. the renderer dying after its first frame)
+    // changes nothing: the window is already shown.
+    painted()
     expect(mocks.win.show).toHaveBeenCalledOnce()
   })
 
@@ -280,13 +285,13 @@ describe('renderer ready', () => {
     stubPlatform('darwin')
     await importMain()
 
-    handlerFor('on', rendererReadyChannel)({ sender: {} })
+    listenerOn(mocks.win, 'ready-to-show')()
 
     expect(mocks.win.show).toHaveBeenCalledOnce()
     expect(mocks.win.setBounds).not.toHaveBeenCalled()
   })
 
-  it('reveals the window if the renderer process dies before ready', async () => {
+  it('reveals the window if the renderer process dies before the first frame', async () => {
     stubPlatform('win32')
     await importMain()
 
@@ -302,7 +307,6 @@ describe('closed window', () => {
     mocks.BrowserWindow.fromWebContents.mockReturnValue(null)
     const event = { sender: {} }
 
-    handlerFor('on', rendererReadyChannel)(event)
     handlerFor('on', windowMinimizeChannel)(event)
     handlerFor('on', windowToggleMaximizeChannel)(event)
     handlerFor('on', windowCloseChannel)(event)
@@ -319,7 +323,7 @@ describe('closed window', () => {
     await importMain()
     mocks.win.isDestroyed.mockReturnValue(true)
 
-    handlerFor('on', rendererReadyChannel)({ sender: {} })
+    listenerOn(mocks.win, 'ready-to-show')()
     listenerOn(mocks.win.webContents, 'render-process-gone')()
     listenerOn(mocks.win, 'maximize')()
 

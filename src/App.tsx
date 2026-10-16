@@ -6,11 +6,12 @@ import { useEffect } from 'react'
 
 // The window shell lives in the root route (src/routes/root.ts); the app
 // mounts the router behind the QueryClient its route loaders and page
-// components share, and tells the main process it is ready.
+// components share, and retires the loading screen index.html painted while
+// the bundle loaded.
 function App() {
   useEffect(() => {
-    // React has mounted; ask the main process to reveal the hidden window.
-    window.WordApp?.ready()
+    // React has mounted; the pre-mount loading screen (index.html) is done.
+    document.getElementById('app-loading')?.remove()
   }, [])
 
   return (

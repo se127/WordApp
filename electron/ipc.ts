@@ -1,5 +1,4 @@
 // IPC channel names shared between the Electron main and preload bundles.
-export const rendererReadyChannel = 'wordapp:ready'
 
 // Caption buttons of the frameless window.
 export const windowCloseChannel = 'wordapp:window:close'

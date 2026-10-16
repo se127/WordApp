@@ -8,11 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 type WordAppBridge = Window['WordApp']
 
 function installBridge() {
-  const ready = vi.fn()
-
   window.WordApp = {
     platform: 'win32',
-    ready,
     windowControls: {
       close: vi.fn(),
       minimize: vi.fn(),
@@ -32,8 +29,6 @@ function installBridge() {
       count: vi.fn(async () => 0),
     },
   } satisfies WordAppBridge
-
-  return { ready }
 }
 
 // Mirrors the provider stack from src/main.tsx.
@@ -53,16 +48,21 @@ afterEach(() => {
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
   document.documentElement.classList.remove('dark')
+  document.getElementById('app-loading')?.remove()
 })
 
 describe('App', () => {
-  it('asks the main process to reveal the window once mounted', async () => {
-    const { ready } = installBridge()
+  it('removes the pre-mount loading screen from index.html once mounted', async () => {
+    installBridge()
+    // index.html paints this screen while the bundle loads; App retires it.
+    const loading = document.createElement('div')
+    loading.id = 'app-loading'
+    document.body.append(loading)
 
     renderApp()
     await screen.findByRole('heading', { name: 'مستندات (0)' })
 
-    expect(ready).toHaveBeenCalledOnce()
+    expect(document.getElementById('app-loading')).toBeNull()
   })
 
   it('renders the caption buttons, the theme picker, the content box, and the home page', async () => {

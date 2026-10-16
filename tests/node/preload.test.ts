@@ -40,7 +40,6 @@ describe('preload bridge', () => {
     const api = await importPreload()
 
     expect(api.platform).toBe(process.platform)
-    expect(typeof api.ready).toBe('function')
     expect(typeof api.windowControls.close).toBe('function')
     expect(typeof api.windowControls.minimize).toBe('function')
     expect(typeof api.windowControls.toggleMaximize).toBe('function')
@@ -49,14 +48,6 @@ describe('preload bridge', () => {
     expect(typeof api.documents.create).toBe('function')
     expect(typeof api.documents.get).toBe('function')
     expect(typeof api.documents.count).toBe('function')
-  })
-
-  it('signals ready over the ready channel', async () => {
-    const api = await importPreload()
-
-    api.ready()
-
-    expect(mocks.send).toHaveBeenCalledWith('wordapp:ready')
   })
 
   it('sends each caption-button channel', async () => {
