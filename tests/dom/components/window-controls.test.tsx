@@ -30,6 +30,7 @@ function installBridge({ maximized = false } = {}) {
     platform: 'win32',
     ready: vi.fn(),
     windowControls: controls,
+    documents: { create: vi.fn(), get: vi.fn(), count: vi.fn() },
   }
 
   return controls

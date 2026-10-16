@@ -46,6 +46,9 @@ describe('preload bridge', () => {
     expect(typeof api.windowControls.toggleMaximize).toBe('function')
     expect(typeof api.windowControls.isMaximized).toBe('function')
     expect(typeof api.windowControls.onMaximizedChange).toBe('function')
+    expect(typeof api.documents.create).toBe('function')
+    expect(typeof api.documents.get).toBe('function')
+    expect(typeof api.documents.count).toBe('function')
   })
 
   it('signals ready over the ready channel', async () => {
@@ -74,6 +77,28 @@ describe('preload bridge', () => {
 
     await expect(api.windowControls.isMaximized()).resolves.toBe(true)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:window:is-maximized')
+  })
+
+  it('forwards document calls over the document channels', async () => {
+    const record = {
+      id: 7,
+      title: 'بدون عنوان',
+      body: '',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    mocks.invoke.mockResolvedValue(record)
+    const api = await importPreload()
+
+    await expect(api.documents.create()).resolves.toEqual(record)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:create')
+
+    await expect(api.documents.get(7)).resolves.toEqual(record)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:get', 7)
+
+    mocks.invoke.mockResolvedValue(5)
+    await expect(api.documents.count()).resolves.toBe(5)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:count')
   })
 
   it('forwards maximize changes and unsubscribes on demand', async () => {

@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { DocumentRecord } from './database.ts'
 import {
+  documentsCountChannel,
+  documentsCreateChannel,
+  documentsGetChannel,
   rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
@@ -42,5 +46,14 @@ contextBridge.exposeInMainWorld('WordApp', {
         ipcRenderer.removeListener(windowMaximizedChangedChannel, listener)
       }
     },
+  },
+  // Documents live in the SQLite database the main process owns; the renderer
+  // only calls through this bridge.
+  documents: {
+    create: (): Promise<DocumentRecord> =>
+      ipcRenderer.invoke(documentsCreateChannel),
+    get: (id: number): Promise<DocumentRecord | undefined> =>
+      ipcRenderer.invoke(documentsGetChannel, id),
+    count: (): Promise<number> => ipcRenderer.invoke(documentsCountChannel),
   },
 })

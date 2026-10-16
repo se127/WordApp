@@ -15,6 +15,9 @@ dist-ssr
 coverage
 *.local
 
+# Development SQLite database (electron/main.ts uses dev-data in dev runs)
+dev-data
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

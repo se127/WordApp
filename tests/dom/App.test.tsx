@@ -19,6 +19,17 @@ function installBridge() {
       isMaximized: vi.fn(async () => false),
       onMaximizedChange: vi.fn(() => vi.fn()),
     },
+    documents: {
+      create: vi.fn(async () => ({
+        id: 1,
+        title: 'بدون عنوان',
+        body: '',
+        createdAt: 0,
+        updatedAt: 0,
+      })),
+      get: vi.fn(async () => undefined),
+      count: vi.fn(async () => 0),
+    },
   } satisfies WordAppBridge
 
   return { ready }
@@ -41,31 +52,40 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('asks the main process to reveal the window once mounted', () => {
+  it('asks the main process to reveal the window once mounted', async () => {
     const { ready } = installBridge()
 
     renderApp()
+    await screen.findByRole('heading', { name: 'مستندات (0)' })
 
     expect(ready).toHaveBeenCalledOnce()
   })
 
-  it('renders the caption buttons, the theme picker, and the content box', () => {
+  it('renders the caption buttons, the theme picker, the content box, and the home page', async () => {
     installBridge()
 
     renderApp()
 
-    expect(screen.getByRole('button', { name: 'بستن' })).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'تغییر پوسته' }),
+      await screen.findByRole('button', { name: 'بستن' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'تغییر پوسته' }),
+    ).toBeInTheDocument()
+    expect(await screen.findByRole('main')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'افزودن سند' }),
+    ).toBeInTheDocument()
   })
 
-  it('mounts without the preload bridge', () => {
+  it('mounts without the preload bridge', async () => {
     Reflect.deleteProperty(window, 'WordApp')
 
     renderApp()
 
-    expect(screen.getByRole('main')).toBeInTheDocument()
+    expect(await screen.findByRole('main')).toBeInTheDocument()
   })
 })
