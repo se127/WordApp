@@ -91,9 +91,13 @@ async function dev(): Promise<void> {
   // Bind to the literal loopback address and load that URL: no name resolution
   // is involved, so proxy or VPN/TUN handling cannot interfere with the page or
   // its HMR websocket.
+  //
+  // The port is pinned with strictPort because the renderer's localStorage
+  // (which remembers the picked theme) is keyed by origin; silently falling
+  // back to another port would change the origin and lose the stored theme.
   const server = await createServer({
     root: projectRoot,
-    server: { host: '127.0.0.1' },
+    server: { host: '127.0.0.1', port: 5173, strictPort: true },
   })
   await server.listen()
   viteServer = server
