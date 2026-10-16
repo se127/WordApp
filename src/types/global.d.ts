@@ -13,17 +13,6 @@ declare global {
     // Exposed by electron/preload.ts
     WordApp: {
       platform: string
-      // Caption-button actions for the frameless window.
-      windowControls: {
-        close: () => void
-        minimize: () => void
-        toggleMaximize: () => void
-        isMaximized: () => Promise<boolean>
-        // Subscribes to maximize/unmaximize changes; returns an unsubscribe.
-        onMaximizedChange: (
-          callback: (maximized: boolean) => void,
-        ) => () => void
-      }
       // Documents live in the SQLite database the main process owns.
       documents: {
         // Creates a fresh untitled document and returns the stored row.

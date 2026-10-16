@@ -43,13 +43,6 @@ function installBridge(
 
   window.WordApp = {
     platform: 'win32',
-    windowControls: {
-      close: vi.fn(),
-      minimize: vi.fn(),
-      toggleMaximize: vi.fn(),
-      isMaximized: vi.fn(async () => false),
-      onMaximizedChange: vi.fn(() => vi.fn()),
-    },
     documents: { create, get, count },
   } satisfies WordAppBridge
 
@@ -178,7 +171,7 @@ describe('routes', () => {
     renderRoute('/documents/1')
 
     // The shell is up right away; only the content box waits on the row.
-    await screen.findByRole('button', { name: 'بستن' })
+    await screen.findByRole('button', { name: 'تغییر پوسته' })
     expect(
       await screen.findByRole('status', { name: 'در حال بارگذاری' }),
     ).toBeInTheDocument()

@@ -22,13 +22,6 @@ function installDocuments(
 ): void {
   window.WordApp = {
     platform: 'win32',
-    windowControls: {
-      close: vi.fn(),
-      minimize: vi.fn(),
-      toggleMaximize: vi.fn(),
-      isMaximized: vi.fn(async () => false),
-      onMaximizedChange: vi.fn(() => vi.fn()),
-    },
     documents: {
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
