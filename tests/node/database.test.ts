@@ -2,14 +2,18 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   openDatabase,
+  parseDbDelayArgument,
   parseSeedArgument,
   resetDatabase,
   untitledDocumentTitle,
 } from '../../electron/database.ts'
-import type { WordAppDatabase } from '../../electron/database.ts'
+import type {
+  OpenDatabaseOptions,
+  WordAppDatabase,
+} from '../../electron/database.ts'
 
 let temporaryDirectory: string | undefined
 let database: WordAppDatabase | undefined
@@ -34,12 +38,12 @@ function temporaryDatabasePath(): string {
 
 // Opens a fresh database in a fresh temp directory and tracks both for
 // teardown, so every test starts from an empty, fully migrated file.
-function openTestDatabase(): {
+function openTestDatabase(options?: OpenDatabaseOptions): {
   database: WordAppDatabase
   databasePath: string
 } {
   const databasePath = temporaryDatabasePath()
-  const instance = openDatabase(databasePath)
+  const instance = openDatabase(databasePath, options)
   database = instance
 
   return { database: instance, databasePath }
@@ -134,16 +138,16 @@ describe('openDatabase', () => {
     }
   })
 
-  it('keeps data across a reopen without re-applying migrations', () => {
+  it('keeps data across a reopen without re-applying migrations', async () => {
     const { database: first, databasePath } = openTestDatabase()
-    const document = first.createDocument()
+    const document = await first.createDocument()
     first.close()
     database = undefined
 
     const reopened = openDatabase(databasePath)
     database = reopened
 
-    expect(reopened.getDocument(document.id)).toEqual(document)
+    expect(await reopened.getDocument(document.id)).toEqual(document)
 
     const raw = new DatabaseSync(databasePath)
     try {
@@ -157,11 +161,11 @@ describe('openDatabase', () => {
 })
 
 describe('documents', () => {
-  it('creates an untitled document and reads it back by id', () => {
+  it('creates an untitled document and reads it back by id', async () => {
     const { database: store } = openTestDatabase()
     const before = Date.now()
 
-    const document = store.createDocument()
+    const document = await store.createDocument()
 
     expect(document.id).toBeGreaterThan(0)
     expect(untitledDocumentTitle).toBe('بدون عنوان')
@@ -171,24 +175,24 @@ describe('documents', () => {
     expect(document.createdAt).toBeLessThanOrEqual(Date.now())
     expect(document.updatedAt).toBe(document.createdAt)
 
-    expect(store.getDocument(document.id)).toEqual(document)
-    expect(store.getDocument(document.id + 1000)).toBeUndefined()
+    expect(await store.getDocument(document.id)).toEqual(document)
+    expect(await store.getDocument(document.id + 1000)).toBeUndefined()
   })
 
-  it('counts the stored documents with a dedicated count query', () => {
+  it('counts the stored documents with a dedicated count query', async () => {
     const { database: store } = openTestDatabase()
 
-    expect(store.countDocuments()).toBe(0)
+    expect(await store.countDocuments()).toBe(0)
 
-    store.createDocument()
-    store.createDocument()
+    await store.createDocument()
+    await store.createDocument()
 
-    expect(store.countDocuments()).toBe(2)
+    expect(await store.countDocuments()).toBe(2)
   })
 
-  it('bumps updated_at on update but keeps an explicitly set one', () => {
+  it('bumps updated_at on update but keeps an explicitly set one', async () => {
     const { database: store, databasePath } = openTestDatabase()
-    const document = store.createDocument()
+    const document = await store.createDocument()
     const raw = new DatabaseSync(databasePath)
 
     const selectRow = () =>
@@ -226,7 +230,7 @@ describe('documents', () => {
       expect(touched.updated_at).toBeGreaterThan(explicit)
 
       // The store sees the trigger's write through its own connection.
-      expect(store.getDocument(document.id)?.title).toBe('ویرایش')
+      expect((await store.getDocument(document.id))?.title).toBe('ویرایش')
     } finally {
       raw.close()
     }
@@ -269,6 +273,77 @@ describe('parseSeedArgument', () => {
   })
 })
 
+describe('parseDbDelayArgument', () => {
+  it('parses the documented millisecond layout', () => {
+    expect(parseDbDelayArgument('2000ms')).toBe(2000)
+    expect(parseDbDelayArgument('1500ms')).toBe(1500)
+    expect(parseDbDelayArgument('0ms')).toBe(0)
+  })
+
+  it('treats an empty value as "delay nothing"', () => {
+    expect(parseDbDelayArgument('')).toBe(0)
+  })
+
+  it('rejects values that are not <milliseconds>ms', () => {
+    for (const value of [
+      '2000', // no unit
+      '2s', // wrong unit
+      'ms', // no number
+      '2000ms500', // trailing garbage
+      '2000 ms', // space before the unit
+      '2000MS', // wrong case
+      '-2000ms', // negative
+    ]) {
+      expect(() => parseDbDelayArgument(value)).toThrowError(
+        /Invalid --db-delay/,
+      )
+    }
+  })
+
+  it('accepts the largest timer delay and rejects anything longer', () => {
+    expect(parseDbDelayArgument('2147483647ms')).toBe(2_147_483_647)
+    expect(() => parseDbDelayArgument('2147483648ms')).toThrowError(/too long/)
+    expect(() => parseDbDelayArgument('99999999999999999999ms')).toThrowError(
+      /too long/,
+    )
+  })
+})
+
+describe('openDatabase operation delay', () => {
+  it('waits the configured delay before every operation runs', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase({ operationDelayMs: 2000 })
+
+      const operations = [
+        store.createDocument(),
+        store.countDocuments(),
+        store.getDocument(1),
+      ] as const
+      let settled = 0
+      for (const operation of operations) {
+        void operation.then(() => {
+          settled += 1
+        })
+      }
+
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(settled).toBe(0)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const [created, count, fetched] = await Promise.all(operations)
+      expect(settled).toBe(3)
+
+      expect(created.title).toBe(untitledDocumentTitle)
+      expect(count).toBe(1)
+      expect(fetched).toEqual(created)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('resetDatabase', () => {
   it('creates and migrates the database file when it does not exist yet', () => {
     const databasePath = temporaryDatabasePath()
@@ -288,10 +363,10 @@ describe('resetDatabase', () => {
     }
   })
 
-  it('removes every previous record even without seed entries', () => {
+  it('removes every previous record even without seed entries', async () => {
     const { database: store, databasePath } = openTestDatabase()
-    store.createDocument()
-    store.createDocument()
+    await store.createDocument()
+    await store.createDocument()
     store.close()
     database = undefined
 
@@ -299,10 +374,10 @@ describe('resetDatabase', () => {
 
     const reopened = openDatabase(databasePath)
     database = reopened
-    expect(reopened.countDocuments()).toBe(0)
+    expect(await reopened.countDocuments()).toBe(0)
   })
 
-  it('inserts the requested number of untitled documents', () => {
+  it('inserts the requested number of untitled documents', async () => {
     const databasePath = temporaryDatabasePath()
 
     resetDatabase(databasePath, [{ table: 'documents', count: 3 }])
@@ -310,15 +385,15 @@ describe('resetDatabase', () => {
     const store = openDatabase(databasePath)
     database = store
 
-    expect(store.countDocuments()).toBe(3)
-    expect(store.getDocument(1)?.title).toBe(untitledDocumentTitle)
-    expect(store.getDocument(3)).toBeDefined()
-    expect(store.getDocument(4)).toBeUndefined()
+    expect(await store.countDocuments()).toBe(3)
+    expect((await store.getDocument(1))?.title).toBe(untitledDocumentTitle)
+    expect(await store.getDocument(3)).toBeDefined()
+    expect(await store.getDocument(4)).toBeUndefined()
   })
 
-  it('replaces the previous records on every seed', () => {
+  it('replaces the previous records on every seed', async () => {
     const { database: store, databasePath } = openTestDatabase()
-    store.createDocument()
+    await store.createDocument()
     store.close()
     database = undefined
 
@@ -327,12 +402,12 @@ describe('resetDatabase', () => {
 
     const reopened = openDatabase(databasePath)
     database = reopened
-    expect(reopened.countDocuments()).toBe(5)
+    expect(await reopened.countDocuments()).toBe(5)
   })
 
-  it('rejects unknown tables and keeps the previous records', () => {
+  it('rejects unknown tables and keeps the previous records', async () => {
     const { database: store, databasePath } = openTestDatabase()
-    store.createDocument()
+    await store.createDocument()
     store.close()
     database = undefined
 
@@ -342,6 +417,6 @@ describe('resetDatabase', () => {
 
     const reopened = openDatabase(databasePath)
     database = reopened
-    expect(reopened.countDocuments()).toBe(1)
+    expect(await reopened.countDocuments()).toBe(1)
   })
 })

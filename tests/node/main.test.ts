@@ -61,10 +61,13 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(),
   }
 
-  // Stand-ins for the database module's dev-seed exports; their real behavior
-  // is covered by tests/node/database.test.ts.
+  // Stand-ins for the database module's dev-argument exports; their real
+  // behavior is covered by tests/node/database.test.ts.
   const parseSeedArgument = vi.fn((value: string) =>
     value === '' ? [] : [{ table: 'documents', count: 3 }],
+  )
+  const parseDbDelayArgument = vi.fn((value: string) =>
+    value === '' ? 0 : 2000,
   )
   const resetDatabase = vi.fn()
 
@@ -101,6 +104,7 @@ const mocks = vi.hoisted(() => {
     database,
     ipcMain: { on: vi.fn(), handle: vi.fn() },
     openDatabase: vi.fn(() => database),
+    parseDbDelayArgument,
     parseSeedArgument,
     resetDatabase,
     screen: { getDisplayMatching: vi.fn(() => ({ workArea })) },
@@ -124,6 +128,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../../electron/database.ts', () => ({
   openDatabase: mocks.openDatabase,
+  parseDbDelayArgument: mocks.parseDbDelayArgument,
   parseSeedArgument: mocks.parseSeedArgument,
   resetDatabase: mocks.resetDatabase,
 }))
@@ -376,6 +381,7 @@ describe('documents database', () => {
 
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      { operationDelayMs: 0 },
     )
   })
 
@@ -384,6 +390,7 @@ describe('documents database', () => {
 
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
+      { operationDelayMs: 0 },
     )
   })
 
@@ -483,6 +490,7 @@ describe('documents database', () => {
     expect(mocks.resetDatabase).not.toHaveBeenCalled()
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
+      { operationDelayMs: 0 },
     )
   })
 
@@ -501,6 +509,78 @@ describe('documents database', () => {
       })
       expect(consoleError).toHaveBeenCalledWith(
         'The dev seed could not be applied: Cannot seed table "users": no such table',
+      )
+      expect(mocks.openDatabase).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('slows every store operation by the dev script db delay and reports it', async () => {
+    vi.stubEnv('DEV_DB_DELAY', '2000ms')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('2000ms')
+      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        { operationDelayMs: 2000 },
+      )
+      expect(consoleLog).toHaveBeenCalledWith('db-delay: 2000ms')
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('keeps operations immediate and logs nothing when no db delay was passed', async () => {
+    vi.stubEnv('DEV_DB_DELAY', '')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('')
+      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        { operationDelayMs: 0 },
+      )
+      expect(consoleLog).not.toHaveBeenCalled()
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('ignores the dev db delay in a packaged app', async () => {
+    vi.stubEnv('DEV_DB_DELAY', '2000ms')
+
+    await importMain({ isPackaged: true })
+
+    expect(mocks.parseDbDelayArgument).not.toHaveBeenCalled()
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/userdata', 'db.sqlite'),
+      { operationDelayMs: 0 },
+    )
+  })
+
+  it('exits before opening the store when the db delay is invalid', async () => {
+    vi.stubEnv('DEV_DB_DELAY', 'soon')
+    mocks.parseDbDelayArgument.mockImplementationOnce(() => {
+      throw new Error(
+        'Invalid --db-delay "soon": the value must look like <milliseconds>ms, e.g. 2000ms',
+      )
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain({ expectWindow: false })
+
+      await vi.waitFor(() => {
+        expect(mocks.app.exit).toHaveBeenCalledWith(1)
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'The dev db delay could not be applied: Invalid --db-delay "soon": the value must look like <milliseconds>ms, e.g. 2000ms',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

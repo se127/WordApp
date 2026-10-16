@@ -1,6 +1,7 @@
 import App from '@/App'
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { queryClient } from '@/lib/query'
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -46,6 +47,9 @@ const renderApp = () =>
   )
 
 afterEach(() => {
+  // App renders with the module-level QueryClient; clear it so tests do not
+  // see each other's cached data.
+  queryClient.clear()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
   document.documentElement.classList.remove('dark')
