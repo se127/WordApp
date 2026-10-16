@@ -8,7 +8,11 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
+import { openDatabase } from './database.ts'
 import {
+  documentsCountChannel,
+  documentsCreateChannel,
+  documentsGetChannel,
   rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
@@ -204,6 +208,29 @@ void app.whenReady().then(async () => {
   await session.defaultSession.setProxy({
     mode: 'system',
     proxyBypassRules: '<local>',
+  })
+
+  // One SQLite database holds every document, and the main process is its
+  // only connection; the renderer reaches it through the document channels.
+  // Packaged builds keep the file in the per-user app data folder, while dev
+  // runs keep it in a project-local `dev-data` folder, so experimenting never
+  // touches the installed app's real data.
+  const database = openDatabase(
+    app.isPackaged
+      ? path.join(app.getPath('userData'), 'db.sqlite')
+      : path.join(app.getAppPath(), 'dev-data', 'db.sqlite'),
+  )
+
+  ipcMain.handle(documentsCreateChannel, () => database.createDocument())
+  ipcMain.handle(documentsGetChannel, (_event, id: unknown) =>
+    typeof id === 'number' && Number.isSafeInteger(id)
+      ? database.getDocument(id)
+      : undefined,
+  )
+  ipcMain.handle(documentsCountChannel, () => database.countDocuments())
+
+  app.on('will-quit', () => {
+    database.close()
   })
 
   createWindow()

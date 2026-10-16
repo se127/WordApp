@@ -9,6 +9,9 @@ import {
   type Mock,
 } from 'vitest'
 import {
+  documentsCountChannel,
+  documentsCreateChannel,
+  documentsGetChannel,
   rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
@@ -49,6 +52,15 @@ const mocks = vi.hoisted(() => {
     options: undefined,
   }
 
+  // Stand-in for the SQLite store electron/main.ts opens; the real database
+  // behavior is covered by tests/node/database.test.ts.
+  const database = {
+    createDocument: vi.fn(),
+    getDocument: vi.fn(),
+    countDocuments: vi.fn(),
+    close: vi.fn(),
+  }
+
   const BrowserWindow = Object.assign(
     vi.fn(function (this: Record<string, unknown>, options: unknown) {
       state.options = options
@@ -66,6 +78,7 @@ const mocks = vi.hoisted(() => {
       return state.isPackaged
     },
     getAppPath: vi.fn(() => 'C:/fake/wordapp'),
+    getPath: vi.fn(() => 'C:/fake/userdata'),
     whenReady: vi.fn(async () => {}),
     on: vi.fn(),
     setAppUserModelId: vi.fn(),
@@ -77,7 +90,9 @@ const mocks = vi.hoisted(() => {
     Menu: { setApplicationMenu: vi.fn() },
     app,
     created,
+    database,
     ipcMain: { on: vi.fn(), handle: vi.fn() },
+    openDatabase: vi.fn(() => database),
     screen: { getDisplayMatching: vi.fn(() => ({ workArea })) },
     session: { defaultSession: { setProxy: vi.fn(async () => {}) } },
     shell: { openExternal: vi.fn(async () => {}) },
@@ -95,6 +110,10 @@ vi.mock('electron', () => ({
   screen: mocks.screen,
   session: mocks.session,
   shell: mocks.shell,
+}))
+
+vi.mock('../../electron/database.ts', () => ({
+  openDatabase: mocks.openDatabase,
 }))
 
 type WindowOptions = {
@@ -330,6 +349,67 @@ describe('window state sync', () => {
       windowMaximizedChangedChannel,
       false,
     )
+  })
+})
+
+describe('documents database', () => {
+  it('opens the dev database inside the project folder when unpackaged', async () => {
+    await importMain()
+
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+    )
+  })
+
+  it('opens the packaged database in the per-user app data folder', async () => {
+    await importMain({ isPackaged: true })
+
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/userdata', 'db.sqlite'),
+    )
+  })
+
+  it('creates documents and answers lookups over their IPC channels', async () => {
+    await importMain()
+    const record = {
+      id: 1,
+      title: 'بدون عنوان',
+      body: '',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    mocks.database.createDocument.mockReturnValue(record)
+    mocks.database.getDocument.mockReturnValue(record)
+
+    expect(handlerFor('handle', documentsCreateChannel)({})).toEqual(record)
+
+    expect(handlerFor('handle', documentsGetChannel)({}, 1)).toEqual(record)
+    expect(mocks.database.getDocument).toHaveBeenCalledWith(1)
+  })
+
+  it('ignores document lookups whose id is not a safe integer', async () => {
+    await importMain()
+    const get = handlerFor('handle', documentsGetChannel)
+
+    expect(get({}, '1')).toBeUndefined()
+    expect(get({}, 1.5)).toBeUndefined()
+    expect(get({}, Number.NaN)).toBeUndefined()
+    expect(mocks.database.getDocument).not.toHaveBeenCalled()
+  })
+
+  it('counts documents over IPC', async () => {
+    await importMain()
+    mocks.database.countDocuments.mockReturnValue(3)
+
+    expect(handlerFor('handle', documentsCountChannel)({})).toBe(3)
+  })
+
+  it('closes the database when the app is about to quit', async () => {
+    await importMain()
+
+    listenerOn(mocks.app, 'will-quit')()
+
+    expect(mocks.database.close).toHaveBeenCalledOnce()
   })
 })
 
