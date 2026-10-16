@@ -7,6 +7,9 @@
 // the other.
 export type Theme = 'light' | 'dark' | 'system'
 
+// The inline script in index.html reads the same key before the first paint:
+// it tells dev and built apart by the page's protocol — the runtime
+// equivalent of import.meta.env.DEV here — so keep the two choices in step.
 const storageKey = import.meta.env.DEV ? 'wordapp-theme-dev' : 'wordapp-theme'
 
 function isTheme(value: string | null): value is Theme {

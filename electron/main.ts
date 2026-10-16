@@ -18,7 +18,6 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
   windowMaximizedChangedChannel,
@@ -46,8 +45,10 @@ const devSeed = app.isPackaged ? undefined : process.env.DEV_SEED
 // can be watched by hand. Packaged builds never see the variable.
 const devDbDelay = app.isPackaged ? undefined : process.env.DEV_DB_DELAY
 
-// Windows are created hidden (see createWindow) and revealed only once the
-// renderer reports that React has mounted. This applies to both the dev server
+// Windows are created hidden (see createWindow) and revealed as soon as the
+// renderer has painted its first frame — index.html's static loading screen,
+// already on the right theme — instead of waiting for React to mount, so the
+// app shows right away while its bundle loads. Applies to both the dev server
 // and the packaged app, since they share this main process.
 const revealedWindows = new WeakSet<BrowserWindow>()
 
@@ -75,15 +76,6 @@ function revealWindow(browserWindow: BrowserWindow): void {
   snapMaximizedBounds(browserWindow)
   browserWindow.show()
 }
-
-ipcMain.on(rendererReadyChannel, (event) => {
-  const browserWindow = BrowserWindow.fromWebContents(event.sender)
-  if (!browserWindow) {
-    return
-  }
-
-  revealWindow(browserWindow)
-})
 
 // The renderer draws its own caption buttons (the window is frameless) and
 // asks the main process to act on the window that sent the request.
@@ -152,6 +144,13 @@ function createWindow(): void {
     sendMaximizedState()
   })
   mainWindow.on('unmaximize', sendMaximizedState)
+
+  // The renderer painted its first frame — the loading screen from index.html,
+  // already on the stored theme — so reveal the window right away instead of
+  // waiting for React to mount.
+  mainWindow.once('ready-to-show', () => {
+    revealWindow(mainWindow)
+  })
 
   const loadPage = (): void => {
     if (mainWindow.isDestroyed()) {

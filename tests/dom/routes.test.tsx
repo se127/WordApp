@@ -43,7 +43,6 @@ function installBridge(
 
   window.WordApp = {
     platform: 'win32',
-    ready: vi.fn(),
     windowControls: {
       close: vi.fn(),
       minimize: vi.fn(),

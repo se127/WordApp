@@ -4,7 +4,6 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  rendererReadyChannel,
   windowCloseChannel,
   windowIsMaximizedChannel,
   windowMaximizedChangedChannel,
@@ -14,10 +13,6 @@ import {
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
-  // Tells the main process that React has mounted, so it can show the window.
-  ready: () => {
-    ipcRenderer.send(rendererReadyChannel)
-  },
   // Caption buttons for the frameless window's drag zone.
   windowControls: {
     close: () => {
