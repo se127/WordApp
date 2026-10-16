@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
+import { parseSeedArgument } from '../electron/database.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -10,6 +11,48 @@ const electronBinary: string = require('electron')
 
 const projectRoot = path.join(import.meta.dirname, '..')
 const mode = process.argv[2]
+
+// --seed is a dev-script flag: `bun dev --seed=<table>,<count>[-<table>,<count>]`
+// empties the dev database and inserts the requested rows; without the flag
+// the dev database is emptied all the same (see resetDatabase in
+// electron/database.ts). The main process does the work — this script only
+// validates the value and hands it over through DEV_SEED. The build script
+// takes no seed.
+function readSeedArgument(): string {
+  const argument = process.argv
+    .slice(3)
+    .find((value) => value === '--seed' || value.startsWith('--seed='))
+
+  if (argument === undefined) {
+    return ''
+  }
+
+  if (mode !== 'dev') {
+    console.error('--seed is only supported by the dev script (bun dev).')
+    process.exit(1)
+  }
+
+  if (!argument.startsWith('--seed=')) {
+    console.error(
+      '--seed needs a value: --seed=<table>,<count>[-<table>,<count>]',
+    )
+    process.exit(1)
+  }
+
+  const value = argument.slice('--seed='.length)
+  try {
+    parseSeedArgument(value)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+
+  return value
+}
+
+// Validated up front so a bad --seed fails before the build and the dev
+// server start.
+const seed = readSeedArgument()
 
 let viteServer: ViteDevServer | undefined
 let electronProcess: ChildProcess | undefined
@@ -65,12 +108,19 @@ async function buildElectronSources(): Promise<void> {
   await bundleEntry('electron/preload.ts', 'dist-electron/preload.cjs')
 }
 
-function launchElectron(devServerUrl: string): ChildProcess {
+function launchElectron(devServerUrl: string, devSeed: string): ChildProcess {
   console.log(`\nStarting Electron with the dev server at ${devServerUrl}\n`)
 
   const electron = spawn(electronBinary, ['.'], {
     cwd: projectRoot,
-    env: { ...process.env, VITE_DEV_SERVER_URL: devServerUrl },
+    // DEV_SEED is how the main process learns about --seed (see
+    // electron/main.ts): always set for dev runs — empty means the database is
+    // reset without seeding anything.
+    env: {
+      ...process.env,
+      VITE_DEV_SERVER_URL: devServerUrl,
+      DEV_SEED: devSeed,
+    },
     stdio: 'inherit',
   })
 
@@ -110,7 +160,7 @@ async function dev(): Promise<void> {
 
   server.printUrls()
 
-  electronProcess = launchElectron(devServerUrl)
+  electronProcess = launchElectron(devServerUrl, seed)
 }
 
 async function build(): Promise<void> {

@@ -61,6 +61,13 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(),
   }
 
+  // Stand-ins for the database module's dev-seed exports; their real behavior
+  // is covered by tests/node/database.test.ts.
+  const parseSeedArgument = vi.fn((value: string) =>
+    value === '' ? [] : [{ table: 'documents', count: 3 }],
+  )
+  const resetDatabase = vi.fn()
+
   const BrowserWindow = Object.assign(
     vi.fn(function (this: Record<string, unknown>, options: unknown) {
       state.options = options
@@ -82,6 +89,7 @@ const mocks = vi.hoisted(() => {
     whenReady: vi.fn(async () => {}),
     on: vi.fn(),
     setAppUserModelId: vi.fn(),
+    exit: vi.fn(),
     quit: vi.fn(),
   }
 
@@ -93,6 +101,8 @@ const mocks = vi.hoisted(() => {
     database,
     ipcMain: { on: vi.fn(), handle: vi.fn() },
     openDatabase: vi.fn(() => database),
+    parseSeedArgument,
+    resetDatabase,
     screen: { getDisplayMatching: vi.fn(() => ({ workArea })) },
     session: { defaultSession: { setProxy: vi.fn(async () => {}) } },
     shell: { openExternal: vi.fn(async () => {}) },
@@ -114,6 +124,8 @@ vi.mock('electron', () => ({
 
 vi.mock('../../electron/database.ts', () => ({
   openDatabase: mocks.openDatabase,
+  parseSeedArgument: mocks.parseSeedArgument,
+  resetDatabase: mocks.resetDatabase,
 }))
 
 type WindowOptions = {
@@ -152,16 +164,22 @@ function stubPlatform(platform: NodeJS.Platform) {
   })
 }
 
-async function importMain({ isPackaged = false, devServerUrl = '' } = {}) {
+async function importMain({
+  isPackaged = false,
+  devServerUrl = '',
+  expectWindow = true,
+} = {}) {
   vi.resetModules()
   mocks.state.isPackaged = isPackaged
   mocks.state.options = undefined
   vi.stubEnv('VITE_DEV_SERVER_URL', devServerUrl)
 
   await import('../../electron/main.ts')
-  await vi.waitFor(() => {
-    expect(mocks.created.length).toBe(1)
-  })
+  if (expectWindow) {
+    await vi.waitFor(() => {
+      expect(mocks.created.length).toBe(1)
+    })
+  }
 }
 
 function windowOptions(): WindowOptions {
@@ -410,6 +428,84 @@ describe('documents database', () => {
     listenerOn(mocks.app, 'will-quit')()
 
     expect(mocks.database.close).toHaveBeenCalledOnce()
+  })
+
+  it('resets the dev database to the dev script seed before opening it', async () => {
+    vi.stubEnv('DEV_SEED', 'documents,3')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseSeedArgument).toHaveBeenCalledWith('documents,3')
+      expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        [{ table: 'documents', count: 3 }],
+      )
+      expect(mocks.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.openDatabase.mock.invocationCallOrder[0],
+      )
+      expect(consoleLog).toHaveBeenCalledWith('Seeded documents: 3')
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('only empties the dev database when the dev script passed no seed', async () => {
+    vi.stubEnv('DEV_SEED', '')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseSeedArgument).toHaveBeenCalledWith('')
+      expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        [],
+      )
+      expect(consoleLog).not.toHaveBeenCalled()
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('leaves the database alone when the dev script did not set a seed', async () => {
+    await importMain()
+
+    expect(mocks.resetDatabase).not.toHaveBeenCalled()
+  })
+
+  it('ignores the dev seed in a packaged app', async () => {
+    vi.stubEnv('DEV_SEED', 'documents,3')
+
+    await importMain({ isPackaged: true })
+
+    expect(mocks.resetDatabase).not.toHaveBeenCalled()
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/userdata', 'db.sqlite'),
+    )
+  })
+
+  it('exits before opening the store when the seed cannot be applied', async () => {
+    vi.stubEnv('DEV_SEED', 'users,50')
+    mocks.resetDatabase.mockImplementationOnce(() => {
+      throw new Error('Cannot seed table "users": no such table')
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain({ expectWindow: false })
+
+      await vi.waitFor(() => {
+        expect(mocks.app.exit).toHaveBeenCalledWith(1)
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'The dev seed could not be applied: Cannot seed table "users": no such table',
+      )
+      expect(mocks.openDatabase).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })
 

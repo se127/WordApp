@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openDatabase, untitledDocumentTitle } from '../../electron/database.ts'
+import {
+  openDatabase,
+  parseSeedArgument,
+  resetDatabase,
+  untitledDocumentTitle,
+} from '../../electron/database.ts'
 import type { WordAppDatabase } from '../../electron/database.ts'
 
 let temporaryDirectory: string | undefined
@@ -17,16 +22,23 @@ function collectDatabaseObjects(): void {
   ;(globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun?.gc?.(true)
 }
 
+// A fresh temp directory with a database path inside it, tracked for
+// teardown. For tests that drive the file themselves (through resetDatabase
+// or a raw connection) instead of the open store.
+function temporaryDatabasePath(): string {
+  temporaryDirectory = mkdtempSync(
+    path.join(tmpdir(), 'wordapp-database-test-'),
+  )
+  return path.join(temporaryDirectory, 'db.sqlite')
+}
+
 // Opens a fresh database in a fresh temp directory and tracks both for
 // teardown, so every test starts from an empty, fully migrated file.
 function openTestDatabase(): {
   database: WordAppDatabase
   databasePath: string
 } {
-  temporaryDirectory = mkdtempSync(
-    path.join(tmpdir(), 'wordapp-database-test-'),
-  )
-  const databasePath = path.join(temporaryDirectory, 'db.sqlite')
+  const databasePath = temporaryDatabasePath()
   const instance = openDatabase(databasePath)
   database = instance
 
@@ -218,5 +230,118 @@ describe('documents', () => {
     } finally {
       raw.close()
     }
+  })
+})
+
+describe('parseSeedArgument', () => {
+  it('parses the documented table,count layout', () => {
+    expect(parseSeedArgument('documents,50-users,50')).toEqual([
+      { table: 'documents', count: 50 },
+      { table: 'users', count: 50 },
+    ])
+    expect(parseSeedArgument('documents,0')).toEqual([
+      { table: 'documents', count: 0 },
+    ])
+  })
+
+  it('treats an empty value as "seed nothing"', () => {
+    expect(parseSeedArgument('')).toEqual([])
+  })
+
+  it('rejects entries that are not <table>,<count>', () => {
+    for (const value of [
+      'documents', // no count
+      'documents,', // no count
+      ',50', // no table
+      'documents,twenty', // not a number
+      '2documents,50', // table must start with a letter or underscore
+      'documents,50-', // trailing separator
+      '-documents,50', // leading separator
+    ]) {
+      expect(() => parseSeedArgument(value)).toThrowError(/Invalid --seed/)
+    }
+  })
+
+  it('rejects a count beyond the safe integer range', () => {
+    expect(() =>
+      parseSeedArgument('documents,99999999999999999999'),
+    ).toThrowError(/too large/)
+  })
+})
+
+describe('resetDatabase', () => {
+  it('creates and migrates the database file when it does not exist yet', () => {
+    const databasePath = temporaryDatabasePath()
+
+    resetDatabase(databasePath, [])
+
+    const raw = new DatabaseSync(databasePath)
+    try {
+      expect(raw.prepare('PRAGMA user_version').get()).toEqual({
+        user_version: 1,
+      })
+      expect(
+        raw.prepare('SELECT COUNT(*) AS count FROM documents').get(),
+      ).toEqual({ count: 0 })
+    } finally {
+      raw.close()
+    }
+  })
+
+  it('removes every previous record even without seed entries', () => {
+    const { database: store, databasePath } = openTestDatabase()
+    store.createDocument()
+    store.createDocument()
+    store.close()
+    database = undefined
+
+    resetDatabase(databasePath, [])
+
+    const reopened = openDatabase(databasePath)
+    database = reopened
+    expect(reopened.countDocuments()).toBe(0)
+  })
+
+  it('inserts the requested number of untitled documents', () => {
+    const databasePath = temporaryDatabasePath()
+
+    resetDatabase(databasePath, [{ table: 'documents', count: 3 }])
+
+    const store = openDatabase(databasePath)
+    database = store
+
+    expect(store.countDocuments()).toBe(3)
+    expect(store.getDocument(1)?.title).toBe(untitledDocumentTitle)
+    expect(store.getDocument(3)).toBeDefined()
+    expect(store.getDocument(4)).toBeUndefined()
+  })
+
+  it('replaces the previous records on every seed', () => {
+    const { database: store, databasePath } = openTestDatabase()
+    store.createDocument()
+    store.close()
+    database = undefined
+
+    resetDatabase(databasePath, [{ table: 'documents', count: 2 }])
+    resetDatabase(databasePath, [{ table: 'documents', count: 5 }])
+
+    const reopened = openDatabase(databasePath)
+    database = reopened
+    expect(reopened.countDocuments()).toBe(5)
+  })
+
+  it('rejects unknown tables and keeps the previous records', () => {
+    const { database: store, databasePath } = openTestDatabase()
+    store.createDocument()
+    store.close()
+    database = undefined
+
+    expect(() =>
+      resetDatabase(databasePath, [{ table: 'users', count: 50 }]),
+    ).toThrowError('Cannot seed table "users": no such table')
+
+    const reopened = openDatabase(databasePath)
+    database = reopened
+    expect(reopened.countDocuments()).toBe(1)
   })
 })

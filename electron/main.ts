@@ -8,7 +8,7 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
-import { openDatabase } from './database.ts'
+import { openDatabase, parseSeedArgument, resetDatabase } from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
@@ -30,6 +30,11 @@ const appRoot = app.getAppPath()
 const devServerUrl = app.isPackaged
   ? undefined
   : process.env.VITE_DEV_SERVER_URL
+
+// Set by scripts/electron.ts on every dev run (empty when no --seed was
+// passed): the dev database is always reset — everything wiped, plus the seed
+// rows from --seed. Packaged builds never see the variable.
+const devSeed = app.isPackaged ? undefined : process.env.DEV_SEED
 
 // Windows are created hidden (see createWindow) and revealed only once the
 // renderer reports that React has mounted. This applies to both the dev server
@@ -215,11 +220,35 @@ void app.whenReady().then(async () => {
   // Packaged builds keep the file in the per-user app data folder, while dev
   // runs keep it in a project-local `dev-data` folder, so experimenting never
   // touches the installed app's real data.
-  const database = openDatabase(
-    app.isPackaged
-      ? path.join(app.getPath('userData'), 'db.sqlite')
-      : path.join(app.getAppPath(), 'dev-data', 'db.sqlite'),
-  )
+  const databasePath = app.isPackaged
+    ? path.join(app.getPath('userData'), 'db.sqlite')
+    : path.join(app.getAppPath(), 'dev-data', 'db.sqlite')
+
+  // Dev runs start from a prepared database: every table is emptied and the
+  // --seed rows are inserted before the store opens and the window shows, so
+  // the first count the renderer asks for already sees the seeded rows.
+  if (devSeed !== undefined) {
+    try {
+      const seed = parseSeedArgument(devSeed)
+      resetDatabase(databasePath, seed)
+
+      // The dev script inherits this process's output, so these lines show up
+      // in the terminal that ran `bun dev`.
+      for (const { table, count } of seed) {
+        console.log(`Seeded ${table}: ${count}`)
+      }
+    } catch (error) {
+      console.error(
+        `The dev seed could not be applied: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      app.exit(1)
+      return
+    }
+  }
+
+  const database = openDatabase(databasePath)
 
   ipcMain.handle(documentsCreateChannel, () => database.createDocument())
   ipcMain.handle(documentsGetChannel, (_event, id: unknown) =>
