@@ -88,10 +88,9 @@ function migrate(database: DatabaseSync): void {
   }
 }
 
-// Opens (creating and migrating when needed) the SQLite database file at
-// `databasePath`. The caller owns the returned handle and must `close()` it
-// before the app quits.
-export function openDatabase(databasePath: string): WordAppDatabase {
+// Opens (creating and migrating when needed) a raw connection to the database
+// file. Shared by the app store below and the dev reset.
+function openDatabaseHandle(databasePath: string): DatabaseSync {
   // The packaged app's user-data folder exists already, but the dev folder in
   // the project does not; SQLite creates the file, not its directory.
   mkdirSync(path.dirname(databasePath), { recursive: true })
@@ -108,6 +107,15 @@ export function openDatabase(databasePath: string): WordAppDatabase {
   database.exec('PRAGMA busy_timeout = 5000')
 
   migrate(database)
+
+  return database
+}
+
+// Opens (creating and migrating when needed) the SQLite database file at
+// `databasePath`. The caller owns the returned handle and must `close()` it
+// before the app quits.
+export function openDatabase(databasePath: string): WordAppDatabase {
+  const database = openDatabaseHandle(databasePath)
 
   const insertDocument = database.prepare(
     `INSERT INTO documents (title, body, created_at, updated_at)
@@ -165,5 +173,114 @@ export function openDatabase(databasePath: string): WordAppDatabase {
       database.exec('PRAGMA optimize')
       database.close()
     },
+  }
+}
+
+// One `<table>,<count>` entry of the dev script's --seed argument.
+export type SeedEntry = { table: string; count: number }
+
+// Parses the dev script's --seed value: `<table>,<count>` entries joined with
+// `-`, e.g. `documents,50-users,50`. An empty value seeds nothing. Anything
+// that does not match the shape throws, so a typo fails the dev run instead
+// of silently seeding the wrong rows.
+export function parseSeedArgument(value: string): SeedEntry[] {
+  if (value === '') {
+    return []
+  }
+
+  return value.split('-').map((entry) => {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*),(\d+)$/.exec(entry)
+    if (!match) {
+      throw new Error(
+        `Invalid --seed entry "${entry}": every entry must look like <table>,<count>`,
+      )
+    }
+
+    const count = Number(match[2])
+    if (!Number.isSafeInteger(count)) {
+      throw new Error(`Invalid --seed entry "${entry}": the count is too large`)
+    }
+
+    return { table: match[1], count }
+  })
+}
+
+// Every table's rows belong to the dev reset, so the schema is enumerated
+// instead of naming tables: future tables are emptied without a code change.
+function tableNames(database: DatabaseSync): string[] {
+  const rows = database
+    .prepare(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+    )
+    .all() as Array<{ name: string }>
+
+  return rows.map((row) => row.name)
+}
+
+const quoteIdentifier = (name: string): string =>
+  `"${name.replaceAll('"', '""')}"`
+
+// What a seed row contains is up to each table; documents get empty untitled
+// rows, the same ones the add-document button creates.
+function insertSeedRows(
+  database: DatabaseSync,
+  seed: readonly SeedEntry[],
+): void {
+  const tables = new Set(tableNames(database))
+
+  for (const { table, count } of seed) {
+    if (!tables.has(table)) {
+      throw new Error(`Cannot seed table "${table}": no such table`)
+    }
+
+    switch (table) {
+      case 'documents': {
+        const insert = database.prepare(
+          `INSERT INTO documents (title, body, created_at, updated_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+
+        for (let index = 0; index < count; index += 1) {
+          const now = Date.now()
+          insert.run(untitledDocumentTitle, '', now, now)
+        }
+
+        break
+      }
+
+      default: {
+        throw new Error(`Cannot seed table "${table}": no seeding rule for it`)
+      }
+    }
+  }
+}
+
+// The dev script's reset (see electron/main.ts): removes every row from every
+// table and, when the --seed argument named tables, inserts their seed rows.
+// Dev runs call this before the app store opens, so every run starts from an
+// empty database plus whatever was seeded. One transaction covers the wipe
+// and the inserts: a failed seeding rolls the wipe back as well.
+export function resetDatabase(
+  databasePath: string,
+  seed: readonly SeedEntry[],
+): void {
+  const database = openDatabaseHandle(databasePath)
+
+  try {
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      for (const name of tableNames(database)) {
+        database.exec(`DELETE FROM ${quoteIdentifier(name)}`)
+      }
+
+      insertSeedRows(database, seed)
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+  } finally {
+    database.close()
   }
 }
