@@ -4,16 +4,20 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { documentQuery } from '@/lib/query'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
 
 const documentRouteApi = getRouteApi('/documents/$documentId')
 
-// One document's page. The loader reads the row from the SQLite database
-// through the preload bridge; the router's default stale time of zero makes
-// every visit read it fresh.
+// One document's page. The route's loader has read the row into the query
+// cache; the component reads it back with useSuspenseQuery. The row stays
+// fresh until a write invalidates it (src/lib/query.ts), so revisiting the
+// document reuses the cached row instead of reading again.
 function DocumentPage() {
-  const document = documentRouteApi.useLoaderData()
+  const { documentId } = documentRouteApi.useParams()
+  const { data: document } = useSuspenseQuery(documentQuery(Number(documentId)))
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-auto p-6">

@@ -8,7 +8,12 @@ import {
   shell,
 } from 'electron'
 import path from 'node:path'
-import { openDatabase, parseSeedArgument, resetDatabase } from './database.ts'
+import {
+  openDatabase,
+  parseDbDelayArgument,
+  parseSeedArgument,
+  resetDatabase,
+} from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
@@ -35,6 +40,11 @@ const devServerUrl = app.isPackaged
 // passed): the dev database is always reset — everything wiped, plus the seed
 // rows from --seed. Packaged builds never see the variable.
 const devSeed = app.isPackaged ? undefined : process.env.DEV_SEED
+
+// Set by scripts/electron.ts only when --db-delay was passed: every database
+// operation waits that long before running, so the renderer's loading states
+// can be watched by hand. Packaged builds never see the variable.
+const devDbDelay = app.isPackaged ? undefined : process.env.DEV_DB_DELAY
 
 // Windows are created hidden (see createWindow) and revealed only once the
 // renderer reports that React has mounted. This applies to both the dev server
@@ -248,7 +258,29 @@ void app.whenReady().then(async () => {
     }
   }
 
-  const database = openDatabase(databasePath)
+  // The dev-only --db-delay flag slows every database operation down inside
+  // the store; like the seed lines above, the echo shows up in the terminal
+  // that ran `bun dev`.
+  let operationDelayMs = 0
+  if (devDbDelay !== undefined) {
+    try {
+      operationDelayMs = parseDbDelayArgument(devDbDelay)
+
+      if (devDbDelay !== '') {
+        console.log(`db-delay: ${operationDelayMs}ms`)
+      }
+    } catch (error) {
+      console.error(
+        `The dev db delay could not be applied: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      app.exit(1)
+      return
+    }
+  }
+
+  const database = openDatabase(databasePath, { operationDelayMs })
 
   ipcMain.handle(documentsCreateChannel, () => database.createDocument())
   ipcMain.handle(documentsGetChannel, (_event, id: unknown) =>

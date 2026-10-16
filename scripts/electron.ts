@@ -2,7 +2,10 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
-import { parseSeedArgument } from '../electron/database.ts'
+import {
+  parseDbDelayArgument,
+  parseSeedArgument,
+} from '../electron/database.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -50,9 +53,46 @@ function readSeedArgument(): string {
   return value
 }
 
-// Validated up front so a bad --seed fails before the build and the dev
-// server start.
+// --db-delay is a dev-script flag as well: `bun dev --db-delay=2000ms` makes
+// every database operation of the running app wait that long before running,
+// so the renderer's loading states can be watched by hand. The main process
+// does the work — this script only validates the value and hands it over
+// through DEV_DB_DELAY. Without the flag operations run without waiting, and
+// the build script takes no delay.
+function readDbDelayArgument(): string {
+  const argument = process.argv
+    .slice(3)
+    .find((value) => value === '--db-delay' || value.startsWith('--db-delay='))
+
+  if (argument === undefined) {
+    return ''
+  }
+
+  if (mode !== 'dev') {
+    console.error('--db-delay is only supported by the dev script (bun dev).')
+    process.exit(1)
+  }
+
+  if (!argument.startsWith('--db-delay=')) {
+    console.error('--db-delay needs a value: --db-delay=<milliseconds>ms')
+    process.exit(1)
+  }
+
+  const value = argument.slice('--db-delay='.length)
+  try {
+    parseDbDelayArgument(value)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+
+  return value
+}
+
+// Validated up front so a bad --seed or --db-delay fails before the build and
+// the dev server start.
 const seed = readSeedArgument()
+const dbDelay = readDbDelayArgument()
 
 let viteServer: ViteDevServer | undefined
 let electronProcess: ChildProcess | undefined
@@ -108,18 +148,24 @@ async function buildElectronSources(): Promise<void> {
   await bundleEntry('electron/preload.ts', 'dist-electron/preload.cjs')
 }
 
-function launchElectron(devServerUrl: string, devSeed: string): ChildProcess {
+function launchElectron(
+  devServerUrl: string,
+  devSeed: string,
+  devDbDelay: string,
+): ChildProcess {
   console.log(`\nStarting Electron with the dev server at ${devServerUrl}\n`)
 
   const electron = spawn(electronBinary, ['.'], {
     cwd: projectRoot,
-    // DEV_SEED is how the main process learns about --seed (see
-    // electron/main.ts): always set for dev runs — empty means the database is
-    // reset without seeding anything.
+    // DEV_SEED and DEV_DB_DELAY are how the main process learns about --seed
+    // and --db-delay (see electron/main.ts): always set for dev runs — an
+    // empty DEV_SEED means the database is reset without seeding anything,
+    // and an empty DEV_DB_DELAY means operations run without waiting.
     env: {
       ...process.env,
       VITE_DEV_SERVER_URL: devServerUrl,
       DEV_SEED: devSeed,
+      DEV_DB_DELAY: devDbDelay,
     },
     stdio: 'inherit',
   })
@@ -160,7 +206,7 @@ async function dev(): Promise<void> {
 
   server.printUrls()
 
-  electronProcess = launchElectron(devServerUrl, seed)
+  electronProcess = launchElectron(devServerUrl, seed, dbDelay)
 }
 
 async function build(): Promise<void> {

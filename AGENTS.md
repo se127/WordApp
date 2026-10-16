@@ -56,6 +56,28 @@
 - `bun run build` and `bun run test` are the only exceptions: they compile or test the
   code without launching Electron, and they are required by the pre-commit checks below.
 
+## Database features — account for `--db-delay`
+
+The dev script's `--db-delay=<milliseconds>ms` flag (e.g. `bun dev --db-delay=2000ms`)
+makes every database operation wait before it runs, so slow reads and writes can be
+watched by hand in the UI. Features that touch the database layer must keep that
+coverage — the delay reaches `openDatabase` (`electron/database.ts`) as
+`operationDelayMs`:
+
+- Every operation that runs a query must be asynchronous and start by awaiting
+  `waitBeforeQuery()`; that is the only place the delay enters, so an operation that
+  skips it silently escapes `--db-delay`.
+- Build the UI so a slow operation is visible and harmless: every read and write shows
+  a loading or busy state while it is in flight (the create button's spinner, the
+  document page's pending spinner, and the heading's loader/pulse are the shapes to
+  follow). The page must never blank out or silently wait.
+- Pin that state in a test by holding the operation open, the way the spinner tests in
+  `tests/dom/routes.test.tsx` do.
+- After every write, invalidate the queries it changed (`src/lib/query.ts`; stale times
+  are infinite, so a missed invalidation leaves the UI on old data).
+- Never run the dev script to watch the delay yourself — manual `--db-delay` runs
+  belong to the user (see "Never run the dev or dist scripts" above).
+
 ## shadcn/ui components — `src/components/ui` is off-limits
 
 - Never touch the shadcn components in `src/components/ui` — no edits, refactors, fixes,

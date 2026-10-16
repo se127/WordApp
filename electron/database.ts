@@ -22,10 +22,13 @@ type DocumentRow = {
   updated_at: number
 }
 
+// The store's queries are asynchronous so the dev-only operation delay (see
+// openDatabase's `operationDelayMs` and the dev script's --db-delay) can sit
+// in front of each one; `close` stays synchronous.
 export type WordAppDatabase = {
-  createDocument: () => DocumentRecord
-  getDocument: (id: number) => DocumentRecord | undefined
-  countDocuments: () => number
+  createDocument: () => Promise<DocumentRecord>
+  getDocument: (id: number) => Promise<DocumentRecord | undefined>
+  countDocuments: () => Promise<number>
   close: () => void
 }
 
@@ -111,11 +114,35 @@ function openDatabaseHandle(databasePath: string): DatabaseSync {
   return database
 }
 
+// Options for openDatabase.
+export type OpenDatabaseOptions = {
+  // Dev-only knob (the dev script's --db-delay): every operation waits this
+  // many milliseconds before running its query, so the renderer's loading
+  // states can be watched by hand. Zero — the default — runs queries
+  // immediately.
+  operationDelayMs?: number
+}
+
 // Opens (creating and migrating when needed) the SQLite database file at
 // `databasePath`. The caller owns the returned handle and must `close()` it
 // before the app quits.
-export function openDatabase(databasePath: string): WordAppDatabase {
+export function openDatabase(
+  databasePath: string,
+  { operationDelayMs = 0 }: OpenDatabaseOptions = {},
+): WordAppDatabase {
   const database = openDatabaseHandle(databasePath)
+
+  // The dev delay applies per operation, before its query runs; zero skips
+  // the wait — and its timer — entirely. Every operation added to the store
+  // below must start by awaiting this, so the dev script's --db-delay keeps
+  // covering every query.
+  const waitBeforeQuery = async (): Promise<void> => {
+    if (operationDelayMs > 0) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, operationDelayMs)
+      })
+    }
+  }
 
   const insertDocument = database.prepare(
     `INSERT INTO documents (title, body, created_at, updated_at)
@@ -139,7 +166,9 @@ export function openDatabase(databasePath: string): WordAppDatabase {
   })
 
   return {
-    createDocument() {
+    async createDocument() {
+      await waitBeforeQuery()
+
       const now = Date.now()
       const { lastInsertRowid } = insertDocument.run(
         untitledDocumentTitle,
@@ -157,12 +186,16 @@ export function openDatabase(databasePath: string): WordAppDatabase {
       }
     },
 
-    getDocument(id) {
+    async getDocument(id) {
+      await waitBeforeQuery()
+
       const row = selectDocument.get(id) as DocumentRow | undefined
       return row === undefined ? undefined : toRecord(row)
     },
 
-    countDocuments() {
+    async countDocuments() {
+      await waitBeforeQuery()
+
       const row = selectDocumentCount.get() as { count: number }
       return row.count
     },
@@ -203,6 +236,34 @@ export function parseSeedArgument(value: string): SeedEntry[] {
 
     return { table: match[1], count }
   })
+}
+
+// The largest delay setTimeout accepts: anything longer would overflow its
+// 32-bit millisecond counter and fire almost immediately instead.
+const maximumTimerDelayMs = 2 ** 31 - 1
+
+// Parses the dev script's --db-delay value: a millisecond duration such as
+// `2000ms`. An empty value means no delay at all. Anything that does not match
+// the shape throws, so a typo fails the dev run instead of silently delaying
+// nothing.
+export function parseDbDelayArgument(value: string): number {
+  if (value === '') {
+    return 0
+  }
+
+  const match = /^(\d+)ms$/.exec(value)
+  if (!match) {
+    throw new Error(
+      `Invalid --db-delay "${value}": the value must look like <milliseconds>ms, e.g. 2000ms`,
+    )
+  }
+
+  const delayMs = Number(match[1])
+  if (!Number.isSafeInteger(delayMs) || delayMs > maximumTimerDelayMs) {
+    throw new Error(`Invalid --db-delay "${value}": the delay is too long`)
+  }
+
+  return delayMs
 }
 
 // Every table's rows belong to the dev reset, so the schema is enumerated
