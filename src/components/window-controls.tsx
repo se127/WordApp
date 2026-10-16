@@ -32,7 +32,7 @@ function WindowControls() {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant="white"
             size="icon"
             aria-label="بستن"
             className="text-destructive hover:text-destructive"
@@ -47,7 +47,7 @@ function WindowControls() {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant="white"
             size="icon"
             aria-label={maximized ? 'بازگرداندن' : 'تمام صفحه'}
             onClick={() => window.WordApp?.windowControls.toggleMaximize()}
@@ -63,7 +63,7 @@ function WindowControls() {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant="white"
             size="icon"
             aria-label="کوچک کردن"
             onClick={() => window.WordApp?.windowControls.minimize()}
