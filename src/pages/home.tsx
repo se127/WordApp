@@ -95,7 +95,7 @@ function CountPending() {
     <LoaderCircle
       role="status"
       aria-label="در حال بارگذاری"
-      className="inline size-5 animate-spin align-middle text-muted-foreground"
+      className="inline size-5 animate-spin align-middle text-black dark:text-white"
     />
   )
 }
