@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, screen, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  screen,
+  session,
+  shell,
+} from 'electron'
 import path from 'node:path'
 import {
   rendererReadyChannel,
@@ -99,6 +107,9 @@ function createWindow(): void {
     frame: false,
     autoHideMenuBar: true,
     webPreferences: {
+      // DevTools are a development affordance only: the dev default menu
+      // opens them, and the packaged app disables the facility entirely.
+      devTools: !app.isPackaged,
       preload: path.join(appRoot, 'dist-electron', 'preload.cjs'),
     },
   })
@@ -175,6 +186,14 @@ function createWindow(): void {
 void app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.wordapp.app')
+  }
+
+  // The default application menu carries development accelerators: reload
+  // (Ctrl+R), DevTools (Ctrl+Shift+I), zoom, and fullscreen. autoHideMenuBar
+  // hides its bar but leaves those accelerators live, so the packaged app
+  // removes the menu entirely. Dev keeps it for its shortcuts.
+  if (app.isPackaged) {
+    Menu.setApplicationMenu(null)
   }
 
   // Keep loopback requests (the dev server page and its HMR websocket) off the
