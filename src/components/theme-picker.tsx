@@ -26,10 +26,10 @@ const themeIcons = {
   system: Monitor,
 } satisfies Record<Theme, LucideIcon>
 
-// Theme picker on the left side of the drag zone. The picked theme drives the
-// `dark` class on <html> and is persisted, so reopening the app (dev or built)
-// restores the last pick; "system" follows the OS setting live. The trigger
-// button and each option carry that theme's icon.
+// Theme picker on the left side of the window strip. The picked theme drives
+// the `dark` class on <html> and is persisted, so reopening the app (dev or
+// built) restores the last pick; "system" follows the OS setting live. The
+// trigger button and each option carry that theme's icon.
 function ThemePicker() {
   const [theme, setTheme] = useState<Theme>(readTheme)
 
@@ -59,12 +59,7 @@ function ThemePicker() {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="white"
-              size="icon"
-              aria-label="تغییر پوسته"
-              className="[-webkit-app-region:no-drag]"
-            >
+            <Button variant="white" size="icon" aria-label="تغییر پوسته">
               <ActiveThemeIcon />
             </Button>
           </DropdownMenuTrigger>

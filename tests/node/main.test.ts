@@ -12,36 +12,22 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  windowCloseChannel,
-  windowIsMaximizedChannel,
-  windowMaximizedChangedChannel,
-  windowMinimizeChannel,
-  windowToggleMaximizeChannel,
 } from '../../electron/ipc.ts'
 
 // Everything electron/main.ts touches is mocked; the mutable pieces (packaged
 // flag, captured window options) are read through this object, so each test
 // can import a fresh copy of main.ts with the state it needs.
 const mocks = vi.hoisted(() => {
-  const workArea = { x: 0, y: 0, width: 1920, height: 1040 }
-
   const win = {
     isDestroyed: vi.fn(() => false),
-    isMaximized: vi.fn(() => false),
     maximize: vi.fn(),
-    unmaximize: vi.fn(),
     show: vi.fn(),
-    close: vi.fn(),
-    minimize: vi.fn(),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1920, height: 1080 })),
-    setBounds: vi.fn(),
     loadURL: vi.fn(async () => {}),
     loadFile: vi.fn(async () => {}),
     on: vi.fn(),
     once: vi.fn(),
     webContents: {
       on: vi.fn(),
-      send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     },
   }
@@ -78,7 +64,6 @@ const mocks = vi.hoisted(() => {
       created.push(this)
     }),
     {
-      fromWebContents: vi.fn((..._args: unknown[]) => created[0] ?? null),
       getAllWindows: vi.fn(() => created),
     },
   )
@@ -107,12 +92,10 @@ const mocks = vi.hoisted(() => {
     parseDbDelayArgument,
     parseSeedArgument,
     resetDatabase,
-    screen: { getDisplayMatching: vi.fn(() => ({ workArea })) },
     session: { defaultSession: { setProxy: vi.fn(async () => {}) } },
     shell: { openExternal: vi.fn(async () => {}) },
     state,
     win,
-    workArea,
   }
 })
 
@@ -121,7 +104,6 @@ vi.mock('electron', () => ({
   BrowserWindow: mocks.BrowserWindow,
   ipcMain: mocks.ipcMain,
   Menu: mocks.Menu,
-  screen: mocks.screen,
   session: mocks.session,
   shell: mocks.shell,
 }))
@@ -201,12 +183,6 @@ beforeEach(() => {
   mocks.state.isPackaged = false
   mocks.state.options = undefined
   mocks.win.isDestroyed.mockReturnValue(false)
-  mocks.win.isMaximized.mockReturnValue(false)
-  // Restore the "window exists" default in case a test made it return null.
-  mocks.BrowserWindow.fromWebContents.mockReset()
-  mocks.BrowserWindow.fromWebContents.mockImplementation(
-    () => mocks.created[0] ?? null,
-  )
 })
 
 afterEach(() => {
@@ -232,7 +208,8 @@ describe('packaged app', () => {
     expect(mocks.Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null)
 
     const options = windowOptions()
-    expect(options.frame).toBe(false)
+    // No `frame: false`: the window keeps its native title bar and buttons.
+    expect(options.frame).toBeUndefined()
     expect(options.show).toBe(false)
     expect(options.autoHideMenuBar).toBe(true)
     expect(options.webPreferences?.devTools).toBe(false)
@@ -264,7 +241,7 @@ describe('dev run', () => {
 })
 
 describe('window reveal', () => {
-  it('maximizes, snaps to the work area, and shows the window when the first frame is painted', async () => {
+  it('maximizes and shows the window when the first frame is painted', async () => {
     stubPlatform('win32')
     await importMain()
 
@@ -272,23 +249,12 @@ describe('window reveal', () => {
 
     painted()
     expect(mocks.win.maximize).toHaveBeenCalledOnce()
-    expect(mocks.win.setBounds).toHaveBeenCalledWith(mocks.workArea)
     expect(mocks.win.show).toHaveBeenCalledOnce()
 
     // A late reveal request (e.g. the renderer dying after its first frame)
     // changes nothing: the window is already shown.
     painted()
     expect(mocks.win.show).toHaveBeenCalledOnce()
-  })
-
-  it('skips the work-area snap outside Windows', async () => {
-    stubPlatform('darwin')
-    await importMain()
-
-    listenerOn(mocks.win, 'ready-to-show')()
-
-    expect(mocks.win.show).toHaveBeenCalledOnce()
-    expect(mocks.win.setBounds).not.toHaveBeenCalled()
   })
 
   it('reveals the window if the renderer process dies before the first frame', async () => {
@@ -299,24 +265,6 @@ describe('window reveal', () => {
 
     expect(mocks.win.show).toHaveBeenCalledOnce()
   })
-})
-
-describe('closed window', () => {
-  it('ignores every request when the window is already gone', async () => {
-    await importMain()
-    mocks.BrowserWindow.fromWebContents.mockReturnValue(null)
-    const event = { sender: {} }
-
-    handlerFor('on', windowMinimizeChannel)(event)
-    handlerFor('on', windowToggleMaximizeChannel)(event)
-    handlerFor('on', windowCloseChannel)(event)
-
-    expect(handlerFor('handle', windowIsMaximizedChannel)(event)).toBe(false)
-    expect(mocks.win.show).not.toHaveBeenCalled()
-    expect(mocks.win.minimize).not.toHaveBeenCalled()
-    expect(mocks.win.maximize).not.toHaveBeenCalled()
-    expect(mocks.win.close).not.toHaveBeenCalled()
-  })
 
   it('leaves a destroyed window untouched instead of revealing it', async () => {
     stubPlatform('win32')
@@ -325,57 +273,9 @@ describe('closed window', () => {
 
     listenerOn(mocks.win, 'ready-to-show')()
     listenerOn(mocks.win.webContents, 'render-process-gone')()
-    listenerOn(mocks.win, 'maximize')()
 
     expect(mocks.win.show).not.toHaveBeenCalled()
     expect(mocks.win.maximize).not.toHaveBeenCalled()
-    expect(mocks.win.setBounds).not.toHaveBeenCalled()
-    expect(mocks.win.webContents.send).not.toHaveBeenCalled()
-  })
-})
-
-describe('caption buttons', () => {
-  it('routes every channel to the window that sent it', async () => {
-    await importMain()
-    const event = { sender: {} }
-
-    handlerFor('on', windowMinimizeChannel)(event)
-    expect(mocks.win.minimize).toHaveBeenCalledOnce()
-
-    mocks.win.isMaximized.mockReturnValue(false)
-    handlerFor('on', windowToggleMaximizeChannel)(event)
-    expect(mocks.win.maximize).toHaveBeenCalledOnce()
-
-    mocks.win.isMaximized.mockReturnValue(true)
-    handlerFor('on', windowToggleMaximizeChannel)(event)
-    expect(mocks.win.unmaximize).toHaveBeenCalledOnce()
-
-    handlerFor('on', windowCloseChannel)(event)
-    expect(mocks.win.close).toHaveBeenCalledOnce()
-
-    expect(handlerFor('handle', windowIsMaximizedChannel)(event)).toBe(true)
-  })
-})
-
-describe('window state sync', () => {
-  it('snaps on maximize and pushes every change to the renderer', async () => {
-    stubPlatform('win32')
-    await importMain()
-
-    mocks.win.isMaximized.mockReturnValue(true)
-    listenerOn(mocks.win, 'maximize')()
-    expect(mocks.win.setBounds).toHaveBeenCalledWith(mocks.workArea)
-    expect(mocks.win.webContents.send).toHaveBeenLastCalledWith(
-      windowMaximizedChangedChannel,
-      true,
-    )
-
-    mocks.win.isMaximized.mockReturnValue(false)
-    listenerOn(mocks.win, 'unmaximize')()
-    expect(mocks.win.webContents.send).toHaveBeenLastCalledWith(
-      windowMaximizedChangedChannel,
-      false,
-    )
   })
 })
 

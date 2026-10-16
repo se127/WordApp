@@ -4,44 +4,10 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  windowCloseChannel,
-  windowIsMaximizedChannel,
-  windowMaximizedChangedChannel,
-  windowMinimizeChannel,
-  windowToggleMaximizeChannel,
 } from './ipc.ts'
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
-  // Caption buttons for the frameless window's drag zone.
-  windowControls: {
-    close: () => {
-      ipcRenderer.send(windowCloseChannel)
-    },
-    minimize: () => {
-      ipcRenderer.send(windowMinimizeChannel)
-    },
-    toggleMaximize: () => {
-      ipcRenderer.send(windowToggleMaximizeChannel)
-    },
-    isMaximized: (): Promise<boolean> =>
-      ipcRenderer.invoke(windowIsMaximizedChannel),
-    // Subscribes to real maximize/unmaximize changes; returns an unsubscribe.
-    onMaximizedChange: (
-      callback: (maximized: boolean) => void,
-    ): (() => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        maximized: boolean,
-      ) => {
-        callback(maximized)
-      }
-      ipcRenderer.on(windowMaximizedChangedChannel, listener)
-      return () => {
-        ipcRenderer.removeListener(windowMaximizedChangedChannel, listener)
-      }
-    },
-  },
   // Documents live in the SQLite database the main process owns; the renderer
   // only calls through this bridge.
   documents: {

@@ -10,13 +10,6 @@ type WordAppBridge = Window['WordApp']
 function installBridge() {
   window.WordApp = {
     platform: 'win32',
-    windowControls: {
-      close: vi.fn(),
-      minimize: vi.fn(),
-      toggleMaximize: vi.fn(),
-      isMaximized: vi.fn(async () => false),
-      onMaximizedChange: vi.fn(() => vi.fn()),
-    },
     documents: {
       create: vi.fn(async () => ({
         id: 1,
@@ -65,14 +58,11 @@ describe('App', () => {
     expect(document.getElementById('app-loading')).toBeNull()
   })
 
-  it('renders the caption buttons, the theme picker, the content box, and the home page', async () => {
+  it('renders the theme picker, the content box, and the home page', async () => {
     installBridge()
 
     renderApp()
 
-    expect(
-      await screen.findByRole('button', { name: 'بستن' }),
-    ).toBeInTheDocument()
     expect(
       await screen.findByRole('button', { name: 'تغییر پوسته' }),
     ).toBeInTheDocument()

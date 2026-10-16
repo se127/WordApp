@@ -1,12 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  ipcMain,
-  Menu,
-  screen,
-  session,
-  shell,
-} from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, session, shell } from 'electron'
 import path from 'node:path'
 import {
   openDatabase,
@@ -18,11 +10,6 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsGetChannel,
-  windowCloseChannel,
-  windowIsMaximizedChannel,
-  windowMaximizedChangedChannel,
-  windowMinimizeChannel,
-  windowToggleMaximizeChannel,
 } from './ipc.ts'
 
 // The project root in dev (`electron .`) and the app.asar root in the packaged
@@ -52,19 +39,6 @@ const devDbDelay = app.isPackaged ? undefined : process.env.DEV_DB_DELAY
 // and the packaged app, since they share this main process.
 const revealedWindows = new WeakSet<BrowserWindow>()
 
-// Windows grows a maximized frameless window beyond the display's work area by
-// the invisible resize border, which pushes that many pixels of the top of the
-// renderer off-screen (the drag zone and its caption buttons). Snap the
-// maximized window back to the work area; it stays maximized.
-function snapMaximizedBounds(browserWindow: BrowserWindow): void {
-  if (process.platform !== 'win32' || browserWindow.isDestroyed()) {
-    return
-  }
-
-  const { workArea } = screen.getDisplayMatching(browserWindow.getBounds())
-  browserWindow.setBounds(workArea)
-}
-
 function revealWindow(browserWindow: BrowserWindow): void {
   if (browserWindow.isDestroyed() || revealedWindows.has(browserWindow)) {
     return
@@ -73,36 +47,8 @@ function revealWindow(browserWindow: BrowserWindow): void {
 
   // Maximize before showing so the window never appears at its default size.
   browserWindow.maximize()
-  snapMaximizedBounds(browserWindow)
   browserWindow.show()
 }
-
-// The renderer draws its own caption buttons (the window is frameless) and
-// asks the main process to act on the window that sent the request.
-ipcMain.on(windowMinimizeChannel, (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize()
-})
-
-ipcMain.on(windowToggleMaximizeChannel, (event) => {
-  const browserWindow = BrowserWindow.fromWebContents(event.sender)
-  if (!browserWindow) {
-    return
-  }
-
-  if (browserWindow.isMaximized()) {
-    browserWindow.unmaximize()
-  } else {
-    browserWindow.maximize()
-  }
-})
-
-ipcMain.on(windowCloseChannel, (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.close()
-})
-
-ipcMain.handle(windowIsMaximizedChannel, (event) => {
-  return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false
-})
 
 // ERR_NETWORK_CHANGED: Chromium aborted the in-flight request because the
 // network changed, which VPN/TUN adapters or their route changes cause.
@@ -110,12 +56,13 @@ const errNetworkChanged = -106
 const maxLoadAttempts = 5
 
 function createWindow(): void {
+  // The default native frame stays on, so the OS title bar (with its
+  // minimize, maximize, and close buttons) is part of the window; the app
+  // draws no caption buttons of its own.
   const mainWindow = new BrowserWindow({
     minWidth: 800,
     minHeight: 600,
     show: false,
-    // Frameless: no native title bar, so no window buttons, title, or icon.
-    frame: false,
     autoHideMenuBar: true,
     webPreferences: {
       // DevTools are a development affordance only: the dev default menu
@@ -124,26 +71,6 @@ function createWindow(): void {
       preload: path.join(appRoot, 'dist-electron', 'preload.cjs'),
     },
   })
-
-  // Keep the renderer's maximize/restore button in sync with the real window
-  // state, whether it changes from the renderer, a keyboard shortcut, or
-  // revealWindow maximizing the window before it is shown.
-  const sendMaximizedState = (): void => {
-    if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(
-        windowMaximizedChangedChannel,
-        mainWindow.isMaximized(),
-      )
-    }
-  }
-
-  // The work-area snap also runs here because the window can be maximized
-  // again later (caption button, keyboard shortcut, drag to the screen edge).
-  mainWindow.on('maximize', () => {
-    snapMaximizedBounds(mainWindow)
-    sendMaximizedState()
-  })
-  mainWindow.on('unmaximize', sendMaximizedState)
 
   // The renderer painted its first frame — the loading screen from index.html,
   // already on the stored theme — so reveal the window right away instead of

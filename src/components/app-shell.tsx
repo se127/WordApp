@@ -1,23 +1,20 @@
 import { ThemePicker } from '@/components/theme-picker'
-import { WindowControls } from '@/components/window-controls'
 import { Outlet } from '@tanstack/react-router'
 
-// Shell around every page: the frameless window's drag zone with the caption
-// buttons and the theme picker, plus the content box the routed pages render
-// into.
+// Shell around every page: the window strip with the theme picker, plus the
+// content box the routed pages render into.
 function AppShell() {
   return (
     <div className="flex h-screen flex-col bg-emerald-50 dark:bg-zinc-900">
-      {/* Drag zone for the frameless window: the whole top strip moves the
-          window. The document is RTL, so the caption buttons pack against the
-          right edge and the theme picker sits on the left, both padded 16px
-          from the top and the sides. The gap over the content area below the
-          strip is a margin, so it is not part of the draggable region. */}
-      <header className="mb-4 flex shrink-0 items-center justify-between px-4 pt-4 [-webkit-app-region:drag]">
-        <WindowControls />
+      {/* Window strip above the content box. The window keeps its native title
+          bar (electron/main.ts), so the strip is not a drag zone: it only
+          hosts the theme picker, which the RTL row packs against its end —
+          the left edge — 16px from the top and the sides. The gap over the
+          content area below the strip is a margin. */}
+      <header className="mb-4 flex shrink-0 items-center justify-end px-4 pt-4">
         <ThemePicker />
       </header>
-      {/* Main content area: fills the window under the drag zone and is inset
+      {/* Main content area: fills the window under the strip and is inset
           16px from the bottom, right, and left, with the buttons' radius. */}
       <main className="mx-4 mb-4 min-h-0 flex-1 rounded-lg border border-border bg-white dark:border-input dark:bg-zinc-800">
         <Outlet />
