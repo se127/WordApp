@@ -78,6 +78,30 @@ coverage — the delay reaches `openDatabase` (`electron/database.ts`) as
 - Never run the dev script to watch the delay yourself — manual `--db-delay` runs
   belong to the user (see "Never run the dev or dist scripts" above).
 
+## Database features — account for `--with-db-failure`
+
+The dev script's `--with-db-failure` flag (`bun dev --with-db-failure`) prompts for
+the store operations that should fail and makes the picked ones fail for the run
+(their names reach `openDatabase` as `failingOperations`). When you add or change an
+operation that runs a query, ask the user whether the knob should cover it before
+implementing it — never decide that on your own. If it should:
+
+- Add its name to `databaseOperationNames` and call
+  `failInjectedOperation('<name>')` right after `await waitBeforeQuery()`; the
+  failure lands after the delay, like a slow query that then fails. An operation left
+  out of the list (`getDocument` is one) keeps the await and skips the injection.
+- An offered operation's failure must be visible and harmless in the UI — the same
+  rule as a slowed operation: the home page answers a failed create with the error
+  toast and a failed count with the retry button. The page must never blank out or
+  silently wait.
+- The list is pinned by tests — the names/parse tests in
+  `tests/node/database.test.ts`, the "valid operations" messages in
+  `tests/node/main.test.ts`, and the prompt fixture in
+  `tests/node/db-failure-prompt.test.ts`. Update them in the same commit when the
+  list changes.
+- Never run the dev script to watch a failure yourself — manual `--with-db-failure`
+  runs belong to the user (see "Never run the dev or dist scripts" above).
+
 ## shadcn/ui components — `src/components/ui` is off-limits
 
 - Never touch the shadcn components in `src/components/ui` — no edits, refactors, fixes,

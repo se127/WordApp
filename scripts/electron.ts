@@ -3,9 +3,14 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import {
+  databaseOperationNames,
   parseDbDelayArgument,
   parseSeedArgument,
 } from '../electron/database.ts'
+import {
+  DbFailurePromptCanceledError,
+  promptDbFailures,
+} from './db-failure-prompt.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -89,10 +94,74 @@ function readDbDelayArgument(): string {
   return value
 }
 
-// Validated up front so a bad --seed or --db-delay fails before the build and
-// the dev server start.
+// --with-db-failure is a dev-script flag as well: `bun dev --with-db-failure`
+// first shows the database store's operations and prompts for the ones that
+// should fail (arrow up/down move, space selects, enter submits), then hands
+// the picked names over through DEV_DB_FAILURE and the main process makes
+// them fail for the whole run. Without the flag nothing fails, and the build
+// script takes no such flag.
+function readDbFailureFlag(): boolean {
+  const argument = process.argv
+    .slice(3)
+    .find(
+      (value) =>
+        value === '--with-db-failure' || value.startsWith('--with-db-failure='),
+    )
+
+  if (argument === undefined) {
+    return false
+  }
+
+  if (mode !== 'dev') {
+    console.error(
+      '--with-db-failure is only supported by the dev script (bun dev).',
+    )
+    process.exit(1)
+  }
+
+  if (argument !== '--with-db-failure') {
+    console.error('--with-db-failure takes no value.')
+    process.exit(1)
+  }
+
+  return true
+}
+
+// Runs the --with-db-failure prompt and returns the DEV_DB_FAILURE value:
+// the picked operations as a comma-separated list, or '' when the flag was
+// not passed. The prompt needs a terminal to read its keys from; without one
+// it would wait forever, so a missing TTY fails the run up front with a hint.
+async function readDbFailures(): Promise<string> {
+  if (!withDbFailure) {
+    return ''
+  }
+
+  if (!process.stdin.isTTY) {
+    console.error(
+      '--with-db-failure needs an interactive terminal for its prompt.',
+    )
+    process.exit(1)
+  }
+
+  try {
+    return (await promptDbFailures(databaseOperationNames)).join(',')
+  } catch (error) {
+    // Ctrl+C leaves the prompt like an interrupted process: no message, and
+    // the exit code a SIGINT would have produced.
+    if (error instanceof DbFailurePromptCanceledError) {
+      process.exit(130)
+    }
+
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+}
+
+// Validated up front so a bad --seed, --db-delay, or --with-db-failure flag
+// fails before the build and the dev server start.
 const seed = readSeedArgument()
 const dbDelay = readDbDelayArgument()
+const withDbFailure = readDbFailureFlag()
 
 let viteServer: ViteDevServer | undefined
 let electronProcess: ChildProcess | undefined
@@ -152,20 +221,24 @@ function launchElectron(
   devServerUrl: string,
   devSeed: string,
   devDbDelay: string,
+  devDbFailures: string,
 ): ChildProcess {
   console.log(`\nStarting Electron with the dev server at ${devServerUrl}\n`)
 
   const electron = spawn(electronBinary, ['.'], {
     cwd: projectRoot,
-    // DEV_SEED and DEV_DB_DELAY are how the main process learns about --seed
-    // and --db-delay (see electron/main.ts): always set for dev runs — an
-    // empty DEV_SEED means the database is reset without seeding anything,
-    // and an empty DEV_DB_DELAY means operations run without waiting.
+    // DEV_SEED, DEV_DB_DELAY, and DEV_DB_FAILURE are how the main process
+    // learns about --seed, --db-delay, and --with-db-failure (see
+    // electron/main.ts): always set for dev runs — an empty DEV_SEED means
+    // the database is reset without seeding anything, an empty DEV_DB_DELAY
+    // means operations run without waiting, and an empty DEV_DB_FAILURE means
+    // no operation fails.
     env: {
       ...process.env,
       VITE_DEV_SERVER_URL: devServerUrl,
       DEV_SEED: devSeed,
       DEV_DB_DELAY: devDbDelay,
+      DEV_DB_FAILURE: devDbFailures,
     },
     stdio: 'inherit',
   })
@@ -178,6 +251,11 @@ function launchElectron(
 }
 
 async function dev(): Promise<void> {
+  // The --with-db-failure prompt runs before anything else starts, so the
+  // terminal belongs to it alone; its answer travels to the app through
+  // DEV_DB_FAILURE.
+  const dbFailures = await readDbFailures()
+
   await buildElectronSources()
 
   // Run Vite inside this process: a separately spawned Vite can outlive this
@@ -206,7 +284,7 @@ async function dev(): Promise<void> {
 
   server.printUrls()
 
-  electronProcess = launchElectron(devServerUrl, seed, dbDelay)
+  electronProcess = launchElectron(devServerUrl, seed, dbDelay, dbFailures)
 }
 
 async function build(): Promise<void> {

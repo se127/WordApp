@@ -32,6 +32,19 @@ export type WordAppDatabase = {
   close: () => void
 }
 
+// The store operations the dev script's --with-db-failure knob can make fail,
+// named exactly as their methods: the prompt lists them, its answer reaches
+// the main process as DEV_DB_FAILURE, and the names selected there fail
+// instead of running (see openDatabase's `failingOperations`). `getDocument`
+// is deliberately not offered, and `close` is not on the list either: it runs
+// no query and must always work.
+export const databaseOperationNames = [
+  'createDocument',
+  'countDocuments',
+] as const
+
+export type DatabaseOperationName = (typeof databaseOperationNames)[number]
+
 // Title of a freshly created document until the user renames it.
 export const untitledDocumentTitle = 'بدون عنوان'
 
@@ -121,6 +134,12 @@ export type OpenDatabaseOptions = {
   // states can be watched by hand. Zero — the default — runs queries
   // immediately.
   operationDelayMs?: number
+  // Dev-only knob (the dev script's --with-db-failure): the named operations
+  // fail instead of running their query, so the renderer's error handling
+  // can be exercised by hand. Each failure happens after the operation delay
+  // — like a slow query that then fails. Empty — the default — fails
+  // nothing.
+  failingOperations?: readonly DatabaseOperationName[]
 }
 
 // Opens (creating and migrating when needed) the SQLite database file at
@@ -128,7 +147,7 @@ export type OpenDatabaseOptions = {
 // before the app quits.
 export function openDatabase(
   databasePath: string,
-  { operationDelayMs = 0 }: OpenDatabaseOptions = {},
+  { operationDelayMs = 0, failingOperations = [] }: OpenDatabaseOptions = {},
 ): WordAppDatabase {
   const database = openDatabaseHandle(databasePath)
 
@@ -141,6 +160,19 @@ export function openDatabase(
       await new Promise<void>((resolve) => {
         setTimeout(resolve, operationDelayMs)
       })
+    }
+  }
+
+  // The --with-db-failure injection: a selected operation throws after its
+  // delay instead of running its query. The message names the flag, so a
+  // failure seen in the renderer is easy to trace back to this dev-only
+  // path.
+  const failing = new Set(failingOperations)
+  const failInjectedOperation = (operation: DatabaseOperationName): void => {
+    if (failing.has(operation)) {
+      throw new Error(
+        `The ${operation} operation failed (injected by --with-db-failure)`,
+      )
     }
   }
 
@@ -168,6 +200,7 @@ export function openDatabase(
   return {
     async createDocument() {
       await waitBeforeQuery()
+      failInjectedOperation('createDocument')
 
       const now = Date.now()
       const { lastInsertRowid } = insertDocument.run(
@@ -195,6 +228,7 @@ export function openDatabase(
 
     async countDocuments() {
       await waitBeforeQuery()
+      failInjectedOperation('countDocuments')
 
       const row = selectDocumentCount.get() as { count: number }
       return row.count
@@ -264,6 +298,29 @@ export function parseDbDelayArgument(value: string): number {
   }
 
   return delayMs
+}
+
+// Parses the DEV_DB_FAILURE value the dev script sends: the operations its
+// --with-db-failure prompt selected, as a comma-separated list, e.g.
+// `createDocument,countDocuments`. An empty value — no flag, or nothing
+// selected — fails nothing. Anything else throws, so a typo fails the dev
+// run instead of silently failing the wrong operation.
+export function parseDbFailureArgument(value: string): DatabaseOperationName[] {
+  if (value === '') {
+    return []
+  }
+
+  return value.split(',').map((name) => {
+    // The names come from electron/database.ts's own list, mirrored from the
+    // store's methods; an unknown name means the two drifted apart.
+    if (!(databaseOperationNames as readonly string[]).includes(name)) {
+      throw new Error(
+        `Invalid --with-db-failure operation "${name}": valid operations are ${databaseOperationNames.join(', ')}`,
+      )
+    }
+
+    return name as DatabaseOperationName
+  })
 }
 
 // Every table's rows belong to the dev reset, so the schema is enumerated

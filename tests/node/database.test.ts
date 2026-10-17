@@ -4,8 +4,10 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  databaseOperationNames,
   openDatabase,
   parseDbDelayArgument,
+  parseDbFailureArgument,
   parseSeedArgument,
   resetDatabase,
   untitledDocumentTitle,
@@ -49,18 +51,33 @@ function openTestDatabase(options?: OpenDatabaseOptions): {
   return { database: instance, databasePath }
 }
 
-afterEach(() => {
+afterEach(async () => {
   database?.close()
   database = undefined
-  collectDatabaseObjects()
 
+  // Bun releases SQLite's Windows file handles only once the JavaScript
+  // database objects are collected (see collectDatabaseObjects), and a
+  // just-finished test can still keep its store — with the handle — alive in
+  // the async scopes of its last awaits until a turn of the event loop lets
+  // them retire. So collect and try the removal again every turn instead of
+  // using rmSync's own retries, which are synchronous and would never give
+  // the scopes that turn.
+  for (let attempt = 0; temporaryDirectory && attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve))
+    collectDatabaseObjects()
+
+    try {
+      rmSync(temporaryDirectory, { recursive: true, force: true })
+      temporaryDirectory = undefined
+    } catch {
+      // Still held; another turn and collection may release it.
+    }
+  }
+
+  // Still locked after every turn: fail loudly instead of leaving the temp
+  // directory behind silently.
   if (temporaryDirectory) {
-    rmSync(temporaryDirectory, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 100,
-    })
+    rmSync(temporaryDirectory, { recursive: true, force: true })
     temporaryDirectory = undefined
   }
 })
@@ -309,6 +326,50 @@ describe('parseDbDelayArgument', () => {
   })
 })
 
+describe('databaseOperationNames', () => {
+  it('lists the operations the failure knob can make fail', () => {
+    // These names are the --with-db-failure prompt's list and the vocabulary
+    // of its DEV_DB_FAILURE answer; the store's methods must stay matched to
+    // them. `getDocument` is deliberately left out — the knob does not fail
+    // it.
+    expect(databaseOperationNames).toEqual(['createDocument', 'countDocuments'])
+  })
+})
+
+describe('parseDbFailureArgument', () => {
+  it('parses the documented comma-separated list, in order', () => {
+    expect(parseDbFailureArgument('createDocument')).toEqual(['createDocument'])
+    expect(parseDbFailureArgument('countDocuments,createDocument')).toEqual([
+      'countDocuments',
+      'createDocument',
+    ])
+  })
+
+  it('treats an empty value as "fail nothing"', () => {
+    expect(parseDbFailureArgument('')).toEqual([])
+  })
+
+  it('rejects names that are not store operations', () => {
+    for (const value of [
+      'users', // an unrelated word
+      'CreateDocument', // wrong case
+      'getDocument', // a store method, but not one the knob can fail
+      'close', // a store method, but one that never runs a query
+      'createDocument,', // trailing separator, empty name
+    ]) {
+      expect(() => parseDbFailureArgument(value)).toThrowError(
+        /Invalid --with-db-failure operation/,
+      )
+    }
+  })
+
+  it('lists the valid operations in the error message', () => {
+    expect(() => parseDbFailureArgument('users')).toThrowError(
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
+    )
+  })
+})
+
 describe('openDatabase operation delay', () => {
   it('waits the configured delay before every operation runs', async () => {
     vi.useFakeTimers()
@@ -338,6 +399,82 @@ describe('openDatabase operation delay', () => {
       expect(created.title).toBe(untitledDocumentTitle)
       expect(count).toBe(1)
       expect(fetched).toEqual(created)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('openDatabase failing operations', () => {
+  it('fails only the selected operation, with the injected message', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['countDocuments'],
+    })
+
+    // The unselected operations still run: a document can be created and
+    // looked up while the count fails.
+    const document = await store.createDocument()
+    expect(await store.getDocument(document.id)).toEqual(document)
+
+    await expect(store.countDocuments()).rejects.toThrowError(
+      'The countDocuments operation failed (injected by --with-db-failure)',
+    )
+  })
+
+  it('fails a selected create before its query, storing nothing', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['createDocument'],
+    })
+
+    await expect(store.createDocument()).rejects.toThrowError(
+      'The createDocument operation failed (injected by --with-db-failure)',
+    )
+    expect(await store.countDocuments()).toBe(0)
+  })
+
+  it('fails nothing when the selection is empty', async () => {
+    const { database: store } = openTestDatabase({ failingOperations: [] })
+
+    const document = await store.createDocument()
+    expect(await store.getDocument(document.id)).toEqual(document)
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('fails the selected operations after the operation delay, like a slow query that then fails', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase({
+        operationDelayMs: 2000,
+        failingOperations: ['createDocument', 'countDocuments'],
+      })
+
+      const failures: unknown[] = []
+      let settled = 0
+      const operations = [
+        store.createDocument(),
+        store.countDocuments(),
+      ] as const
+      for (const operation of operations) {
+        void operation.catch((error: unknown) => {
+          failures.push(error)
+          settled += 1
+        })
+      }
+
+      // The delay comes first: 1999ms in, no operation has failed yet.
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(settled).toBe(0)
+
+      // At 2000ms both fail with the injected message, so the renderer's
+      // busy states are watchable under --db-delay before the failure lands.
+      await vi.advanceTimersByTimeAsync(1)
+      expect(settled).toBe(2)
+      for (const error of failures) {
+        expect((error as Error).message).toMatch(
+          /operation failed \(injected by --with-db-failure\)/,
+        )
+      }
     } finally {
       vi.useRealTimers()
     }

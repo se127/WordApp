@@ -23,6 +23,12 @@ export function createQueryClient(): QueryClient {
         // Zero retries: one failed local read will fail the same way again,
         // so surface the error instead of repeating it.
         retry: 0,
+        // Mounting onto a query that errored earlier — the home page's count
+        // after a failed read, say — must not silently read again for the
+        // same reason: the page surfaces the error (the count offers its own
+        // retry button) instead of repeating the failing read behind the
+        // user's back.
+        retryOnMount: false,
       },
     },
   })
