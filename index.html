@@ -5,10 +5,6 @@
     <meta name="application-name" content="WordApp" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WordApp</title>
-    <!-- The loading screen's text is set in Vazirmatn: preload the regular
-         face so it is already fetched while the bundle (and with it the
-         font-face CSS) loads. Vite rewrites the path to the hashed asset in
-         the built app, the same file the CSS points at. -->
     <link
       rel="preload"
       href="/src/font/vazirmatn/Vazirmatn-UI-FD-NL-Regular.woff2"
@@ -17,12 +13,6 @@
       crossorigin
     />
     <script>
-      // Applies the stored theme before the first frame, so the window never
-      // flashes the wrong background while the bundle loads. Mirrors the
-      // storage keys and the system fallback of src/lib/theme.ts — keep the
-      // two in step. The packaged app loads this page from file:// while dev
-      // runs load it from the Vite dev server, which is the runtime
-      // equivalent of `import.meta.env.DEV` in src/lib/theme.ts.
       const themeStorageKey =
         location.protocol === 'file:' ? 'wordapp-theme' : 'wordapp-theme-dev'
       const storedTheme = localStorage.getItem(themeStorageKey)
@@ -33,15 +23,11 @@
       document.documentElement.classList.toggle('dark', darkTheme)
     </script>
     <style>
-      /* Pre-mount screen, removed once React mounts (src/App.tsx): the
-         background matches app-shell.tsx (bg-emerald-50 / dark:bg-zinc-900)
-         and the centered spinner matches route-pending.tsx, so the window
-         shows its themed loading state from its very first frame. */
       html {
-        background-color: oklch(97.9% 0.021 166.113); /* bg-emerald-50 */
+        background-color: oklch(97.9% 0.021 166.113);
       }
       html.dark {
-        background-color: oklch(21% 0.006 285.885); /* bg-zinc-900 */
+        background-color: oklch(21% 0.006 285.885);
       }
       #app-loading {
         position: fixed;
@@ -71,8 +57,6 @@
   <body>
     <div id="root"></div>
     <div id="app-loading" role="status">
-      <!-- The loader-circle icon from lucide-react, inlined so it paints
-           before the bundle loads. -->
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="20"

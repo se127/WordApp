@@ -39,6 +39,19 @@
   URLs, which must be lowercase), use `wordapp`.
 - No other variant is allowed: `Wordapp`, `wordApp`, `WORDAPP`, `word-app`, etc.
 
+## No comments — never write any
+
+- Never add a comment to any file in this project: no `//`, `/* */`, `{/* */}`,
+  `<!-- -->`, `#`, or any other comment syntax, in code, tests, scripts, config,
+  styles, or markup. This includes JSDoc and documentation comments — express
+  intent through clear names and structure instead.
+- When you edit a file and find an existing comment, remove it as part of the edit —
+  never keep, move, copy, translate, or adapt one.
+- The only exception is a functional directive that a tool consumes, such as
+  `// eslint-disable-next-line ...`, `// @ts-expect-error`, `// prettier-ignore`, or
+  `// @vitest-environment ...`: keep it exactly as it is, because removing it breaks
+  the tool, and never add a new one unless the tool cannot work without it.
+
 ## Farsi text — never use zero-width characters
 
 - In any Farsi (Persian) text anywhere in this project (UI copy, docs, comments, code

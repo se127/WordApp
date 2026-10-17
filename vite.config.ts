@@ -4,9 +4,7 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-// https://vite.dev/config/
 export default defineConfig({
-  // Relative asset paths so the renderer works when loaded from file:// inside Electron.
   base: './',
   plugins: [
     react(),

@@ -26,10 +26,6 @@ const themeIcons = {
   system: Monitor,
 } satisfies Record<Theme, LucideIcon>
 
-// Theme picker on the left side of the window strip. The picked theme drives
-// the `dark` class on <html> and is persisted, so reopening the app (dev or
-// built) restores the last pick; "system" follows the OS setting live. The
-// trigger button and each option carry that theme's icon.
 function ThemePicker() {
   const [theme, setTheme] = useState<Theme>(readTheme)
 
@@ -40,7 +36,6 @@ function ThemePicker() {
       return
     }
 
-    // Keep the app in step with the OS while "system" is selected.
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const onChange = (): void => applyTheme('system')
     media.addEventListener('change', onChange)

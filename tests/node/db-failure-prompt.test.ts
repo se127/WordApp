@@ -6,8 +6,6 @@ import {
   promptDbFailures,
 } from '../../scripts/db-failure-prompt.ts'
 
-// The operations the dev script lists; their order matters because the answer
-// is printed — and reaches the main process — in list order.
 const operations: DatabaseOperationName[] = [
   'createDocument',
   'getDocument',
@@ -29,7 +27,6 @@ type PromptInput = PassThrough & {
   setRawMode?: (mode: boolean) => unknown
 }
 
-// The prompt draws to a stream a test can read afterwards.
 function collectingOutput(): { stream: Writable; text: () => string } {
   let text = ''
   const stream = new Writable({
@@ -42,10 +39,6 @@ function collectingOutput(): { stream: Writable; text: () => string } {
   return { stream, text: () => text }
 }
 
-// Starts the prompt over stand-in streams: the input is a PassThrough the
-// test types raw terminal sequences into, the output collects every write.
-// `setupInput` adjusts the input before the prompt sees it (a raw-mode stub,
-// say).
 function startPrompt(setupInput?: (input: PromptInput) => void) {
   const input: PromptInput = new PassThrough()
   setupInput?.(input)
@@ -61,25 +54,17 @@ function startPrompt(setupInput?: (input: PromptInput) => void) {
   }
 }
 
-// PassThrough writes travel over the stream machinery's scheduled ticks;
-// drain them before a test looks at what the prompt drew.
 async function flushStreams(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve))
   await new Promise((resolve) => setImmediate(resolve))
 }
 
-// Types a raw terminal sequence into the prompt and lets it process.
 async function type(input: PromptInput, sequence: string): Promise<void> {
   input.write(sequence)
   await flushStreams()
 }
 
-// The option lines of the prompt's most recent draw, cursor marker and all.
-// The prompt backs up over its previous block before redrawing — the block's
-// height varies with the number of operations — so only what follows the last
-// cursor-up escape is current.
 function lastOptions(text: string): string[] {
-  // The cursor-up escape is the prompt's own output; matching it is the point.
   // eslint-disable-next-line no-control-regex
   const blocks = text.split(/\x1b\[\d+A/)
   const lastBlock = blocks[blocks.length - 1] ?? ''
@@ -139,11 +124,9 @@ describe('promptDbFailures', () => {
       '> [ ] saveDocument',
     ])
 
-    // One more down from the last wraps back to the first.
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual(firstFrame)
 
-    // And one up from the first wraps past the top to the last.
     await type(input, '\x1b[A')
     expect(lastOptions(text())).toEqual([
       '  [ ] createDocument',
@@ -166,7 +149,6 @@ describe('promptDbFailures', () => {
       '  [ ] saveDocument',
     ])
 
-    // Space again takes the check back off.
     await type(input, ' ')
     expect(lastOptions(text())).toEqual(firstFrame)
   })
@@ -174,8 +156,6 @@ describe('promptDbFailures', () => {
   it('answers with the checked operations in list order on enter', async () => {
     const { input, text, answer } = startPrompt()
 
-    // Check countDocuments, then getDocument, then createDocument: the answer
-    // must come back in list order, not in checking order.
     await type(input, '\x1b[B')
     await type(input, '\x1b[B')
     await type(input, ' ')
@@ -193,8 +173,6 @@ describe('promptDbFailures', () => {
     expect(text()).toContain(
       'db-failure: createDocument, getDocument, countDocuments',
     )
-    // The answer replaced the block instead of joining it: exactly one answer
-    // line, and no option lines left behind.
     expect(text().match(/db-failure:/g)).toHaveLength(1)
     expect(lastOptions(text())).toEqual([])
   })
@@ -202,7 +180,6 @@ describe('promptDbFailures', () => {
   it('answers "none" when nothing is checked', async () => {
     const { input, text, answer } = startPrompt()
 
-    // '\n' parses as "enter" where '\r' parses as "return"; both submit.
     await type(input, '\n')
 
     expect(await answer).toEqual([])
@@ -237,8 +214,6 @@ describe('promptDbFailures', () => {
     expect(await answer).toEqual([])
     expect(rawModes).toEqual([true, false])
 
-    // The prompt let go of the input: its listeners are gone, and a key
-    // typed after the answer draws nothing new.
     expect(input.listenerCount('keypress')).toBe(0)
     expect(input.listenerCount('end')).toBe(0)
     expect(input.listenerCount('error')).toBe(0)
@@ -261,8 +236,6 @@ describe('promptDbFailures', () => {
     await type(input, '\x03')
 
     expect(await caught).toBeInstanceOf(DbFailurePromptCanceledError)
-    // The block is wiped, not answered: the terminal is left clean, and the
-    // input back in its cooked mode.
     expect(text()).not.toContain('db-failure:')
     expect(lastOptions(text())).toEqual([])
     expect(rawModes).toEqual([true, false])

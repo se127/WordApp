@@ -27,7 +27,6 @@ function installBridge() {
   } satisfies WordAppBridge
 }
 
-// Mirrors the provider stack from src/main.tsx.
 const renderApp = () =>
   render(
     <DirectionProvider dir="rtl">
@@ -38,9 +37,6 @@ const renderApp = () =>
   )
 
 afterEach(() => {
-  // App renders with the module-level QueryClient; clear it so tests do not
-  // see each other's cached data. The toasts live outside React, in sonner's
-  // own store; drop them the same way.
   queryClient.clear()
   toast.dismiss()
   vi.restoreAllMocks()
@@ -52,7 +48,6 @@ afterEach(() => {
 describe('App', () => {
   it('removes the pre-mount loading screen from index.html once mounted', async () => {
     installBridge()
-    // index.html paints this screen while the bundle loads; App retires it.
     const loading = document.createElement('div')
     loading.id = 'app-loading'
     document.body.append(loading)
@@ -91,15 +86,10 @@ describe('App', () => {
       act(() => {
         toast.error('افزودن سند ناموفق بود. دوباره تلاش کنید.')
       })
-      // Sonner hands a new toast to the Toaster through a zero-delay timer
-      // ("prevent batching, temp solution" in its source); run it so the
-      // toast lands in the DOM.
       act(() => {
         vi.advanceTimersByTime(1)
       })
 
-      // The toast host carries the app shell's choices (app-shell.tsx): the
-      // bottom-left corner, the expanded layout, and the app's font.
       const toaster = document.querySelector('ol[data-sonner-toaster]')
       expect(toaster).toHaveAttribute('data-y-position', 'bottom')
       expect(toaster).toHaveAttribute('data-x-position', 'left')
@@ -111,15 +101,11 @@ describe('App', () => {
       expect(toastItem).toHaveAttribute('data-expanded', 'true')
       expect(toastItem).toHaveAttribute('data-removed', 'false')
 
-      // The toaster's 8-second duration: the toast is still there a moment
-      // before the eighth second is up...
       act(() => {
         vi.advanceTimersByTime(7998)
       })
       expect(toastItem).toHaveAttribute('data-removed', 'false')
 
-      // ...and marked for removal right at it (sonner's own default would
-      // have dropped it after four).
       act(() => {
         vi.advanceTimersByTime(2)
       })

@@ -6,8 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const devKey = 'wordapp-theme-dev'
 
-// Controllable stand-in for window.matchMedia, so tests can drive the OS
-// preference and fire the change event the picker listens to.
 function stubMatchMedia(dark: boolean) {
   const listeners = new Set<() => void>()
   const media = {

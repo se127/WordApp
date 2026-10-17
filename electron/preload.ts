@@ -10,8 +10,6 @@ import {
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
-  // Documents live in the SQLite database the main process owns; the renderer
-  // only calls through this bridge.
   documents: {
     create: (): Promise<DocumentRecord> =>
       ipcRenderer.invoke(documentsCreateChannel),
