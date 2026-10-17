@@ -187,6 +187,33 @@ describe('documents', () => {
     expect(await store.countDocuments()).toBe(2)
   })
 
+  it('lists nothing before the first document', async () => {
+    const { database: store } = openTestDatabase()
+
+    expect(await store.listDocuments()).toEqual([])
+  })
+
+  it('lists the stored documents newest first and drops a deleted one', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+
+      vi.setSystemTime(1_000_000)
+      const first = await store.createDocument()
+      vi.setSystemTime(1_001_000)
+      const second = await store.createDocument()
+
+      expect(await store.listDocuments()).toEqual([second, first])
+
+      await store.deleteDocument(second.id)
+
+      expect(await store.listDocuments()).toEqual([first])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('deletes one document and keeps the others', async () => {
     const { database: store } = openTestDatabase()
     const kept = await store.createDocument()
@@ -415,6 +442,7 @@ describe('databaseOperationNames', () => {
       'createDocument',
       'getDocument',
       'countDocuments',
+      'listDocuments',
       'deleteDocument',
       'saveDocument',
     ])
@@ -448,7 +476,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument, saveDocument',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, deleteDocument, saveDocument',
     )
   })
 })
@@ -464,6 +492,7 @@ describe('openDatabase operation delay', () => {
         store.createDocument(),
         store.countDocuments(),
         store.getDocument(1),
+        store.listDocuments(),
       ] as const
       let settled = 0
       for (const operation of operations) {
@@ -476,12 +505,13 @@ describe('openDatabase operation delay', () => {
       expect(settled).toBe(0)
 
       await vi.advanceTimersByTimeAsync(1)
-      const [created, count, fetched] = await Promise.all(operations)
-      expect(settled).toBe(3)
+      const [created, count, fetched, listed] = await Promise.all(operations)
+      expect(settled).toBe(4)
 
       expect(created.title).toBe(untitledDocumentTitle)
       expect(count).toBe(1)
       expect(fetched).toEqual(created)
+      expect(listed).toEqual([created])
     } finally {
       vi.useRealTimers()
     }
@@ -547,6 +577,17 @@ describe('openDatabase failing operations', () => {
     )
   })
 
+  it('fails a selected list read with the injected message', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['listDocuments'],
+    })
+
+    await store.createDocument()
+    await expect(store.listDocuments()).rejects.toThrowError(
+      'The listDocuments operation failed (injected by --with-db-failure)',
+    )
+  })
+
   it('fails a selected delete before its query, removing nothing', async () => {
     const { database: store } = openTestDatabase({
       failingOperations: ['deleteDocument'],
@@ -591,6 +632,7 @@ describe('openDatabase failing operations', () => {
           'createDocument',
           'getDocument',
           'countDocuments',
+          'listDocuments',
           'deleteDocument',
           'saveDocument',
         ],
@@ -602,6 +644,7 @@ describe('openDatabase failing operations', () => {
         store.createDocument(),
         store.getDocument(1),
         store.countDocuments(),
+        store.listDocuments(),
         store.deleteDocument(1),
         store.saveDocument(1, { title: 'گزارش' }),
       ] as const
@@ -616,7 +659,7 @@ describe('openDatabase failing operations', () => {
       expect(settled).toBe(0)
 
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(5)
+      expect(settled).toBe(6)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,

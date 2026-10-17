@@ -1,12 +1,24 @@
+import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { documentsCountQuery } from '@/lib/query'
+import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
+import { documentsCountQuery, documentsQuery } from '@/lib/query'
+import { cn } from '@/lib/utils'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -29,6 +41,9 @@ function HomePage() {
 
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,
+      })
+      void queryClient.invalidateQueries({
+        queryKey: documentsQuery.queryKey,
       })
 
       await navigate({
@@ -58,6 +73,125 @@ function HomePage() {
             افزودن سند
           </>
         )}
+      </Button>
+      <DocumentsTable />
+    </div>
+  )
+}
+
+function DocumentsTable() {
+  const {
+    data: documents,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery(documentsQuery)
+
+  if (isError) {
+    return (
+      <DocumentsRetry isRetrying={isFetching} onRetry={() => void refetch()} />
+    )
+  }
+
+  if (documents === undefined) {
+    return <DocumentsPending />
+  }
+
+  if (documents === null) {
+    return null
+  }
+
+  if (documents.length === 0) {
+    return (
+      <div className="flex min-h-32 w-full flex-1 items-center justify-center">
+        <p className="text-sm text-muted-foreground">هنوز سندی ثبت نشده است.</p>
+      </div>
+    )
+  }
+
+  return (
+    <ScrollArea className="min-h-0 w-full flex-1 [&_[data-slot=scroll-area-scrollbar]]:z-20 [&_[data-slot=table-container]]:overflow-visible">
+      <Table className={cn('table-fixed', isFetching && 'animate-pulse')}>
+        <TableHeader className="sticky top-0 z-10 bg-white dark:bg-zinc-800 [&_th]:[box-shadow:0_1px_0_0_var(--border)] [&_tr]:border-b-0">
+          <TableRow>
+            <TableHead className="w-[60%]">عنوان</TableHead>
+            <TableHead className="w-[20%] text-center">تاریخ ایجاد</TableHead>
+            <TableHead className="w-[20%]" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {documents.map((document) => (
+            <TableRow key={document.id}>
+              <TableCell className="whitespace-normal">
+                <Link
+                  to="/documents/$documentId"
+                  params={{ documentId: String(document.id) }}
+                  className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  {document.title}
+                </Link>
+              </TableCell>
+              <TableCell className="text-center">
+                <DocumentCreatedAt createdAt={document.createdAt} />
+              </TableCell>
+              <TableCell>
+                <div className="flex justify-end">
+                  <DocumentOptions documentId={document.id} />
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </ScrollArea>
+  )
+}
+
+function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {formatRelativeTime(createdAt)}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{formatAbsoluteDate(createdAt)}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function DocumentsPending() {
+  return (
+    <div
+      role="status"
+      aria-label="در حال بارگذاری سندها"
+      className="flex min-h-32 w-full flex-1 items-center justify-center"
+    >
+      <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+function DocumentsRetry({
+  isRetrying,
+  onRetry,
+}: {
+  isRetrying: boolean
+  onRetry: () => void
+}) {
+  return (
+    <div className="flex min-h-32 w-full flex-1 flex-col items-center justify-center gap-3">
+      <p className="text-sm text-destructive">
+        بارگذاری سندها ناموفق بود. دوباره تلاش کنید.
+      </p>
+      <Button variant="outline" disabled={isRetrying} onClick={onRetry}>
+        <RefreshCw
+          className={cn('text-destructive', isRetrying && 'animate-spin')}
+        />
+        تلاش دوباره
       </Button>
     </div>
   )

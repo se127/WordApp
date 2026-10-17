@@ -1,5 +1,6 @@
 export const documentsCreateChannel = 'wordapp:documents:create'
 export const documentsGetChannel = 'wordapp:documents:get'
 export const documentsCountChannel = 'wordapp:documents:count'
+export const documentsListChannel = 'wordapp:documents:list'
 export const documentsDeleteChannel = 'wordapp:documents:delete'
 export const documentsSaveChannel = 'wordapp:documents:save'

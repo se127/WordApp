@@ -27,6 +27,7 @@ export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
   countDocuments: () => Promise<number>
+  listDocuments: () => Promise<DocumentRecord[]>
   deleteDocument: (id: number) => Promise<void>
   saveDocument: (
     id: number,
@@ -39,6 +40,7 @@ export const databaseOperationNames = [
   'createDocument',
   'getDocument',
   'countDocuments',
+  'listDocuments',
   'deleteDocument',
   'saveDocument',
 ] as const
@@ -57,11 +59,8 @@ CREATE TABLE documents (
   updated_at INTEGER NOT NULL
 ) STRICT;
 
--- The home page lists documents newest first; this index serves that sort
--- (and later keyset pagination on created_at) without sorting a full scan.
 CREATE INDEX documents_created_at_idx ON documents (created_at DESC);
 
--- Keeps updated_at honest for every update that does not set it itself.
 CREATE TRIGGER documents_touch_updated_at
 AFTER UPDATE ON documents
 FOR EACH ROW
@@ -151,6 +150,12 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
+  const selectDocuments = database.prepare(
+    `SELECT id, title, body, created_at, updated_at
+     FROM documents
+     ORDER BY created_at DESC`,
+  )
+
   const deleteDocumentById = database.prepare(
     'DELETE FROM documents WHERE id = ?',
   )
@@ -203,6 +208,14 @@ export function openDatabase(
 
       const row = selectDocumentCount.get() as { count: number }
       return row.count
+    },
+
+    async listDocuments() {
+      await waitBeforeQuery()
+      failInjectedOperation('listDocuments')
+
+      const rows = selectDocuments.all() as DocumentRow[]
+      return rows.map(toRecord)
     },
 
     async deleteDocument(id) {

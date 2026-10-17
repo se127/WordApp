@@ -13,6 +13,7 @@ import {
   documentsCreateChannel,
   documentsDeleteChannel,
   documentsGetChannel,
+  documentsListChannel,
   documentsSaveChannel,
 } from './ipc.ts'
 
@@ -203,6 +204,7 @@ void app.whenReady().then(async () => {
       : undefined,
   )
   ipcMain.handle(documentsCountChannel, () => database.countDocuments())
+  ipcMain.handle(documentsListChannel, () => database.listDocuments())
   ipcMain.handle(documentsDeleteChannel, (_event, id: unknown) =>
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.deleteDocument(id)

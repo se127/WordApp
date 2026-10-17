@@ -22,6 +22,12 @@ export const documentsCountQuery = queryOptions({
   staleTime: Infinity,
 })
 
+export const documentsQuery = queryOptions({
+  queryKey: ['documents', 'list'],
+  queryFn: async () => (await window.WordApp?.documents.list()) ?? null,
+  staleTime: Infinity,
+})
+
 export const documentQuery = (id: number) =>
   queryOptions({
     queryKey: ['documents', id],

@@ -19,6 +19,7 @@ declare global {
         create: () => Promise<DocumentRecord>
         get: (id: number) => Promise<DocumentRecord | undefined>
         count: () => Promise<number>
+        list: () => Promise<DocumentRecord[]>
         delete: (id: number) => Promise<void>
         save: (
           id: number,

@@ -10,6 +10,7 @@ const operations: DatabaseOperationName[] = [
   'createDocument',
   'getDocument',
   'countDocuments',
+  'listDocuments',
   'deleteDocument',
   'saveDocument',
 ]
@@ -18,6 +19,7 @@ const firstFrame = [
   '> [ ] createDocument',
   '  [ ] getDocument',
   '  [ ] countDocuments',
+  '  [ ] listDocuments',
   '  [ ] deleteDocument',
   '  [ ] saveDocument',
 ]
@@ -93,6 +95,7 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '> [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] listDocuments',
       '  [ ] deleteDocument',
       '  [ ] saveDocument',
     ])
@@ -102,6 +105,7 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '> [ ] countDocuments',
+      '  [ ] listDocuments',
       '  [ ] deleteDocument',
       '  [ ] saveDocument',
     ])
@@ -111,6 +115,17 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
+      '> [ ] listDocuments',
+      '  [ ] deleteDocument',
+      '  [ ] saveDocument',
+    ])
+
+    await type(input, '\x1b[B')
+    expect(lastOptions(text())).toEqual([
+      '  [ ] createDocument',
+      '  [ ] getDocument',
+      '  [ ] countDocuments',
+      '  [ ] listDocuments',
       '> [ ] deleteDocument',
       '  [ ] saveDocument',
     ])
@@ -120,6 +135,7 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] listDocuments',
       '  [ ] deleteDocument',
       '> [ ] saveDocument',
     ])
@@ -132,6 +148,7 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] listDocuments',
       '  [ ] deleteDocument',
       '> [ ] saveDocument',
     ])
@@ -145,6 +162,7 @@ describe('promptDbFailures', () => {
       '> [x] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] listDocuments',
       '  [ ] deleteDocument',
       '  [ ] saveDocument',
     ])

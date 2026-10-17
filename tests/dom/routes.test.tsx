@@ -1,6 +1,10 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { createQueryClient, documentsCountQuery } from '@/lib/query'
+import {
+  createQueryClient,
+  documentsCountQuery,
+  documentsQuery,
+} from '@/lib/query'
 import { createAppRouter } from '@/router'
 import type { DocumentChanges } from '@/types/global'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -23,13 +27,14 @@ const storedDocument = {
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
-    get?: () => Promise<typeof storedDocument>
+    get?: (id: number) => Promise<typeof storedDocument | undefined>
     count?: () => Promise<number>
+    list?: () => Promise<Array<typeof storedDocument>>
     save?: (
       id: number,
       changes: DocumentChanges,
     ) => Promise<typeof storedDocument | undefined>
-    remove?: () => Promise<void>
+    remove?: (id: number) => Promise<void>
   } = {},
 ) {
   let storedCount = 0
@@ -42,6 +47,7 @@ function installBridge(
     })
   const get = options.get ?? vi.fn(async () => storedRow)
   const count = options.count ?? vi.fn(async () => storedCount)
+  const list = options.list ?? vi.fn(async () => [])
   const save =
     options.save ??
     vi.fn(async (_id: number, changes: DocumentChanges) => {
@@ -56,10 +62,28 @@ function installBridge(
 
   window.WordApp = {
     platform: 'win32',
-    documents: { create, get, count, save, delete: remove },
+    documents: { create, get, count, list, save, delete: remove },
   } satisfies WordAppBridge
 
-  return { create, get, count, save, remove }
+  return { create, get, count, list, save, remove }
+}
+
+function installDocumentsBridge(documents: Array<typeof storedDocument>) {
+  const stored = [...documents]
+
+  return installBridge({
+    list: vi.fn(async () => [...stored]),
+    get: vi.fn(async (id: number) =>
+      stored.find((document) => document.id === id),
+    ),
+    count: vi.fn(async () => stored.length),
+    remove: vi.fn(async (id: number) => {
+      const index = stored.findIndex((document) => document.id === id)
+      if (index >= 0) {
+        stored.splice(index, 1)
+      }
+    }),
+  })
 }
 
 function renderRoute(initialEntry: string) {
@@ -355,9 +379,14 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    expect(
-      await screen.findByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
-    ).toBeInTheDocument()
+    const message = await screen.findByText(
+      'بارگذاری سند ناموفق بود. دوباره تلاش کنید.',
+    )
+    expect(message.parentElement).toHaveClass(
+      'items-center',
+      'justify-center',
+      'flex-col',
+    )
     expect(
       screen.getByRole('link', { name: 'بازگشت به مستندات' }),
     ).toBeInTheDocument()
@@ -368,10 +397,11 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
 
     const retry = screen.getByRole('button', {
-      name: 'تلاش دوباره برای بارگذاری سند',
+      name: 'تلاش دوباره',
     })
-    expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
-    expect(retry).not.toHaveClass('hover:text-foreground')
+    expect(retry).not.toHaveClass('text-destructive')
+    expect(retry).not.toHaveClass('hover:text-destructive')
+    expect(retry.querySelector('svg')).toHaveClass('text-destructive')
 
     await user.click(retry)
 
@@ -403,7 +433,7 @@ describe('routes', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'تلاش دوباره برای بارگذاری سند',
+        name: 'تلاش دوباره',
       }),
     )
 
@@ -423,7 +453,7 @@ describe('routes', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('explains the document retry button with a tooltip', async () => {
+  it('shows the document retry as a labeled button without a tooltip', async () => {
     const get = vi.fn(async (): Promise<typeof storedDocument> => {
       throw new Error('document read failed')
     })
@@ -432,15 +462,14 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    await user.hover(
-      await screen.findByRole('button', {
-        name: 'تلاش دوباره برای بارگذاری سند',
-      }),
-    )
+    const retry = await screen.findByRole('button', {
+      name: 'تلاش دوباره',
+    })
+    expect(retry.querySelector('svg')).toHaveClass('lucide-refresh-cw')
+    expect(retry).toHaveTextContent('تلاش دوباره')
 
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'تلاش دوباره برای بارگذاری سند',
-    )
+    await user.hover(retry)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('shows the stored title as a full-width heading at the icon-button height that truncates, tints on hover and focus, and borders on focus', async () => {
@@ -652,7 +681,7 @@ describe('routes', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('keeps the saved title on screen while the row re-reads', async () => {
+  it('keeps the saved title and the back-row loader on screen while the row re-reads', async () => {
     let reads = 0
     let finishReread!: (document: typeof storedDocument) => void
     const get = vi.fn((): Promise<typeof storedDocument> => {
@@ -677,7 +706,14 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'گزارش' }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    const updating = await screen.findByRole('status', {
+      name: 'در حال به روز رسانی سند',
+    })
+    expect(updating).toHaveClass('ms-auto', 'animate-spin')
+    expect(updating.closest('div')).toContainElement(
+      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
+    )
 
     await vi.waitFor(() => expect(finishReread).toBeTypeOf('function'))
     await act(() =>
@@ -687,6 +723,9 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'گزارش' }),
     ).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('status')).not.toBeInTheDocument(),
+    )
   })
 
   it('reports a failed save with an error toast and keeps the edited text for another try', async () => {
@@ -839,13 +878,15 @@ describe('routes', () => {
       within(dialog).getByRole('button', { name: 'انصراف' }),
     ).toBeInTheDocument()
 
-    expect(
-      screen.getByRole('menuitem', { hidden: true, name: 'حذف' }),
-    ).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('menuitem', { hidden: true, name: 'حذف' }),
+      ).not.toBeInTheDocument(),
+    )
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('keeps the menu open when the delete dialog is dismissed', async () => {
+  it('closes the options menu when the delete item is picked', async () => {
     const { remove } = installBridge()
     const user = userEvent.setup()
 
@@ -854,21 +895,21 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
     await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+
     const dialog = await screen.findByRole('alertdialog')
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('menuitem', { hidden: true, name: 'حذف' }),
+      ).not.toBeInTheDocument(),
+    )
 
     await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
     await vi.waitFor(() =>
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
     )
-    expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('menuitem', { name: 'حذف' }))
-    await screen.findByRole('alertdialog')
-    await user.keyboard('{Escape}')
-    await vi.waitFor(() =>
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
-    )
-    expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { hidden: true, name: 'حذف' }),
+    ).not.toBeInTheDocument()
 
     expect(remove).not.toHaveBeenCalled()
   })
@@ -1108,5 +1149,483 @@ describe('routes', () => {
 
     expect(get).toHaveBeenCalledOnce()
     expect(count).toHaveBeenCalledOnce()
+  })
+
+  it('lists the documents newest first with linked titles, relative dates, and row options', async () => {
+    const fixedNow = new Date(2026, 6, 8, 15, 0).getTime()
+    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+    const newest = {
+      ...storedDocument,
+      id: 2,
+      title: 'گزارش سالانه',
+      createdAt: fixedNow - 5 * 60_000,
+      updatedAt: fixedNow - 5 * 60_000,
+    }
+    const oldest = {
+      ...storedDocument,
+      id: 1,
+      title: 'پیش نویس',
+      createdAt: fixedNow - 26 * 60 * 60_000,
+      updatedAt: fixedNow - 26 * 60 * 60_000,
+    }
+    installDocumentsBridge([newest, oldest])
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش سالانه' })
+
+    expect(screen.getByRole('table')).toHaveClass('table-fixed')
+    expect(screen.getByRole('columnheader', { name: 'عنوان' })).toHaveClass(
+      'w-[60%]',
+    )
+    expect(
+      screen.getByRole('columnheader', { name: 'تاریخ ایجاد' }),
+    ).toHaveClass('text-center')
+    expect(
+      screen.getAllByRole('columnheader').map((head) => head.textContent),
+    ).toEqual(['عنوان', 'تاریخ ایجاد', ''])
+
+    const titleLink = screen.getByRole('link', { name: 'گزارش سالانه' })
+    expect(titleLink).toHaveClass('block', 'break-words')
+    expect(titleLink).not.toHaveClass('truncate')
+    expect(titleLink).not.toHaveClass('hover:underline')
+    const titleCell = titleLink.closest('td')
+    expect(titleCell).toHaveClass('whitespace-normal')
+    expect(titleCell).not.toHaveClass('whitespace-nowrap')
+
+    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(
+      ['گزارش سالانه', 'پیش نویس'],
+    )
+
+    expect(screen.getByRole('cell', { name: '5 دقیقه ی پیش' })).toHaveClass(
+      'text-center',
+    )
+    expect(screen.getByRole('cell', { name: '1 روز پیش' })).toHaveClass(
+      'text-center',
+    )
+
+    const optionsButtons = screen.getAllByRole('button', { name: 'گزینه ها' })
+    expect(optionsButtons).toHaveLength(2)
+    const optionsCell = optionsButtons[0]?.closest('td')
+    expect(optionsCell).not.toHaveClass('text-center')
+    expect(optionsCell?.querySelector('div')).toHaveClass('justify-end')
+
+    const header = screen
+      .getByRole('columnheader', { name: 'عنوان' })
+      .closest('thead')
+    expect(header).toHaveClass(
+      'sticky',
+      'top-0',
+      'z-10',
+      'bg-white',
+      'dark:bg-zinc-800',
+    )
+    expect(header).toHaveClass('[&_tr]:border-b-0')
+    expect(header).toHaveClass('[&_th]:[box-shadow:0_1px_0_0_var(--border)]')
+    expect(
+      screen.getByRole('table').closest('[data-slot="scroll-area-viewport"]'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('table').closest('[data-slot="scroll-area"]'),
+    ).toHaveClass(
+      '[&_[data-slot=table-container]]:overflow-visible',
+      '[&_[data-slot=scroll-area-scrollbar]]:z-20',
+    )
+  })
+
+  it('shows a centered message while no documents are stored', async () => {
+    installBridge()
+
+    renderRoute('/')
+
+    const message = await screen.findByText('هنوز سندی ثبت نشده است.')
+    expect(message.parentElement).toHaveClass('items-center', 'justify-center')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('shows the relative age with the full Persian date and a spaced ، in a tooltip', async () => {
+    const fixedNow = new Date(2026, 6, 8, 15, 0).getTime()
+    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+    const recent = {
+      ...storedDocument,
+      id: 1,
+      title: 'امروز',
+      createdAt: fixedNow - 5 * 60_000,
+      updatedAt: fixedNow - 5 * 60_000,
+    }
+    const older = {
+      ...storedDocument,
+      id: 2,
+      title: 'دیروز',
+      createdAt: fixedNow - 26 * 60 * 60_000,
+      updatedAt: fixedNow - 26 * 60 * 60_000,
+    }
+    const justCreated = {
+      ...storedDocument,
+      id: 3,
+      title: 'همین حالا',
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+    }
+    installDocumentsBridge([recent, older, justCreated])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'امروز' })
+
+    expect(screen.getByText('5 دقیقه ی پیش')).toBeInTheDocument()
+    expect(screen.getByText('1 روز پیش')).toBeInTheDocument()
+    expect(screen.getByText('همین الان')).toBeInTheDocument()
+
+    await user.hover(screen.getByText('5 دقیقه ی پیش'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'چهارشنبه 17 تیر ماه 1405 ، 14:55',
+    )
+  })
+
+  it('opens the document page when a row title is clicked', async () => {
+    const first = { ...storedDocument, id: 1, title: 'یادداشت' }
+    const second = { ...storedDocument, id: 2, title: 'گزارش' }
+    const { get } = installDocumentsBridge([first, second])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await user.click(await screen.findByRole('link', { name: 'گزارش' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش' }),
+    ).toBeInTheDocument()
+    expect(get).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps the home page usable with a centered loader while the first list read is in flight', async () => {
+    let finishList!: (documents: Array<typeof storedDocument>) => void
+    const list = vi.fn(
+      () =>
+        new Promise<Array<typeof storedDocument>>((resolve) => {
+          finishList = resolve
+        }),
+    )
+    installBridge({ list })
+
+    renderRoute('/')
+
+    const status = await screen.findByRole('status', {
+      name: 'در حال بارگذاری سندها',
+    })
+    expect(status).toHaveClass('items-center', 'justify-center')
+    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    await act(() => finishList([{ ...storedDocument, title: 'یادداشت' }]))
+
+    expect(
+      await screen.findByRole('link', { name: 'یادداشت' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('keeps the stale rows and pulses the table while the list re-reads', async () => {
+    let reads = 0
+    let finishReread!: (documents: Array<typeof storedDocument>) => void
+    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
+      reads += 1
+      if (reads > 1) {
+        return new Promise<Array<typeof storedDocument>>((resolve) => {
+          finishReread = resolve
+        })
+      }
+      return Promise.resolve([storedDocument])
+    })
+    installBridge({ list })
+
+    const { queryClient } = renderRoute('/')
+    await screen.findByRole('link', { name: 'بدون عنوان' })
+
+    expect(screen.getByRole('table')).not.toHaveClass('animate-pulse')
+
+    await act(async () => {
+      void queryClient.invalidateQueries({
+        queryKey: documentsQuery.queryKey,
+      })
+    })
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole('table')).toHaveClass('animate-pulse'),
+    )
+    expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await act(() => finishReread([{ ...storedDocument, title: 'عنوان تازه' }]))
+
+    expect(
+      await screen.findByRole('link', { name: 'عنوان تازه' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(screen.getByRole('table')).not.toHaveClass('animate-pulse'),
+    )
+  })
+
+  it('reports a failed list read with an error and a retry button, and recovers the table when pressed', async () => {
+    let attempts = 0
+    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
+      attempts += 1
+      return attempts === 1
+        ? Promise.reject(
+            new Error(
+              'The listDocuments operation failed (injected by --with-db-failure)',
+            ),
+          )
+        : Promise.resolve([storedDocument])
+    })
+    installBridge({ list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    const message = await screen.findByText(
+      'بارگذاری سندها ناموفق بود. دوباره تلاش کنید.',
+    )
+    expect(message.parentElement).toHaveClass(
+      'items-center',
+      'justify-center',
+      'flex-col',
+    )
+    expect(
+      screen.queryByText(
+        'The listDocuments operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+
+    const retry = screen.getByRole('button', {
+      name: 'تلاش دوباره',
+    })
+    expect(retry).not.toHaveClass('text-destructive')
+    expect(retry).not.toHaveClass('hover:text-destructive')
+    expect(retry.querySelector('svg')).toHaveClass('text-destructive')
+
+    await user.click(retry)
+
+    expect(
+      await screen.findByRole('link', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the centered loader while a retry from a failed list read is in flight', async () => {
+    let attempts = 0
+    let finishRetry!: (documents: Array<typeof storedDocument>) => void
+    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
+      attempts += 1
+      if (attempts === 1) {
+        return Promise.reject(new Error('list read failed'))
+      }
+      return new Promise<Array<typeof storedDocument>>((resolve) => {
+        finishRetry = resolve
+      })
+    })
+    installBridge({ list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره',
+      }),
+    )
+
+    expect(
+      await screen.findByRole('status', { name: 'در حال بارگذاری سندها' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+
+    await act(() => finishRetry([storedDocument]))
+
+    expect(
+      await screen.findByRole('link', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('keeps the retry button busy with a spinner while a stale list re-reads', async () => {
+    let reads = 0
+    let finishRetry!: (documents: Array<typeof storedDocument>) => void
+    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
+      reads += 1
+      if (reads === 1) {
+        return Promise.resolve([storedDocument])
+      }
+      if (reads === 2) {
+        return Promise.reject(new Error('list re-read failed'))
+      }
+      return new Promise<Array<typeof storedDocument>>((resolve) => {
+        finishRetry = resolve
+      })
+    })
+    installBridge({ list })
+    const user = userEvent.setup()
+
+    const { queryClient } = renderRoute('/')
+    await screen.findByRole('link', { name: 'بدون عنوان' })
+
+    await act(async () => {
+      void queryClient.invalidateQueries({
+        queryKey: documentsQuery.queryKey,
+      })
+    })
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره',
+      }),
+    )
+
+    const busy = screen.getByRole('button', {
+      name: 'تلاش دوباره',
+    })
+    expect(busy).toBeDisabled()
+    expect(busy.querySelector('svg')).toHaveClass('animate-spin')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    await act(() => finishRetry([storedDocument]))
+
+    expect(
+      await screen.findByRole('link', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: 'تلاش دوباره',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the list retry as a labeled button without a tooltip', async () => {
+    const list = vi.fn(async (): Promise<Array<typeof storedDocument>> => {
+      throw new Error('list read failed')
+    })
+    installBridge({ list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    const retry = await screen.findByRole('button', {
+      name: 'تلاش دوباره',
+    })
+    expect(retry.querySelector('svg')).toHaveClass('lucide-refresh-cw')
+    expect(retry).toHaveTextContent('تلاش دوباره')
+
+    await user.hover(retry)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('deletes a row through its options menu without leaving the home page', async () => {
+    const document = { ...storedDocument, title: 'یادداشت' }
+    const { remove } = installDocumentsBridge([document])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('table')).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(remove).toHaveBeenCalledWith(1)
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('re-reads the documents list once the created document is stored', async () => {
+    const stored: Array<typeof storedDocument> = []
+    const list = vi.fn(async () => [...stored])
+    const count = vi.fn(async () => stored.length)
+    const create = vi.fn(async () => {
+      const created = { ...storedDocument }
+      stored.push(created)
+      return created
+    })
+    installBridge({ create, count, list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    expect(
+      await screen.findByText('هنوز سندی ثبت نشده است.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    await screen.findByRole('heading', { name: 'مستندات (1)' })
+    expect(
+      await screen.findByRole('link', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('هنوز سندی ثبت نشده است.'),
+    ).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-reads the documents list after a title save so the table shows the new title', async () => {
+    const stored = [{ ...storedDocument }]
+    const list = vi.fn(async () => [...stored])
+    const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
+    const save = vi.fn(async (id: number, changes: DocumentChanges) => {
+      const index = stored.findIndex((row) => row.id === id)
+      if (index < 0) {
+        return undefined
+      }
+      stored[index] = {
+        ...stored[index],
+        ...changes,
+        updatedAt: stored[index].updatedAt + 1,
+      }
+      return stored[index]
+    })
+    installBridge({ get, save, list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('link', { name: 'بدون عنوان' }))
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    await user.click(heading)
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش تازه')
+    await user.tab()
+
+    await screen.findByRole('heading', { name: 'گزارش تازه' })
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('link', { name: 'گزارش تازه' }),
+    ).toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
   })
 })
