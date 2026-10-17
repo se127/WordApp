@@ -36,15 +36,19 @@ import { toast } from 'sonner'
 
 const documentRouteApi = getRouteApi('/documents/$documentId')
 
-// One document's page. The route's loader has read the row into the query
-// cache; the component reads it back with useQuery. The row stays fresh until
-// a write invalidates it (src/lib/query.ts), so revisiting the document
-// reuses the cached row instead of reading again. A read the store refuses
-// (e.g. under the dev script's --with-db-failure) shows the failed report and
-// the retry button in the content box; the back button stays, so the page is
-// never a dead end. The title is editable in place (DocumentTitle below),
-// and its save goes through the page's shared document save action
-// (useDocumentSave), which the body will use too.
+// One document's page. The route's loader starts the row's read into the
+// query cache without waiting for it (src/routes/document.ts); the component
+// reads the row back with useQuery. The page renders right away, so the back
+// button — alone on the first line — is on screen while the read runs, the
+// loader filling the content box under it; the title's line, holding the
+// title and the options menu (see DocumentOptions), appears once the row is
+// known. The row stays fresh until a write invalidates it (src/lib/query.ts),
+// so revisiting the document reuses the cached row instead of reading again.
+// A read the store refuses (e.g. under the dev script's --with-db-failure)
+// shows the failed report and the retry button in the content box; the back
+// button stays, so the page is never a dead end. The title is editable in
+// place (DocumentTitle below), and its save goes through the page's shared
+// document save action (useDocumentSave), which the body will use too.
 function DocumentPage() {
   const { documentId } = documentRouteApi.useParams()
   const {
@@ -55,31 +59,33 @@ function DocumentPage() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-auto p-6">
-      {/* The document's title and the back button to the documents list share
-          the top line, anchored to the right (the start of the RTL layout);
-          in this direction "back" points right. The options menu (the
-          document's delete, below) sits at the far end — the left. */}
-      <div className="flex items-center gap-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon" asChild>
-              <Link to="/" aria-label="بازگشت به مستندات">
-                <ArrowRight />
-              </Link>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>بازگشت به مستندات</TooltipContent>
-        </Tooltip>
+      {/* The back button sits alone on the first line, at the start — the
+          right in the RTL layout, the direction its icon points — as an
+          outline button carrying an icon and a label (no tooltip: the label
+          is on the button itself), so it is on screen from the page's first
+          render and stays while the row loads: the page is never a dead
+          end. */}
+      <div className="flex items-center">
+        <Button variant="outline" asChild>
+          <Link to="/">
+            <ArrowRight />
+            بازگشت به مستندات
+          </Link>
+        </Button>
+      </div>
 
-        {document ? (
+      {/* The title's line, shown once the row is known: the title fills the
+          free width and the options menu (the document's delete, below) sits
+          at the far end — the left. */}
+      {document ? (
+        <div className="flex items-center gap-3">
           <DocumentTitle
             documentId={Number(documentId)}
             title={document.title}
           />
-        ) : null}
-
-        <DocumentOptions documentId={Number(documentId)} />
-      </div>
+          <DocumentOptions documentId={Number(documentId)} />
+        </div>
+      ) : null}
 
       {isError ? (
         <DocumentRetry onRetry={() => void refetch()} />
@@ -92,13 +98,14 @@ function DocumentPage() {
   )
 }
 
-// The document's title, editable in place. The heading fills the top line's
-// free width at the icon buttons' own height (h-8) and truncates a title too
-// long for it; it carries the input's own padding, a matching rounded shape,
-// and a border that stays transparent until the heading has focus, so the
-// swap between the two never jogs the title. The cursor stays the default
-// arrow — text selection is the input's job — and hovering or focusing tints
-// it — bg-gray-100 in light, bg-zinc-700 in dark — with a color transition.
+// The document's title, editable in place. The heading fills its line's
+// free width at the options button's own height (h-8) and truncates a
+// title too long for it; it carries the input's own padding, a matching
+// rounded shape, and a border that stays transparent until the heading
+// has focus, so the swap between the two never jogs the title. The cursor
+// stays the default arrow — text selection is the input's job — and
+// hovering or focusing tints it — bg-gray-100 in light, bg-zinc-700 in
+// dark — with a color transition.
 // A Tab onto it shows the border (the input's own border color) while it is
 // still the heading. Clicking the heading, or pressing Space or Enter while
 // it has focus, swaps it for the input: the same text, same height, the same
@@ -272,9 +279,10 @@ function useDocumentSave(documentId: number) {
   }
 }
 
-// The document's options menu, at the far end of the top line (the left in
-// the RTL layout): an outline ellipsis button labelled by its tooltip, opening
-// a dropdown that holds the document's actions — for now just حذف. Picking
+// The document's options menu, at the far end of the title line (the left in
+// the RTL layout), shown with the title once the row is known: an outline
+// ellipsis button labelled by its tooltip, opening a dropdown that holds the
+// document's actions — for now just حذف. Picking
 // the delete item opens an alert dialog asking to confirm it; the item holds
 // the menu open under the dialog (selecting an item would normally close it),
 // so dismissing the dialog — انصراف or Esc — drops the user back into the
@@ -456,10 +464,11 @@ function DocumentRetry({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-// The loader that holds the content box while a retry's read runs. The
-// route's own pending spinner covers a first read — the loader waits for it —
-// so by the time the page renders, the first read has settled; only a retry
-// starts a read the route knows nothing about.
+// The loader that holds the content box while no row is on hand — the first
+// read the route's loader started without waiting (src/routes/document.ts),
+// or a retry after a failed one; both look the same here. The back button
+// above stays on screen the whole time, so a slow read (e.g. under the dev
+// script's --db-delay) is visible and harmless.
 function DocumentPending() {
   return (
     <div

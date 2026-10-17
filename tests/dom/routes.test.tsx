@@ -350,7 +350,7 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('shows the pending spinner in the content box while the document row is loading', async () => {
+  it('shows the pending spinner under the back button while the document row is loading, then the title with its options menu', async () => {
     let finishGet!: (document: typeof storedDocument) => void
     const get = vi.fn(
       () =>
@@ -362,11 +362,20 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    // The shell is up right away; only the content box waits on the row.
+    // The page is not held back while the row reads: the back button — alone
+    // on the first line, so the page is never a dead end even mid-read — is
+    // up right away while the loader fills what is under it; the title's
+    // line, and with it the options menu, waits for the row.
     await screen.findByRole('button', { name: 'تغییر پوسته' })
     expect(
       await screen.findByRole('status', { name: 'در حال بارگذاری' }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'گزینه ها' }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByRole('heading')).not.toBeInTheDocument()
 
     await act(() => finishGet(storedDocument))
@@ -374,6 +383,7 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'گزینه ها' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
@@ -500,9 +510,9 @@ describe('routes', () => {
     renderRoute('/documents/1')
 
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
-    // The heading fills the top line's free width at the icon buttons' own
-    // height (h-8) and truncates, so a long title never pushes the back and
-    // options buttons around.
+    // The heading fills the title line's free width at the options button's
+    // own height (h-8) and truncates, so a long title never pushes the
+    // options button around.
     expect(heading).toHaveClass('h-8', 'min-w-0', 'flex-1', 'truncate')
     // The cursor stays the default arrow — the text cursor belongs to the
     // input alone — and hovering or focusing tints it with a color
@@ -889,18 +899,21 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
-  it('explains the back button with a tooltip', async () => {
+  it('shows the back button with its icon and label, without a tooltip', async () => {
     installBridge()
     const user = userEvent.setup()
 
     renderRoute('/documents/1')
-    await user.hover(
-      await screen.findByRole('link', { name: 'بازگشت به مستندات' }),
-    )
+    const backLink = await screen.findByRole('link', {
+      name: 'بازگشت به مستندات',
+    })
 
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'بازگشت به مستندات',
-    )
+    // The label is the button's own text and the icon points right — the
+    // back direction in the RTL layout — so nothing explains it through a
+    // tooltip; hovering it raises none.
+    expect(backLink.querySelector('svg')).toHaveClass('lucide-arrow-right')
+    await user.hover(backLink)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('offers delete in the options menu and asks for confirmation before deleting', async () => {
