@@ -11,6 +11,14 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type WindowControls = {
+  minimize: () => Promise<void>
+  toggleMaximize: () => Promise<void>
+  close: () => Promise<void>
+  isMaximized: () => Promise<boolean>
+  onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
+}
+
 declare global {
   interface Window {
     WordApp: {
@@ -26,6 +34,7 @@ declare global {
           changes: DocumentChanges,
         ) => Promise<DocumentRecord | undefined>
       }
+      windowControls: WindowControls
     }
   }
 }
