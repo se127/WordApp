@@ -136,6 +136,16 @@ implementing it — never decide that on your own. If it should:
   familiar with how to use them: which components exist and their props, structure, and
   exports.
 
+## Status and loading text — never gray
+
+- Spinners, «در حال ...» text, and empty-state sentences (like
+  «هنوز سندی ثبت نشده است.») use the primary text color, the same
+  black-on-light / white-on-dark as the «مستندات» heading. Leave them with no color
+  class so they inherit `text-foreground`; never style them `text-muted-foreground`.
+- `text-muted-foreground` (gray) is only for deliberately secondary text placed
+  directly under its primary counterpart, the way an `AlertDialogDescription` sits
+  lighter under its `AlertDialogTitle`. When in doubt, use the primary color.
+
 ## Tests — always in step with the code
 
 - Always write tests for the code you add or change, in the same commit. When you remove
