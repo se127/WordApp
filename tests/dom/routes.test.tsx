@@ -24,13 +24,15 @@ const storedDocument = {
 // `count` reports what `create` stored, the way the database would; a test can
 // take over a call to hold it open and observe the page mid-read: `create`
 // (the button's own spinner), `get` (the content box's pending spinner, or its
-// failed-read report and retry), or `count` (the heading's inline loader, or
-// its pulsing stale number).
+// failed-read report and retry), `count` (the heading's inline loader, or its
+// pulsing stale number), or `remove` (the bridge's delete — named around the
+// reserved word — held open to watch the delete dialog mid-write).
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
     get?: () => Promise<typeof storedDocument>
     count?: () => Promise<number>
+    remove?: () => Promise<void>
   } = {},
 ) {
   let storedCount = 0
@@ -42,13 +44,14 @@ function installBridge(
     })
   const get = options.get ?? vi.fn(async () => storedDocument)
   const count = options.count ?? vi.fn(async () => storedCount)
+  const remove = options.remove ?? vi.fn(async () => undefined)
 
   window.WordApp = {
     platform: 'win32',
-    documents: { create, get, count },
+    documents: { create, get, count, delete: remove },
   } satisfies WordAppBridge
 
-  return { create, get, count }
+  return { create, get, count, remove }
 }
 
 // Mirrors the provider stack from src/main.tsx plus the QueryClientProvider
@@ -541,6 +544,216 @@ describe('routes', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'بازگشت به مستندات',
     )
+  })
+
+  it('offers delete in the options menu and asks for confirmation before deleting', async () => {
+    const { remove } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    // The options button is an ellipsis icon button; its menu holds the
+    // delete item with its trash icon.
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    const deleteItem = await screen.findByRole('menuitem', { name: 'حذف' })
+    expect(deleteItem.querySelector('svg')).toHaveClass('lucide-trash')
+    expect(deleteItem).toHaveAttribute('data-variant', 'destructive')
+    await user.click(deleteItem)
+
+    // Deleting is not immediate: the confirmation dialog spells out what is
+    // being asked, with the destructive confirm and the cancel.
+    const dialog = await screen.findByRole('alertdialog')
+    expect(
+      within(dialog).getByText(
+        'آیا مطمئن هستید که می خواهید این سند را حذف کنید؟',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('این عملیات غیر قابل بازگشت است'),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'بله' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'انصراف' }),
+    ).toBeInTheDocument()
+
+    // The menu stayed open under the dialog — the modal dialog hides it from
+    // assistive tech with aria-hidden, but it is still mounted — and nothing
+    // was deleted yet.
+    expect(
+      screen.getByRole('menuitem', { hidden: true, name: 'حذف' }),
+    ).toBeInTheDocument()
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('keeps the menu open when the delete dialog is dismissed', async () => {
+    const { remove } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    const dialog = await screen.findByRole('alertdialog')
+
+    // انصراف dismisses the dialog and leaves the menu it was opened from.
+    await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
+
+    // Esc dismisses it the same way.
+    await user.click(screen.getByRole('menuitem', { name: 'حذف' }))
+    await screen.findByRole('alertdialog')
+    await user.keyboard('{Escape}')
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
+
+    // Neither dismissal deleted the document.
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('holds the dialog open with both buttons disabled while the delete runs', async () => {
+    let finishDelete!: () => void
+    const remove = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDelete = resolve
+        }),
+    )
+    installBridge({ remove })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    // The delete is in flight (like a write under --db-delay): the confirm
+    // button carries the pending label with a spinning icon, and both
+    // buttons are disabled...
+    expect(remove).toHaveBeenCalledWith(1)
+    const confirm = screen.getByRole('button', { name: 'در حال حذف...' })
+    expect(confirm).toBeDisabled()
+    expect(confirm.querySelector('svg')).toHaveClass('animate-spin')
+    expect(screen.getByRole('button', { name: 'انصراف' })).toBeDisabled()
+
+    // ...and Esc cannot take the dialog down mid-write.
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    // Released, the delete lands: home, with the success toast.
+    await act(() => finishDelete())
+    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('deletes the document, returns home, and re-reads the count', async () => {
+    let documentCount = 1
+    const count = vi.fn(async () => documentCount)
+    const remove = vi.fn(async () => {
+      documentCount = 0
+    })
+    const { get } = installBridge({ count, remove })
+    const user = userEvent.setup()
+
+    const { router } = renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (1)' })
+
+    await act(() =>
+      router.navigate({
+        to: '/documents/$documentId',
+        params: { documentId: '1' },
+      }),
+    )
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+
+    // Back on the home page, the count was read again — the delete
+    // invalidated it — and shows the store's new number.
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(remove).toHaveBeenCalledWith(1)
+    expect(count).toHaveBeenCalledTimes(2)
+
+    // The deleted row is out of the query cache: reopening its page reads
+    // the database again instead of showing the cached copy.
+    await act(() =>
+      router.navigate({
+        to: '/documents/$documentId',
+        params: { documentId: '1' },
+      }),
+    )
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a failed delete with an error toast and keeps the dialog open for another try', async () => {
+    let attempts = 0
+    const remove = vi.fn((): Promise<void> => {
+      attempts += 1
+      // The first delete fails (a stand-in for the dev script's
+      // --with-db-failure); the retry removes the row for real.
+      return attempts === 1
+        ? Promise.reject(
+            new Error(
+              'The deleteDocument operation failed (injected by --with-db-failure)',
+            ),
+          )
+        : Promise.resolve()
+    })
+    installBridge({ remove })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    // The toast tells the user the delete failed and to try again; the
+    // store's technical message stays out of it.
+    expect(
+      await screen.findByText('حذف سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'The deleteDocument operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+
+    // The dialog stayed open with its buttons ready for another try, and no
+    // success toast was raised.
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByRole('button', { name: 'انصراف' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'بله' })).toBeEnabled()
+    expect(screen.queryByText('سند حذف شد')).not.toBeInTheDocument()
+
+    // The second attempt goes through and lands home.
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(remove).toHaveBeenCalledTimes(2)
   })
 
   it('reuses the cached count when the home page is revisited without a write', async () => {

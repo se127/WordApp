@@ -61,8 +61,11 @@ afterEach(async () => {
   // the async scopes of its last awaits until a turn of the event loop lets
   // them retire. So collect and try the removal again every turn instead of
   // using rmSync's own retries, which are synchronous and would never give
-  // the scopes that turn.
-  for (let attempt = 0; temporaryDirectory && attempt < 20; attempt += 1) {
+  // the scopes that turn. The bound is generous because the store releases
+  // over many collection passes (its prepared statements are collected one
+  // by one) — a small bound let a handle stay locked through every turn —
+  // while extra turns cost nothing once the handle is already released.
+  for (let attempt = 0; temporaryDirectory && attempt < 500; attempt += 1) {
     await new Promise((resolve) => setImmediate(resolve))
     collectDatabaseObjects()
 
@@ -207,6 +210,28 @@ describe('documents', () => {
     expect(await store.countDocuments()).toBe(2)
   })
 
+  it('deletes one document and keeps the others', async () => {
+    const { database: store } = openTestDatabase()
+    const kept = await store.createDocument()
+    const removed = await store.createDocument()
+
+    await store.deleteDocument(removed.id)
+
+    expect(await store.getDocument(removed.id)).toBeUndefined()
+    expect(await store.getDocument(kept.id)).toEqual(kept)
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('deleting a missing document removes nothing', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    await store.deleteDocument(document.id + 1000)
+
+    expect(await store.countDocuments()).toBe(1)
+    expect(await store.getDocument(document.id)).toEqual(document)
+  })
+
   it('bumps updated_at on update but keeps an explicitly set one', async () => {
     const { database: store, databasePath } = openTestDatabase()
     const document = await store.createDocument()
@@ -336,6 +361,7 @@ describe('databaseOperationNames', () => {
       'createDocument',
       'getDocument',
       'countDocuments',
+      'deleteDocument',
     ])
   })
 })
@@ -367,7 +393,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
     )
   })
 })
@@ -445,6 +471,18 @@ describe('openDatabase failing operations', () => {
     )
   })
 
+  it('fails a selected delete before its query, removing nothing', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['deleteDocument'],
+    })
+
+    const document = await store.createDocument()
+    await expect(store.deleteDocument(document.id)).rejects.toThrowError(
+      'The deleteDocument operation failed (injected by --with-db-failure)',
+    )
+    expect(await store.getDocument(document.id)).toEqual(document)
+  })
+
   it('fails nothing when the selection is empty', async () => {
     const { database: store } = openTestDatabase({ failingOperations: [] })
 
@@ -459,7 +497,12 @@ describe('openDatabase failing operations', () => {
     try {
       const { database: store } = openTestDatabase({
         operationDelayMs: 2000,
-        failingOperations: ['createDocument', 'getDocument', 'countDocuments'],
+        failingOperations: [
+          'createDocument',
+          'getDocument',
+          'countDocuments',
+          'deleteDocument',
+        ],
       })
 
       const failures: unknown[] = []
@@ -468,6 +511,7 @@ describe('openDatabase failing operations', () => {
         store.createDocument(),
         store.getDocument(1),
         store.countDocuments(),
+        store.deleteDocument(1),
       ] as const
       for (const operation of operations) {
         void operation.catch((error: unknown) => {
@@ -480,10 +524,10 @@ describe('openDatabase failing operations', () => {
       await vi.advanceTimersByTimeAsync(1999)
       expect(settled).toBe(0)
 
-      // At 2000ms all three fail with the injected message, so the renderer's
+      // At 2000ms all four fail with the injected message, so the renderer's
       // busy states are watchable under --db-delay before the failure lands.
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(3)
+      expect(settled).toBe(4)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,

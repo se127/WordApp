@@ -26,6 +26,7 @@ function installDocuments(
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 1),
+      delete: vi.fn(async () => undefined),
       ...documents,
     },
   } satisfies WordAppBridge

@@ -12,12 +12,14 @@ const operations: DatabaseOperationName[] = [
   'createDocument',
   'getDocument',
   'countDocuments',
+  'deleteDocument',
 ]
 
 const firstFrame = [
   '> [ ] createDocument',
   '  [ ] getDocument',
   '  [ ] countDocuments',
+  '  [ ] deleteDocument',
 ]
 
 type PromptInput = PassThrough & {
@@ -71,10 +73,13 @@ async function type(input: PromptInput, sequence: string): Promise<void> {
 }
 
 // The option lines of the prompt's most recent draw, cursor marker and all.
-// The prompt backs up over its previous block before redrawing, so only what
-// follows the last cursor-up escape is current.
+// The prompt backs up over its previous block before redrawing — the block's
+// height varies with the number of operations — so only what follows the last
+// cursor-up escape is current.
 function lastOptions(text: string): string[] {
-  const blocks = text.split('\x1b[5A')
+  // The cursor-up escape is the prompt's own output; matching it is the point.
+  // eslint-disable-next-line no-control-regex
+  const blocks = text.split(/\x1b\[\d+A/)
   const lastBlock = blocks[blocks.length - 1] ?? ''
 
   return lastBlock
@@ -101,6 +106,7 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '> [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] deleteDocument',
     ])
 
     await type(input, '\x1b[B')
@@ -108,6 +114,15 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '> [ ] countDocuments',
+      '  [ ] deleteDocument',
+    ])
+
+    await type(input, '\x1b[B')
+    expect(lastOptions(text())).toEqual([
+      '  [ ] createDocument',
+      '  [ ] getDocument',
+      '  [ ] countDocuments',
+      '> [ ] deleteDocument',
     ])
 
     // One more down from the last wraps back to the first.
@@ -119,7 +134,8 @@ describe('promptDbFailures', () => {
     expect(lastOptions(text())).toEqual([
       '  [ ] createDocument',
       '  [ ] getDocument',
-      '> [ ] countDocuments',
+      '  [ ] countDocuments',
+      '> [ ] deleteDocument',
     ])
   })
 
@@ -131,6 +147,7 @@ describe('promptDbFailures', () => {
       '> [x] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
+      '  [ ] deleteDocument',
     ])
 
     // Space again takes the check back off.

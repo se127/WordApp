@@ -11,6 +11,7 @@ import {
 import {
   documentsCountChannel,
   documentsCreateChannel,
+  documentsDeleteChannel,
   documentsGetChannel,
 } from '../../electron/ipc.ts'
 
@@ -44,6 +45,7 @@ const mocks = vi.hoisted(() => {
     createDocument: vi.fn(),
     getDocument: vi.fn(),
     countDocuments: vi.fn(),
+    deleteDocument: vi.fn(),
     close: vi.fn(),
   }
 
@@ -338,6 +340,23 @@ describe('documents database', () => {
     expect(handlerFor('handle', documentsCountChannel)({})).toBe(3)
   })
 
+  it('deletes documents over IPC', async () => {
+    await importMain()
+
+    expect(handlerFor('handle', documentsDeleteChannel)({}, 1)).toBeUndefined()
+    expect(mocks.database.deleteDocument).toHaveBeenCalledWith(1)
+  })
+
+  it('ignores delete calls whose id is not a safe integer', async () => {
+    await importMain()
+    const remove = handlerFor('handle', documentsDeleteChannel)
+
+    expect(remove({}, '1')).toBeUndefined()
+    expect(remove({}, 1.5)).toBeUndefined()
+    expect(remove({}, Number.NaN)).toBeUndefined()
+    expect(mocks.database.deleteDocument).not.toHaveBeenCalled()
+  })
+
   it('closes the database when the app is about to quit', async () => {
     await importMain()
 
@@ -570,7 +589,7 @@ describe('documents database', () => {
     vi.stubEnv('DEV_DB_FAILURE', 'users')
     mocks.parseDbFailureArgument.mockImplementationOnce(() => {
       throw new Error(
-        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
       )
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -582,7 +601,7 @@ describe('documents database', () => {
         expect(mocks.app.exit).toHaveBeenCalledWith(1)
       })
       expect(consoleError).toHaveBeenCalledWith(
-        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

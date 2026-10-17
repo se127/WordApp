@@ -21,6 +21,8 @@ declare global {
         get: (id: number) => Promise<DocumentRecord | undefined>
         // Counts the stored documents; the home page shows the number.
         count: () => Promise<number>
+        // Deletes one document; deleting a missing id does nothing.
+        delete: (id: number) => Promise<void>
       }
     }
   }

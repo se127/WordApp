@@ -3,6 +3,7 @@ import type { DocumentRecord } from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
+  documentsDeleteChannel,
   documentsGetChannel,
 } from './ipc.ts'
 
@@ -16,5 +17,7 @@ contextBridge.exposeInMainWorld('WordApp', {
     get: (id: number): Promise<DocumentRecord | undefined> =>
       ipcRenderer.invoke(documentsGetChannel, id),
     count: (): Promise<number> => ipcRenderer.invoke(documentsCountChannel),
+    delete: (id: number): Promise<void> =>
+      ipcRenderer.invoke(documentsDeleteChannel, id),
   },
 })
