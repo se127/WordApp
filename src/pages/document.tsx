@@ -1,36 +1,10 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { documentQuery, documentsCountQuery } from '@/lib/query'
+import { documentQuery, documentsQuery } from '@/lib/query'
 import type { DocumentChanges } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import {
-  ArrowRight,
-  Ellipsis,
-  LoaderCircle,
-  RefreshCw,
-  Trash,
-} from 'lucide-react'
+import { ArrowRight, LoaderCircle, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -38,9 +12,11 @@ const documentRouteApi = getRouteApi('/documents/$documentId')
 
 function DocumentPage() {
   const { documentId } = documentRouteApi.useParams()
+  const navigate = useNavigate()
   const {
     data: document,
     isError,
+    isFetching,
     refetch,
   } = useQuery(documentQuery(Number(documentId)))
 
@@ -53,6 +29,13 @@ function DocumentPage() {
             بازگشت به مستندات
           </Link>
         </Button>
+        {document !== undefined && isFetching ? (
+          <LoaderCircle
+            role="status"
+            aria-label="در حال به روز رسانی سند"
+            className="ms-auto size-5 animate-spin text-muted-foreground"
+          />
+        ) : null}
       </div>
 
       {document ? (
@@ -61,7 +44,10 @@ function DocumentPage() {
             documentId={Number(documentId)}
             title={document.title}
           />
-          <DocumentOptions documentId={Number(documentId)} />
+          <DocumentOptions
+            documentId={Number(documentId)}
+            onDocumentDeleted={() => navigate({ to: '/' })}
+          />
         </div>
       ) : null}
 
@@ -196,147 +182,24 @@ function useDocumentSave(documentId: number) {
     void queryClient.invalidateQueries({
       queryKey: documentQuery(documentId).queryKey,
     })
+    void queryClient.invalidateQueries({
+      queryKey: documentsQuery.queryKey,
+    })
 
     return true
   }
 }
 
-function DocumentOptions({ documentId }: { documentId: number }) {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const deleteDocument = async (): Promise<void> => {
-    setIsDeleting(true)
-    try {
-      const deleted = await window.WordApp?.documents.delete(documentId).then(
-        () => true,
-        () => {
-          toast.error('حذف سند ناموفق بود. دوباره تلاش کنید.')
-          return false
-        },
-      )
-      if (!deleted) {
-        return
-      }
-
-      toast.success('سند حذف شد.')
-
-      void queryClient.invalidateQueries({
-        queryKey: documentsCountQuery.queryKey,
-      })
-
-      await navigate({ to: '/' })
-
-      queryClient.removeQueries({
-        queryKey: documentQuery(documentId).queryKey,
-      })
-    } finally {
-      setIsDeleting(false)
-    }
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="ms-auto"
-                aria-label="گزینه ها"
-              >
-                <Ellipsis />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>گزینه ها</TooltipContent>
-        </Tooltip>
-
-        <DropdownMenuContent side="bottom" align="end">
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={(event) => {
-              event.preventDefault()
-              setIsDeleteDialogOpen(true)
-            }}
-          >
-            <Trash />
-            حذف
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
-        <AlertDialogContent
-          onEscapeKeyDown={(event) => {
-            if (isDeleting) {
-              event.preventDefault()
-            }
-          }}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              آیا مطمئن هستید که می خواهید این سند را حذف کنید؟
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              این عملیات غیر قابل بازگشت است.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>انصراف</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={isDeleting}
-              onClick={(event) => {
-                event.preventDefault()
-                void deleteDocument()
-              }}
-            >
-              {isDeleting ? (
-                <>
-                  <LoaderCircle className="animate-spin" />
-                  در حال حذف...
-                </>
-              ) : (
-                'بله'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  )
-}
-
 function DocumentRetry({ onRetry }: { onRetry: () => void }) {
-  const retryLabel = 'تلاش دوباره برای بارگذاری سند'
-
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-h-32 w-full flex-1 flex-col items-center justify-center gap-3">
       <p className="text-sm text-destructive">
         بارگذاری سند ناموفق بود. دوباره تلاش کنید.
       </p>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            aria-label={retryLabel}
-            onClick={onRetry}
-          >
-            <RefreshCw />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{retryLabel}</TooltipContent>
-      </Tooltip>
+      <Button variant="outline" onClick={onRetry}>
+        <RefreshCw className="text-destructive" />
+        تلاش دوباره
+      </Button>
     </div>
   )
 }

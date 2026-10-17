@@ -33,6 +33,7 @@ describe('preload bridge', () => {
     expect(typeof api.documents.create).toBe('function')
     expect(typeof api.documents.get).toBe('function')
     expect(typeof api.documents.count).toBe('function')
+    expect(typeof api.documents.list).toBe('function')
     expect(typeof api.documents.delete).toBe('function')
     expect(typeof api.documents.save).toBe('function')
   })
@@ -57,6 +58,10 @@ describe('preload bridge', () => {
     mocks.invoke.mockResolvedValue(5)
     await expect(api.documents.count()).resolves.toBe(5)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:count')
+
+    mocks.invoke.mockResolvedValue([record])
+    await expect(api.documents.list()).resolves.toEqual([record])
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:list')
 
     mocks.invoke.mockResolvedValue(undefined)
     await expect(api.documents.delete(7)).resolves.toBeUndefined()
