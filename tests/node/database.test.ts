@@ -232,6 +232,91 @@ describe('documents', () => {
     expect(await store.getDocument(document.id)).toEqual(document)
   })
 
+  it('saves a new title and returns the stored row', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    const saved = await store.saveDocument(document.id, {
+      title: 'گزارش تازه',
+    })
+
+    expect(saved?.title).toBe('گزارش تازه')
+    expect(saved?.body).toBe('')
+    expect(saved?.createdAt).toBe(document.createdAt)
+    expect(saved).toEqual(await store.getDocument(document.id))
+  })
+
+  it('saves the body without touching the title', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+    await store.saveDocument(document.id, { title: 'گزارش' })
+
+    const saved = await store.saveDocument(document.id, { body: 'متن تازه' })
+
+    expect(saved?.title).toBe('گزارش')
+    expect(saved?.body).toBe('متن تازه')
+  })
+
+  it('saves both fields in one call', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    const saved = await store.saveDocument(document.id, {
+      title: 'گزارش',
+      body: 'متن',
+    })
+
+    expect(saved?.title).toBe('گزارش')
+    expect(saved?.body).toBe('متن')
+  })
+
+  it('saves an emptied title instead of leaving the old one', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+    await store.saveDocument(document.id, { title: 'گزارش' })
+
+    const saved = await store.saveDocument(document.id, { title: '' })
+
+    expect(saved?.title).toBe('')
+  })
+
+  it('a save without changes reads the row back and writes nothing', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    const saved = await store.saveDocument(document.id, {})
+
+    expect(saved).toEqual(document)
+  })
+
+  it('saving a missing document changes nothing and resolves to undefined', async () => {
+    const { database: store } = openTestDatabase()
+    await store.createDocument()
+
+    expect(await store.saveDocument(1000, { title: 'گزارش' })).toBeUndefined()
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('bumps updated_at through the trigger when a save changes a field', async () => {
+    const { database: store, databasePath } = openTestDatabase()
+    const document = await store.createDocument()
+    const oldUpdate = document.createdAt - 60_000
+    const raw = new DatabaseSync(databasePath)
+
+    try {
+      // An old updated_at makes the trigger's refresh observable.
+      raw
+        .prepare('UPDATE documents SET updated_at = ? WHERE id = ?')
+        .run(oldUpdate, document.id)
+
+      const saved = await store.saveDocument(document.id, { title: 'گزارش' })
+
+      expect(saved?.updatedAt).toBeGreaterThan(oldUpdate)
+    } finally {
+      raw.close()
+    }
+  })
+
   it('bumps updated_at on update but keeps an explicitly set one', async () => {
     const { database: store, databasePath } = openTestDatabase()
     const document = await store.createDocument()
@@ -362,6 +447,7 @@ describe('databaseOperationNames', () => {
       'getDocument',
       'countDocuments',
       'deleteDocument',
+      'saveDocument',
     ])
   })
 })
@@ -393,7 +479,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument, saveDocument',
     )
   })
 })
@@ -427,6 +513,29 @@ describe('openDatabase operation delay', () => {
       expect(created.title).toBe(untitledDocumentTitle)
       expect(count).toBe(1)
       expect(fetched).toEqual(created)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits the configured delay before a save runs', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase({ operationDelayMs: 2000 })
+
+      let settled = false
+      const saving = store.saveDocument(1, { title: 'گزارش' }).then((saved) => {
+        settled = true
+        return saved
+      })
+
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await saving).toBeUndefined()
+      expect(settled).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -483,6 +592,20 @@ describe('openDatabase failing operations', () => {
     expect(await store.getDocument(document.id)).toEqual(document)
   })
 
+  it('fails a selected save before its query, changing nothing', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['saveDocument'],
+    })
+
+    const document = await store.createDocument()
+    await expect(
+      store.saveDocument(document.id, { title: 'گزارش' }),
+    ).rejects.toThrowError(
+      'The saveDocument operation failed (injected by --with-db-failure)',
+    )
+    expect(await store.getDocument(document.id)).toEqual(document)
+  })
+
   it('fails nothing when the selection is empty', async () => {
     const { database: store } = openTestDatabase({ failingOperations: [] })
 
@@ -502,6 +625,7 @@ describe('openDatabase failing operations', () => {
           'getDocument',
           'countDocuments',
           'deleteDocument',
+          'saveDocument',
         ],
       })
 
@@ -512,6 +636,7 @@ describe('openDatabase failing operations', () => {
         store.getDocument(1),
         store.countDocuments(),
         store.deleteDocument(1),
+        store.saveDocument(1, { title: 'گزارش' }),
       ] as const
       for (const operation of operations) {
         void operation.catch((error: unknown) => {
@@ -524,10 +649,10 @@ describe('openDatabase failing operations', () => {
       await vi.advanceTimersByTimeAsync(1999)
       expect(settled).toBe(0)
 
-      // At 2000ms all four fail with the injected message, so the renderer's
+      // At 2000ms all five fail with the injected message, so the renderer's
       // busy states are watchable under --db-delay before the failure lands.
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(4)
+      expect(settled).toBe(5)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,

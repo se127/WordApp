@@ -36,6 +36,7 @@ describe('preload bridge', () => {
     expect(typeof api.documents.get).toBe('function')
     expect(typeof api.documents.count).toBe('function')
     expect(typeof api.documents.delete).toBe('function')
+    expect(typeof api.documents.save).toBe('function')
   })
 
   it('forwards document calls over the document channels', async () => {
@@ -62,5 +63,13 @@ describe('preload bridge', () => {
     mocks.invoke.mockResolvedValue(undefined)
     await expect(api.documents.delete(7)).resolves.toBeUndefined()
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:delete', 7)
+
+    mocks.invoke.mockResolvedValue(record)
+    await expect(api.documents.save(7, { title: 'گزارش' })).resolves.toEqual(
+      record,
+    )
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:save', 7, {
+      title: 'گزارش',
+    })
   })
 })

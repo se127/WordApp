@@ -8,6 +8,14 @@ export type DocumentRecord = {
   updatedAt: number
 }
 
+// The changes one save may carry: any subset of the editable fields, so the
+// title edit and the future body edit go through the same save. Mirrored in
+// electron/database.ts, which is the source of truth.
+export type DocumentChanges = {
+  title?: string
+  body?: string
+}
+
 declare global {
   interface Window {
     // Exposed by electron/preload.ts
@@ -23,6 +31,12 @@ declare global {
         count: () => Promise<number>
         // Deletes one document; deleting a missing id does nothing.
         delete: (id: number) => Promise<void>
+        // Saves changes to one document and returns the stored row;
+        // undefined when no such id exists.
+        save: (
+          id: number,
+          changes: DocumentChanges,
+        ) => Promise<DocumentRecord | undefined>
       }
     }
   }

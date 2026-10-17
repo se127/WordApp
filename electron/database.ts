@@ -12,6 +12,14 @@ export type DocumentRecord = {
   updatedAt: number
 }
 
+// The changes one save may carry: any subset of the editable fields, so the
+// title edit and the future body edit go through the same operation.
+// Mirrored in src/types/global.d.ts.
+export type DocumentChanges = {
+  title?: string
+  body?: string
+}
+
 // The same row as the database stores it: snake_case columns, and timestamps
 // as Unix epoch milliseconds (integer, time-zone free, and cheap to sort).
 type DocumentRow = {
@@ -30,6 +38,10 @@ export type WordAppDatabase = {
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
   countDocuments: () => Promise<number>
   deleteDocument: (id: number) => Promise<void>
+  saveDocument: (
+    id: number,
+    changes: DocumentChanges,
+  ) => Promise<DocumentRecord | undefined>
   close: () => void
 }
 
@@ -43,6 +55,7 @@ export const databaseOperationNames = [
   'getDocument',
   'countDocuments',
   'deleteDocument',
+  'saveDocument',
 ] as const
 
 export type DatabaseOperationName = (typeof databaseOperationNames)[number]
@@ -193,6 +206,13 @@ export function openDatabase(
   const deleteDocumentById = database.prepare(
     'DELETE FROM documents WHERE id = ?',
   )
+  // One UPDATE serves every save: a missing change binds NULL and
+  // COALESCE(NULL, column) leaves that column as it was. The trigger keeps
+  // updated_at honest when the update does not set it itself.
+  const updateDocument = database.prepare(
+    `UPDATE documents SET title = COALESCE(?, title), body = COALESCE(?, body)
+     WHERE id = ?`,
+  )
 
   const toRecord = (row: DocumentRow): DocumentRecord => ({
     id: row.id,
@@ -247,6 +267,23 @@ export function openDatabase(
       // Deleting an id that does not exist is not an error: the statement
       // simply removes no rows.
       deleteDocumentById.run(id)
+    },
+
+    async saveDocument(id, changes) {
+      await waitBeforeQuery()
+      failInjectedOperation('saveDocument')
+
+      // A save with neither field changes nothing, so it skips the write and
+      // just reads the row back.
+      if (changes.title !== undefined || changes.body !== undefined) {
+        updateDocument.run(changes.title ?? null, changes.body ?? null, id)
+      }
+
+      // The saved row comes back like a fresh read — over the trigger's
+      // updated_at write — so the caller can show it without a second query.
+      // A missing id reads nothing back and resolves to undefined.
+      const row = selectDocument.get(id) as DocumentRow | undefined
+      return row === undefined ? undefined : toRecord(row)
     },
 
     close() {

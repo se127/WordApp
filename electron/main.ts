@@ -7,12 +7,13 @@ import {
   parseSeedArgument,
   resetDatabase,
 } from './database.ts'
-import type { DatabaseOperationName } from './database.ts'
+import type { DatabaseOperationName, DocumentChanges } from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
   documentsGetChannel,
+  documentsSaveChannel,
 } from './ipc.ts'
 
 // The project root in dev (`electron .`) and the app.asar root in the packaged
@@ -137,6 +138,20 @@ function createWindow(): void {
   loadPage()
 }
 
+// Narrows the renderer's payload for the save channel: the changes must be an
+// object whose title and body — when present — are strings.
+function isDocumentChanges(value: unknown): value is DocumentChanges {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { title, body } = value as { title?: unknown; body?: unknown }
+  return (
+    (title === undefined || typeof title === 'string') &&
+    (body === undefined || typeof body === 'string')
+  )
+}
+
 void app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.wordapp.app')
@@ -253,6 +268,15 @@ void app.whenReady().then(async () => {
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.deleteDocument(id)
       : undefined,
+  )
+  ipcMain.handle(
+    documentsSaveChannel,
+    (_event, id: unknown, changes: unknown) =>
+      typeof id === 'number' &&
+      Number.isSafeInteger(id) &&
+      isDocumentChanges(changes)
+        ? database.saveDocument(id, changes)
+        : undefined,
   )
 
   app.on('will-quit', () => {

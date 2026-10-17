@@ -54,8 +54,8 @@ export const documentsCountQuery = queryOptions({
 })
 
 // One document by id, as shown on its page. Revisiting a document reuses the
-// cached row; a future edit will invalidate this query so the next visit
-// re-reads it from the database.
+// cached row; a save — the page's title edit now, its body once that lands —
+// invalidates this query so the next read asks the database again.
 export const documentQuery = (id: number) =>
   queryOptions({
     queryKey: ['documents', id],
