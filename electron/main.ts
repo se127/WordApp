@@ -11,6 +11,7 @@ import type { DatabaseOperationName } from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
+  documentsDeleteChannel,
   documentsGetChannel,
 } from './ipc.ts'
 
@@ -248,6 +249,11 @@ void app.whenReady().then(async () => {
       : undefined,
   )
   ipcMain.handle(documentsCountChannel, () => database.countDocuments())
+  ipcMain.handle(documentsDeleteChannel, (_event, id: unknown) =>
+    typeof id === 'number' && Number.isSafeInteger(id)
+      ? database.deleteDocument(id)
+      : undefined,
+  )
 
   app.on('will-quit', () => {
     database.close()

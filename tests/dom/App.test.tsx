@@ -21,6 +21,7 @@ function installBridge() {
       })),
       get: vi.fn(async () => undefined),
       count: vi.fn(async () => 0),
+      delete: vi.fn(async () => undefined),
     },
   } satisfies WordAppBridge
 }

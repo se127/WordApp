@@ -29,6 +29,7 @@ export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
   countDocuments: () => Promise<number>
+  deleteDocument: (id: number) => Promise<void>
   close: () => void
 }
 
@@ -41,6 +42,7 @@ export const databaseOperationNames = [
   'createDocument',
   'getDocument',
   'countDocuments',
+  'deleteDocument',
 ] as const
 
 export type DatabaseOperationName = (typeof databaseOperationNames)[number]
@@ -188,6 +190,9 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
+  const deleteDocumentById = database.prepare(
+    'DELETE FROM documents WHERE id = ?',
+  )
 
   const toRecord = (row: DocumentRow): DocumentRecord => ({
     id: row.id,
@@ -233,6 +238,15 @@ export function openDatabase(
 
       const row = selectDocumentCount.get() as { count: number }
       return row.count
+    },
+
+    async deleteDocument(id) {
+      await waitBeforeQuery()
+      failInjectedOperation('deleteDocument')
+
+      // Deleting an id that does not exist is not an error: the statement
+      // simply removes no rows.
+      deleteDocumentById.run(id)
     },
 
     close() {
