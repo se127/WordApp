@@ -3,9 +3,11 @@ import path from 'node:path'
 import {
   openDatabase,
   parseDbDelayArgument,
+  parseDbFailureArgument,
   parseSeedArgument,
   resetDatabase,
 } from './database.ts'
+import type { DatabaseOperationName } from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
@@ -31,6 +33,12 @@ const devSeed = app.isPackaged ? undefined : process.env.DEV_SEED
 // operation waits that long before running, so the renderer's loading states
 // can be watched by hand. Packaged builds never see the variable.
 const devDbDelay = app.isPackaged ? undefined : process.env.DEV_DB_DELAY
+
+// Set by scripts/electron.ts on every dev run (empty when no
+// --with-db-failure was passed, or its prompt picked nothing): the picked
+// operations fail instead of running their query, so the renderer's error
+// handling can be exercised by hand. Packaged builds never see the variable.
+const devDbFailures = app.isPackaged ? undefined : process.env.DEV_DB_FAILURE
 
 // Windows are created hidden (see createWindow) and revealed as soon as the
 // renderer has painted its first frame — index.html's static loading screen,
@@ -206,7 +214,32 @@ void app.whenReady().then(async () => {
     }
   }
 
-  const database = openDatabase(databasePath, { operationDelayMs })
+  // The dev-only --with-db-failure flag makes the operations its prompt
+  // picked fail instead of running; like the seed and delay lines above, the
+  // echo shows up in the terminal that ran `bun dev`.
+  let failingOperations: DatabaseOperationName[] = []
+  if (devDbFailures !== undefined) {
+    try {
+      failingOperations = parseDbFailureArgument(devDbFailures)
+
+      if (failingOperations.length > 0) {
+        console.log(`db-failure: ${failingOperations.join(', ')}`)
+      }
+    } catch (error) {
+      console.error(
+        `The dev db failure could not be applied: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      app.exit(1)
+      return
+    }
+  }
+
+  const database = openDatabase(databasePath, {
+    operationDelayMs,
+    failingOperations,
+  })
 
   ipcMain.handle(documentsCreateChannel, () => database.createDocument())
   ipcMain.handle(documentsGetChannel, (_event, id: unknown) =>

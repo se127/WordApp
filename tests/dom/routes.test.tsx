@@ -1,11 +1,12 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { createQueryClient } from '@/lib/query'
+import { createQueryClient, documentsCountQuery } from '@/lib/query'
 import { createAppRouter } from '@/router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 type WordAppBridge = Window['WordApp']
@@ -52,7 +53,9 @@ function installBridge(
 // Mirrors the provider stack from src/main.tsx plus the QueryClientProvider
 // from src/App.tsx, over a router that starts at the given entry instead of
 // the real hash history. Each call builds a fresh QueryClient, so no query
-// cache leaks between tests.
+// cache leaks between tests. The client comes back along with the router so a
+// test can drive cache changes the UI would trigger itself (the create flow's
+// count invalidation, say).
 function renderRoute(initialEntry: string) {
   const queryClient = createQueryClient()
   const router = createAppRouter(
@@ -70,10 +73,13 @@ function renderRoute(initialEntry: string) {
     </DirectionProvider>,
   )
 
-  return router
+  return { router, queryClient }
 }
 
 afterEach(() => {
+  // Sonner keeps its toasts in a store of its own, outside React; drop them
+  // so a lingering toast cannot leak into the next test.
+  toast.dismiss()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
 })
@@ -84,9 +90,14 @@ describe('routes', () => {
 
     renderRoute('/')
 
-    expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
-    ).toBeInTheDocument()
+    const heading = await screen.findByRole('heading', {
+      name: 'مستندات (0)',
+    })
+    expect(heading).toBeInTheDocument()
+    // The heading is one fixed-height flex line, so the count's spot swapping
+    // states (number, loader, retry button) never changes the heading's
+    // height and moves what sits under it.
+    expect(heading).toHaveClass('flex', 'h-8', 'items-center')
     expect(
       screen.getByRole('button', { name: 'افزودن سند' }),
     ).toBeInTheDocument()
@@ -156,6 +167,165 @@ describe('routes', () => {
     await act(() => finishRefetch(1))
 
     expect(await screen.findByText('(1)')).not.toHaveClass('animate-pulse')
+  })
+
+  it('shows a destructive retry button when the count read fails and recovers the count when pressed', async () => {
+    let attempts = 0
+    const count = vi.fn((): Promise<number> => {
+      attempts += 1
+      // The first read fails (a stand-in for the dev script's
+      // --with-db-failure); the retry reads the count for real.
+      return attempts === 1
+        ? Promise.reject(new Error('count read failed'))
+        : Promise.resolve(2)
+    })
+    installBridge({ count })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    const retry = await screen.findByRole('button', {
+      name: 'تلاش دوباره برای دریافت تعداد سندها',
+    })
+    // The retry keeps its destructive color on hover: the class it passes
+    // wins over the outline variant's own hover color in the merge.
+    expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
+    expect(retry).not.toHaveClass('hover:text-foreground')
+
+    await user.click(retry)
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (2)' }),
+    ).toBeInTheDocument()
+    expect(count).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByRole('button', {
+        name: 'تلاش دوباره برای دریافت تعداد سندها',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('explains the retry button with a tooltip', async () => {
+    const count = vi.fn(async (): Promise<number> => {
+      throw new Error('count read failed')
+    })
+    installBridge({ count })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await user.hover(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره برای دریافت تعداد سندها',
+      }),
+    )
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'تلاش دوباره برای دریافت تعداد سندها',
+    )
+  })
+
+  it('shows the heading loader while a retry from a failed count is in flight', async () => {
+    let reads = 0
+    let finishRetry!: (count: number) => void
+    const count = vi.fn((): Promise<number> => {
+      reads += 1
+      // The first read fails (a stand-in for the dev script's
+      // --with-db-failure); the retry stays open until the test releases it.
+      if (reads === 1) {
+        return Promise.reject(new Error('count read failed'))
+      }
+      return new Promise<number>((resolve) => {
+        finishRetry = resolve
+      })
+    })
+    installBridge({ count })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره برای دریافت تعداد سندها',
+      }),
+    )
+
+    // The re-read is slow (like a read under --db-delay): the number's spot
+    // holds the heading's loader while it runs, and the button is gone with
+    // it.
+    const heading = screen.getByRole('heading')
+    expect(await within(heading).findByRole('status')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: 'تلاش دوباره برای دریافت تعداد سندها',
+      }),
+    ).not.toBeInTheDocument()
+
+    await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'))
+    await act(() => finishRetry(5))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (5)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the retry button busy while a stale count is read again', async () => {
+    let reads = 0
+    let finishRetry!: (count: number) => void
+    const count = vi.fn((): Promise<number> => {
+      reads += 1
+      // The first read answers; the invalidation's re-read fails, leaving the
+      // stale number on screen with the error; the retry stays open until the
+      // test releases it.
+      if (reads === 1) {
+        return Promise.resolve(3)
+      }
+      if (reads === 2) {
+        return Promise.reject(new Error('count re-read failed'))
+      }
+      return new Promise<number>((resolve) => {
+        finishRetry = resolve
+      })
+    })
+    installBridge({ count })
+    const user = userEvent.setup()
+
+    const { queryClient } = renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (3)' })
+
+    // What a create does to the count: invalidate it and read it again. This
+    // re-read fails, so the number's spot shows the retry button.
+    await act(async () => {
+      await queryClient
+        .invalidateQueries({ queryKey: documentsCountQuery.queryKey })
+        .catch(() => {})
+    })
+
+    const retry = await screen.findByRole('button', {
+      name: 'تلاش دوباره برای دریافت تعداد سندها',
+    })
+
+    // The button is busy while the retry it starts is in flight (the case the
+    // button itself outlives): disabled, with its icon spinning, so a slow
+    // retry stays visible.
+    await user.click(retry)
+    const busy = screen.getByRole('button', {
+      name: 'تلاش دوباره برای دریافت تعداد سندها',
+    })
+    expect(busy).toBeDisabled()
+    expect(busy.querySelector('svg')).toHaveClass('animate-spin')
+
+    await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'))
+    await act(() => finishRetry(4))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (4)' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: 'تلاش دوباره برای دریافت تعداد سندها',
+      }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows the pending spinner in the content box while the document row is loading', async () => {
@@ -259,7 +429,7 @@ describe('routes', () => {
     const { count, get } = installBridge()
     const user = userEvent.setup()
 
-    const router = renderRoute('/')
+    const { router } = renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (0)' })
 
     await act(() =>
@@ -303,11 +473,57 @@ describe('routes', () => {
     expect(count).toHaveBeenCalledTimes(2)
   })
 
+  it('reports a failed create with an error toast and stays on the home page', async () => {
+    const create = vi.fn(async () => {
+      throw new Error(
+        'The createDocument operation failed (injected by --with-db-failure)',
+      )
+    })
+    const { count } = installBridge({ create })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+
+    // The toast tells the user the create failed and to try again; the
+    // store's technical message stays out of it.
+    expect(
+      await screen.findByText('افزودن سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'The createDocument operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+
+    // No document page opened, the count was not invalidated (its read ran
+    // once, at load), and the button is ready for another try.
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (0)' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+    expect(count).toHaveBeenCalledOnce()
+  })
+
+  it('shows no toast when the create succeeds and opens the new document', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    expect(
+      screen.queryByText('افزودن سند ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('reads a document row once and reuses it when the page is opened again', async () => {
     const { get, count } = installBridge()
     const user = userEvent.setup()
 
-    const router = renderRoute('/')
+    const { router } = renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (0)' })
 
     await act(() =>

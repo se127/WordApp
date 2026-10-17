@@ -55,6 +55,9 @@ const mocks = vi.hoisted(() => {
   const parseDbDelayArgument = vi.fn((value: string) =>
     value === '' ? 0 : 2000,
   )
+  const parseDbFailureArgument = vi.fn((value: string) =>
+    value === '' ? [] : value.split(','),
+  )
   const resetDatabase = vi.fn()
 
   const BrowserWindow = Object.assign(
@@ -90,6 +93,7 @@ const mocks = vi.hoisted(() => {
     ipcMain: { on: vi.fn(), handle: vi.fn() },
     openDatabase: vi.fn(() => database),
     parseDbDelayArgument,
+    parseDbFailureArgument,
     parseSeedArgument,
     resetDatabase,
     session: { defaultSession: { setProxy: vi.fn(async () => {}) } },
@@ -111,6 +115,7 @@ vi.mock('electron', () => ({
 vi.mock('../../electron/database.ts', () => ({
   openDatabase: mocks.openDatabase,
   parseDbDelayArgument: mocks.parseDbDelayArgument,
+  parseDbFailureArgument: mocks.parseDbFailureArgument,
   parseSeedArgument: mocks.parseSeedArgument,
   resetDatabase: mocks.resetDatabase,
 }))
@@ -285,7 +290,7 @@ describe('documents database', () => {
 
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-      { operationDelayMs: 0 },
+      { operationDelayMs: 0, failingOperations: [] },
     )
   })
 
@@ -294,7 +299,7 @@ describe('documents database', () => {
 
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
-      { operationDelayMs: 0 },
+      { operationDelayMs: 0, failingOperations: [] },
     )
   })
 
@@ -394,7 +399,7 @@ describe('documents database', () => {
     expect(mocks.resetDatabase).not.toHaveBeenCalled()
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
-      { operationDelayMs: 0 },
+      { operationDelayMs: 0, failingOperations: [] },
     )
   })
 
@@ -430,7 +435,7 @@ describe('documents database', () => {
       expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('2000ms')
       expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
         path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        { operationDelayMs: 2000 },
+        { operationDelayMs: 2000, failingOperations: [] },
       )
       expect(consoleLog).toHaveBeenCalledWith('db-delay: 2000ms')
     } finally {
@@ -448,7 +453,7 @@ describe('documents database', () => {
       expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('')
       expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
         path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        { operationDelayMs: 0 },
+        { operationDelayMs: 0, failingOperations: [] },
       )
       expect(consoleLog).not.toHaveBeenCalled()
     } finally {
@@ -464,7 +469,7 @@ describe('documents database', () => {
     expect(mocks.parseDbDelayArgument).not.toHaveBeenCalled()
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
-      { operationDelayMs: 0 },
+      { operationDelayMs: 0, failingOperations: [] },
     )
   })
 
@@ -485,6 +490,95 @@ describe('documents database', () => {
       })
       expect(consoleError).toHaveBeenCalledWith(
         'The dev db delay could not be applied: Invalid --db-delay "soon": the value must look like <milliseconds>ms, e.g. 2000ms',
+      )
+      expect(mocks.openDatabase).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('fails the operations the --with-db-failure prompt picked and reports them', async () => {
+    vi.stubEnv('DEV_DB_FAILURE', 'createDocument,countDocuments')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith(
+        'createDocument,countDocuments',
+      )
+      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        {
+          operationDelayMs: 0,
+          failingOperations: ['createDocument', 'countDocuments'],
+        },
+      )
+      expect(consoleLog).toHaveBeenCalledWith(
+        'db-failure: createDocument, countDocuments',
+      )
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('fails nothing and logs nothing when the prompt picked nothing', async () => {
+    vi.stubEnv('DEV_DB_FAILURE', '')
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith('')
+      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+        { operationDelayMs: 0, failingOperations: [] },
+      )
+      expect(consoleLog).not.toHaveBeenCalled()
+    } finally {
+      consoleLog.mockRestore()
+    }
+  })
+
+  it('fails nothing when the dev script did not send a selection', async () => {
+    await importMain()
+
+    expect(mocks.parseDbFailureArgument).not.toHaveBeenCalled()
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      { operationDelayMs: 0, failingOperations: [] },
+    )
+  })
+
+  it('ignores the dev db failure selection in a packaged app', async () => {
+    vi.stubEnv('DEV_DB_FAILURE', 'createDocument')
+
+    await importMain({ isPackaged: true })
+
+    expect(mocks.parseDbFailureArgument).not.toHaveBeenCalled()
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/userdata', 'db.sqlite'),
+      { operationDelayMs: 0, failingOperations: [] },
+    )
+  })
+
+  it('exits before opening the store when the selection names an unknown operation', async () => {
+    vi.stubEnv('DEV_DB_FAILURE', 'users')
+    mocks.parseDbFailureArgument.mockImplementationOnce(() => {
+      throw new Error(
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
+      )
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain({ expectWindow: false })
+
+      await vi.waitFor(() => {
+        expect(mocks.app.exit).toHaveBeenCalledWith(1)
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

@@ -40,8 +40,10 @@ describe('query layer', () => {
   it('never retries, never refetches on its own, and keeps the zero client stale time', () => {
     const queries = createQueryClient().getDefaultOptions().queries
 
-    // Zero retries.
+    // Zero retries, and mounting onto an errored query does not read again
+    // either: a failed local read fails the same way again.
     expect(queries?.retry).toBe(0)
+    expect(queries?.retryOnMount).toBe(false)
     // All three automatic refetch triggers are off; freshness is explicit —
     // only an invalidation makes a query read again.
     expect(queries?.refetchOnMount).toBe(false)
