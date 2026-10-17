@@ -13,6 +13,7 @@ import {
   documentsCreateChannel,
   documentsDeleteChannel,
   documentsGetChannel,
+  documentsSaveChannel,
 } from '../../electron/ipc.ts'
 
 // Everything electron/main.ts touches is mocked; the mutable pieces (packaged
@@ -46,6 +47,7 @@ const mocks = vi.hoisted(() => {
     getDocument: vi.fn(),
     countDocuments: vi.fn(),
     deleteDocument: vi.fn(),
+    saveDocument: vi.fn(),
     close: vi.fn(),
   }
 
@@ -357,6 +359,44 @@ describe('documents database', () => {
     expect(mocks.database.deleteDocument).not.toHaveBeenCalled()
   })
 
+  it('saves document changes over IPC', async () => {
+    await importMain()
+    const record = {
+      id: 1,
+      title: 'گزارش',
+      body: '',
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    mocks.database.saveDocument.mockReturnValue(record)
+
+    expect(
+      handlerFor('handle', documentsSaveChannel)({}, 1, { title: 'گزارش' }),
+    ).toEqual(record)
+    expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, {
+      title: 'گزارش',
+    })
+  })
+
+  it('ignores save calls with a bad id or malformed changes', async () => {
+    await importMain()
+    const save = handlerFor('handle', documentsSaveChannel)
+
+    expect(save({}, '1', { title: 'گزارش' })).toBeUndefined()
+    expect(save({}, 1.5, { title: 'گزارش' })).toBeUndefined()
+    expect(save({}, Number.NaN, { title: 'گزارش' })).toBeUndefined()
+    expect(save({}, 1, undefined)).toBeUndefined()
+    expect(save({}, 1, 'title')).toBeUndefined()
+    expect(save({}, 1, { title: 7 })).toBeUndefined()
+    expect(save({}, 1, { body: ['متن'] })).toBeUndefined()
+    expect(mocks.database.saveDocument).not.toHaveBeenCalled()
+
+    // An empty change set is well-formed — both fields are optional — so the
+    // save goes through like any other.
+    save({}, 1, {})
+    expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, {})
+  })
+
   it('closes the database when the app is about to quit', async () => {
     await importMain()
 
@@ -589,7 +629,7 @@ describe('documents database', () => {
     vi.stubEnv('DEV_DB_FAILURE', 'users')
     mocks.parseDbFailureArgument.mockImplementationOnce(() => {
       throw new Error(
-        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument, saveDocument',
       )
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -601,7 +641,7 @@ describe('documents database', () => {
         expect(mocks.app.exit).toHaveBeenCalledWith(1)
       })
       expect(consoleError).toHaveBeenCalledWith(
-        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument',
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, deleteDocument, saveDocument',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

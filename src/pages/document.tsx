@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { documentQuery, documentsCountQuery } from '@/lib/query'
+import type { DocumentChanges } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import {
@@ -30,7 +31,7 @@ import {
   RefreshCw,
   Trash,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 const documentRouteApi = getRouteApi('/documents/$documentId')
@@ -41,7 +42,9 @@ const documentRouteApi = getRouteApi('/documents/$documentId')
 // reuses the cached row instead of reading again. A read the store refuses
 // (e.g. under the dev script's --with-db-failure) shows the failed report and
 // the retry button in the content box; the back button stays, so the page is
-// never a dead end.
+// never a dead end. The title is editable in place (DocumentTitle below),
+// and its save goes through the page's shared document save action
+// (useDocumentSave), which the body will use too.
 function DocumentPage() {
   const { documentId } = documentRouteApi.useParams()
   const {
@@ -69,9 +72,10 @@ function DocumentPage() {
         </Tooltip>
 
         {document ? (
-          <h1 className="min-w-0 truncate text-2xl font-semibold">
-            {document.title}
-          </h1>
+          <DocumentTitle
+            documentId={Number(documentId)}
+            title={document.title}
+          />
         ) : null}
 
         <DocumentOptions documentId={Number(documentId)} />
@@ -86,6 +90,186 @@ function DocumentPage() {
       ) : null}
     </div>
   )
+}
+
+// The document's title, editable in place. The heading fills the top line's
+// free width at the icon buttons' own height (h-8) and truncates a title too
+// long for it; it carries the input's own padding, a matching rounded shape,
+// and a border that stays transparent until the heading has focus, so the
+// swap between the two never jogs the title. The cursor stays the default
+// arrow — text selection is the input's job — and hovering or focusing tints
+// it — bg-gray-100 in light, bg-zinc-700 in dark — with a color transition.
+// A Tab onto it shows the border (the input's own border color) while it is
+// still the heading. Clicking the heading, or pressing Space or Enter while
+// it has focus, swaps it for the input: the same text, same height, the same
+// border kept, all of it selected, so typing replaces it. Enter inside the
+// input commits — the same blur — and hands focus back to the heading, so
+// the keyboard stays on the title: another Enter reopens the input and a Tab
+// moves on from the heading itself. Blur is the only thing that can save,
+// and only when the text changed: typing, and a focus-and-blur that leaves
+// the title alone, never call the save action. A
+// changed title commits through the page's document save action
+// (useDocumentSave below), the one toast a save can raise being the error one
+// — successes stay silent. While the write runs the input stays on screen,
+// disabled, with a spinner in its end corner — the input pads that side so a
+// full title never runs under the spinner — so a slow save (e.g. under the
+// dev script's --db-delay) is visible; a refused write (e.g. under --with-db-failure)
+// raises the error toast, keeps the typed text, and hands the caret back to
+// the input, where the next blur tries the save again.
+function DocumentTitle({
+  documentId,
+  title,
+}: {
+  documentId: number
+  title: string
+}) {
+  const saveDocument = useDocumentSave(documentId)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // The text being edited; null while the heading is shown.
+  const [draft, setDraft] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  // Set when the input opens, so opening selects the whole title while a
+  // failed save only returns the caret to it.
+  const selectOnOpen = useRef(false)
+  // Set when Enter causes the input's blur, so an edit that ends that way
+  // puts focus back on the heading — the keyboard stays on the title, where
+  // Enter reopens the input and Tab moves on. A commit started by a click or
+  // a Tab leaves it false: focus then belongs where the user put it. A
+  // refused save clears it, because the edit continues in the input.
+  const returnFocusToHeading = useRef(false)
+
+  const isEditing = draft !== null
+
+  // Focus — and, on opening, select — the input once it is in the DOM: the
+  // heading is gone by then, and a failed save brings the caret back here so
+  // the next blur retries.
+  useEffect(() => {
+    if (!isEditing || isSaving) {
+      return
+    }
+
+    const input = inputRef.current
+    input?.focus()
+    if (input && selectOnOpen.current) {
+      selectOnOpen.current = false
+      input.select()
+    }
+  }, [isEditing, isSaving])
+
+  // An edit that ended — saved or left unchanged — returns focus to the
+  // heading when Enter ended it, so the next Tab or Enter continues from the
+  // title instead of the body.
+  useEffect(() => {
+    if (!isEditing && returnFocusToHeading.current) {
+      returnFocusToHeading.current = false
+      headingRef.current?.focus()
+    }
+  }, [isEditing])
+
+  const startEditing = (): void => {
+    selectOnOpen.current = true
+    setDraft(title)
+  }
+
+  const commitTitle = async (): Promise<void> => {
+    if (draft === null || isSaving) {
+      return
+    }
+
+    if (draft === title) {
+      setDraft(null)
+      return
+    }
+
+    setIsSaving(true)
+    const saved = await saveDocument({ title: draft })
+    setIsSaving(false)
+
+    if (saved) {
+      setDraft(null)
+    } else {
+      // The edit goes on, so focus goes back to the input, not the heading.
+      returnFocusToHeading.current = false
+    }
+  }
+
+  return isEditing ? (
+    <span className="relative min-w-0 flex-1">
+      <input
+        ref={inputRef}
+        value={draft}
+        disabled={isSaving}
+        aria-label="عنوان سند"
+        className={`h-8 w-full rounded-md border border-input bg-transparent px-2 text-2xl font-semibold outline-none disabled:opacity-60 ${isSaving ? 'pe-8' : ''}`}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => void commitTitle()}
+        onKeyDown={(event) => {
+          // Enter commits the way leaving the field does — through the blur —
+          // and flags the commit so focus lands back on the heading.
+          if (event.key === 'Enter') {
+            returnFocusToHeading.current = true
+            event.currentTarget.blur()
+          }
+        }}
+      />
+      {isSaving ? (
+        <LoaderCircle className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+      ) : null}
+    </span>
+  ) : (
+    <h1
+      ref={headingRef}
+      tabIndex={0}
+      className="h-8 min-w-0 flex-1 cursor-default truncate rounded-md border border-transparent px-2 text-2xl font-semibold transition-colors outline-none hover:bg-gray-100 focus:border-input focus:bg-gray-100 dark:hover:bg-zinc-700 dark:focus:bg-zinc-700"
+      // The mousedown default (focus and text selection) is not wanted here:
+      // the click opens the input and hands focus to it instead.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={startEditing}
+      onKeyDown={(event) => {
+        // Space and Enter are the heading's edit keys — like the click — and
+        // must not leak on to the input that takes focus in its place.
+        if (event.key === ' ' || event.key === 'Enter') {
+          event.preventDefault()
+          startEditing()
+        }
+      }}
+    >
+      {title}
+    </h1>
+  )
+}
+
+// The page's document save action: every field edit — the title now, the
+// body later — goes through this one function. The write lands through the
+// preload bridge and the stored row it returns goes into the query cache, so
+// the edit shows right away instead of bouncing back to the old text while
+// the invalidation's re-read runs (which a slow database, e.g. under the dev
+// script's --db-delay, stretches out); the invalidation itself makes the
+// next read ask the database again — stale times are infinite, so a missed
+// invalidation would leave the UI on the old row. Resolves to whether the
+// save landed; a refused write raises the error toast instead, and the
+// caller keeps the edited text on screen for another try.
+function useDocumentSave(documentId: number) {
+  const queryClient = useQueryClient()
+
+  return async (changes: DocumentChanges): Promise<boolean> => {
+    const saved = await window.WordApp?.documents
+      .save(documentId, changes)
+      .catch(() => undefined)
+
+    if (!saved) {
+      toast.error('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.')
+      return false
+    }
+
+    queryClient.setQueryData(documentQuery(documentId).queryKey, saved)
+    void queryClient.invalidateQueries({
+      queryKey: documentQuery(documentId).queryKey,
+    })
+
+    return true
+  }
 }
 
 // The document's options menu, at the far end of the top line (the left in

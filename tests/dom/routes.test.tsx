@@ -2,6 +2,7 @@ import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { createQueryClient, documentsCountQuery } from '@/lib/query'
 import { createAppRouter } from '@/router'
+import type { DocumentChanges } from '@/types/global'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, render, screen, within } from '@testing-library/react'
@@ -21,37 +22,54 @@ const storedDocument = {
 
 // `window.WordApp` is the preload bridge (src/types/global.d.ts); every test
 // installs its own stub of it and observes what the pages send through it.
-// `count` reports what `create` stored, the way the database would; a test can
-// take over a call to hold it open and observe the page mid-read: `create`
-// (the button's own spinner), `get` (the content box's pending spinner, or its
-// failed-read report and retry), `count` (the heading's inline loader, or its
-// pulsing stale number), or `remove` (the bridge's delete — named around the
+// `count` reports what `create` stored, the way the database would, and `get`
+// returns the stored row — starting as `storedDocument` and following what
+// `save` stored; a test can take over a call to hold it open and observe the
+// page mid-read: `create` (the button's own spinner), `get` (the content
+// box's pending spinner, or its failed-read report and retry), `count` (the
+// heading's inline loader, or its pulsing stale number), `save` (the title
+// input's spinner), or `remove` (the bridge's delete — named around the
 // reserved word — held open to watch the delete dialog mid-write).
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
     get?: () => Promise<typeof storedDocument>
     count?: () => Promise<number>
+    save?: (
+      id: number,
+      changes: DocumentChanges,
+    ) => Promise<typeof storedDocument | undefined>
     remove?: () => Promise<void>
   } = {},
 ) {
   let storedCount = 0
+  let storedRow = storedDocument
   const create =
     options.create ??
     vi.fn(async () => {
       storedCount += 1
       return storedDocument
     })
-  const get = options.get ?? vi.fn(async () => storedDocument)
+  const get = options.get ?? vi.fn(async () => storedRow)
   const count = options.count ?? vi.fn(async () => storedCount)
+  const save =
+    options.save ??
+    vi.fn(async (_id: number, changes: DocumentChanges) => {
+      storedRow = {
+        ...storedRow,
+        ...changes,
+        updatedAt: storedRow.updatedAt + 1,
+      }
+      return storedRow
+    })
   const remove = options.remove ?? vi.fn(async () => undefined)
 
   window.WordApp = {
     platform: 'win32',
-    documents: { create, get, count, delete: remove },
+    documents: { create, get, count, save, delete: remove },
   } satisfies WordAppBridge
 
-  return { create, get, count, remove }
+  return { create, get, count, save, remove }
 }
 
 // Mirrors the provider stack from src/main.tsx plus the QueryClientProvider
@@ -474,6 +492,345 @@ describe('routes', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'تلاش دوباره برای بارگذاری سند',
     )
+  })
+
+  it('shows the stored title as a full-width heading at the icon-button height that truncates, tints on hover and focus, and borders on focus', async () => {
+    installBridge()
+
+    renderRoute('/documents/1')
+
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    // The heading fills the top line's free width at the icon buttons' own
+    // height (h-8) and truncates, so a long title never pushes the back and
+    // options buttons around.
+    expect(heading).toHaveClass('h-8', 'min-w-0', 'flex-1', 'truncate')
+    // The cursor stays the default arrow — the text cursor belongs to the
+    // input alone — and hovering or focusing tints it with a color
+    // transition (bg-gray-100 in light, bg-zinc-700 in dark); taking focus
+    // shows the border in the input's own border color.
+    expect(heading).toHaveClass(
+      'cursor-default',
+      'transition-colors',
+      'hover:bg-gray-100',
+      'focus:bg-gray-100',
+      'dark:hover:bg-zinc-700',
+      'dark:focus:bg-zinc-700',
+      'focus:border-input',
+    )
+  })
+
+  it('turns the title into a bordered input with everything selected when clicked', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+
+    // The input sits exactly where the heading was — the icon-button height,
+    // nothing but a border around the text — with the whole title selected,
+    // so typing replaces it.
+    const input = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    expect(input).toHaveClass('h-8', 'border', 'bg-transparent')
+    expect(input).toHaveValue('بدون عنوان')
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe('بدون عنوان'.length)
+  })
+
+  it('keeps the heading on a Tab — border showing — and opens the input on Space', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    // The page's focus order is the window strip's theme button, the back
+    // button, then the title: the third Tab lands on the heading, which keeps
+    // being the heading — just with its focus border — and saves nothing.
+    await user.tab()
+    await user.tab()
+    await user.tab()
+
+    expect(heading).toHaveFocus()
+    expect(heading).toHaveClass('focus:border-input')
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+
+    // Space is the heading's edit key: it swaps in the input — the whole
+    // title selected, same as a click — and must not leak a space into it.
+    await user.keyboard(' ')
+
+    const input = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    expect(input).toHaveValue('بدون عنوان')
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe('بدون عنوان'.length)
+
+    // Tabbing away blurs the input; nothing changed, so it drops back to the
+    // heading without a save.
+    await user.tab()
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('opens the title input on Enter while the heading has focus', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    heading.focus()
+
+    await user.keyboard('{Enter}')
+
+    const input = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument()
+    expect(input).toHaveValue('بدون عنوان')
+    expect(input).toHaveFocus()
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe('بدون عنوان'.length)
+  })
+
+  it('hands focus back to the heading when Enter commits the edit', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    heading.focus()
+
+    // Enter opens the input with the whole title selected; typing replaces
+    // it, and the second Enter commits — the save goes out — and hands the
+    // keyboard back to the heading.
+    await user.keyboard('{Enter}')
+    const input = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    await user.keyboard('گزارش')
+    expect(input).toHaveValue('گزارش')
+    await user.keyboard('{Enter}')
+
+    const saved = await screen.findByRole('heading', { name: 'گزارش' })
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, { title: 'گزارش' })
+    await vi.waitFor(() => expect(saved).toHaveFocus())
+
+    // The heading still holds the keyboard: Enter reopens the input, and a
+    // no-change Enter brings the heading back with focus again — no second
+    // save. Tab then moves on from the heading itself, to the options button.
+    await user.keyboard('{Enter}')
+    await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    await user.keyboard('{Enter}')
+
+    const keptHeading = await screen.findByRole('heading', { name: 'گزارش' })
+    await vi.waitFor(() => expect(keptHeading).toHaveFocus())
+    expect(save).toHaveBeenCalledTimes(1)
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'گزینه ها' })).toHaveFocus()
+  })
+
+  it('saves the changed title on blur through the document save action and re-reads the row', async () => {
+    const { get, save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+
+    await user.clear(input)
+    await user.type(input, 'گزارش سالانه')
+
+    // Typing alone saves nothing: the write waits for the blur.
+    expect(save).not.toHaveBeenCalled()
+
+    await user.tab()
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش سالانه',
+    })
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش سالانه' }),
+    ).toBeInTheDocument()
+
+    // The save invalidated the row's query, so the row was read again — once
+    // at load, once after the save.
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not save when the title is blurred unchanged', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    await screen.findByRole('textbox', { name: 'عنوان سند' })
+
+    await user.tab()
+
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('holds the title input disabled with a spinner while the save is in flight', async () => {
+    let storedRow = storedDocument
+    const get = vi.fn(async () => storedRow)
+    let finishSave!: (document: typeof storedDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<typeof storedDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    installBridge({ get, save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    // While idle the input's end padding matches its start padding.
+    expect(input).not.toHaveClass('pe-8')
+    await user.clear(input)
+    await user.type(input, 'پیگیری')
+    await user.tab()
+
+    // The save is slow (like a write under the dev script's --db-delay): the
+    // edited text stays on screen in a disabled input with a spinner. The
+    // spinner sits in the input's end corner, so the input pads that side
+    // too — a full title never runs under the spinner.
+    const pending = screen.getByRole('textbox', { name: 'عنوان سند' })
+    expect(pending).toBeDisabled()
+    expect(pending).toHaveValue('پیگیری')
+    expect(pending).toHaveClass('pe-8')
+    expect(pending.parentElement?.querySelector('svg')).toHaveClass(
+      'animate-spin',
+    )
+
+    storedRow = {
+      ...storedRow,
+      title: 'پیگیری',
+      updatedAt: storedRow.updatedAt + 1,
+    }
+    await act(() => finishSave(storedRow))
+
+    expect(
+      await screen.findByRole('heading', { name: 'پیگیری' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('keeps the saved title on screen while the row re-reads', async () => {
+    let reads = 0
+    let finishReread!: (document: typeof storedDocument) => void
+    const get = vi.fn((): Promise<typeof storedDocument> => {
+      reads += 1
+      // The first read answers with the row; the re-read after the save (the
+      // invalidation) stays open until the test releases it.
+      if (reads === 1) {
+        return Promise.resolve(storedDocument)
+      }
+      return new Promise<typeof storedDocument>((resolve) => {
+        finishReread = resolve
+      })
+    })
+    installBridge({ get })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+    await user.tab()
+
+    // The row's re-read is held open (like a read under --db-delay): the
+    // title the user just saved stands, with no bounce back to the old one
+    // and no loading state.
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await vi.waitFor(() => expect(finishReread).toBeTypeOf('function'))
+    await act(() =>
+      finishReread({ ...storedDocument, title: 'گزارش', updatedAt: 1_001 }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reports a failed save with an error toast and keeps the edited text for another try', async () => {
+    let attempts = 0
+    let storedRow = storedDocument
+    const get = vi.fn(async () => storedRow)
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => {
+      attempts += 1
+      // The first save fails (a stand-in for the dev script's
+      // --with-db-failure); the retry stores the change for real.
+      if (attempts === 1) {
+        throw new Error(
+          'The saveDocument operation failed (injected by --with-db-failure)',
+        )
+      }
+
+      storedRow = {
+        ...storedRow,
+        ...changes,
+        updatedAt: storedRow.updatedAt + 1,
+      }
+      return storedRow
+    })
+    installBridge({ get, save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'پیش نویس')
+    await user.tab()
+
+    // The toast tells the user the save failed and to try again; the store's
+    // technical message stays out of it.
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'The saveDocument operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+
+    // The edited text stayed in the input — nothing was lost — and the caret
+    // came back to it, so blurring again retries the save.
+    const kept = screen.getByRole('textbox', { name: 'عنوان سند' })
+    expect(kept).toHaveValue('پیش نویس')
+    expect(kept).not.toBeDisabled()
+    await vi.waitFor(() => expect(kept).toHaveFocus())
+
+    await user.tab()
+
+    expect(
+      await screen.findByRole('heading', { name: 'پیش نویس' }),
+    ).toBeInTheDocument()
+    expect(save).toHaveBeenCalledTimes(2)
   })
 
   it('creates an untitled document and opens its page', async () => {

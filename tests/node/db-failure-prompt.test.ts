@@ -13,6 +13,7 @@ const operations: DatabaseOperationName[] = [
   'getDocument',
   'countDocuments',
   'deleteDocument',
+  'saveDocument',
 ]
 
 const firstFrame = [
@@ -20,6 +21,7 @@ const firstFrame = [
   '  [ ] getDocument',
   '  [ ] countDocuments',
   '  [ ] deleteDocument',
+  '  [ ] saveDocument',
 ]
 
 type PromptInput = PassThrough & {
@@ -107,6 +109,7 @@ describe('promptDbFailures', () => {
       '> [ ] getDocument',
       '  [ ] countDocuments',
       '  [ ] deleteDocument',
+      '  [ ] saveDocument',
     ])
 
     await type(input, '\x1b[B')
@@ -115,6 +118,7 @@ describe('promptDbFailures', () => {
       '  [ ] getDocument',
       '> [ ] countDocuments',
       '  [ ] deleteDocument',
+      '  [ ] saveDocument',
     ])
 
     await type(input, '\x1b[B')
@@ -123,6 +127,16 @@ describe('promptDbFailures', () => {
       '  [ ] getDocument',
       '  [ ] countDocuments',
       '> [ ] deleteDocument',
+      '  [ ] saveDocument',
+    ])
+
+    await type(input, '\x1b[B')
+    expect(lastOptions(text())).toEqual([
+      '  [ ] createDocument',
+      '  [ ] getDocument',
+      '  [ ] countDocuments',
+      '  [ ] deleteDocument',
+      '> [ ] saveDocument',
     ])
 
     // One more down from the last wraps back to the first.
@@ -135,7 +149,8 @@ describe('promptDbFailures', () => {
       '  [ ] createDocument',
       '  [ ] getDocument',
       '  [ ] countDocuments',
-      '> [ ] deleteDocument',
+      '  [ ] deleteDocument',
+      '> [ ] saveDocument',
     ])
   })
 
@@ -148,6 +163,7 @@ describe('promptDbFailures', () => {
       '  [ ] getDocument',
       '  [ ] countDocuments',
       '  [ ] deleteDocument',
+      '  [ ] saveDocument',
     ])
 
     // Space again takes the check back off.
