@@ -143,6 +143,9 @@ function DocumentsTable() {
                   >
                     {document.title}
                   </Link>
+                  {document.updatedAt !== document.createdAt ? (
+                    <DocumentUpdatedAt updatedAt={document.updatedAt} />
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-center">
                   <DocumentCreatedAt createdAt={document.createdAt} />
@@ -173,6 +176,22 @@ function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
         </span>
       </TooltipTrigger>
       <TooltipContent>{formatAbsoluteDate(createdAt)}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function DocumentUpdatedAt({ updatedAt }: { updatedAt: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="cursor-default rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {`ویرایش شده: ${formatRelativeTime(updatedAt)}`}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{formatAbsoluteDate(updatedAt)}</TooltipContent>
     </Tooltip>
   )
 }

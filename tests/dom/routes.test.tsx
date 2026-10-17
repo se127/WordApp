@@ -1288,6 +1288,45 @@ describe('routes', () => {
     )
   })
 
+  it('shows a muted edited age under the title for updated documents, with its own tooltip', async () => {
+    const fixedNow = new Date(2026, 6, 8, 15, 0).getTime()
+    vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
+    const edited = {
+      ...storedDocument,
+      id: 1,
+      title: 'گزارش',
+      createdAt: fixedNow - 26 * 60 * 60_000,
+      updatedAt: fixedNow - 5 * 60_000,
+    }
+    const neverEdited = {
+      ...storedDocument,
+      id: 2,
+      title: 'یادداشت',
+      createdAt: fixedNow - 5 * 60_000,
+      updatedAt: fixedNow - 5 * 60_000,
+    }
+    installDocumentsBridge([edited, neverEdited])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+
+    const editedLine = screen.getByText('ویرایش شده: 5 دقیقه ی پیش')
+    expect(editedLine).toHaveClass('text-xs', 'text-muted-foreground')
+    expect(editedLine.previousElementSibling).toBe(
+      screen.getByRole('link', { name: 'گزارش' }),
+    )
+    expect(
+      screen.getByRole('link', { name: 'یادداشت' }).closest('td'),
+    ).not.toHaveTextContent('ویرایش شده')
+    expect(screen.getAllByText(/ویرایش شده:/)).toHaveLength(1)
+
+    await user.hover(editedLine)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'چهارشنبه 17 تیر ماه 1405 ، 14:55',
+    )
+  })
+
   it('opens the document page when a row title is clicked', async () => {
     const first = { ...storedDocument, id: 1, title: 'یادداشت' }
     const second = { ...storedDocument, id: 2, title: 'گزارش' }
