@@ -110,40 +110,54 @@ function DocumentsTable() {
   }
 
   return (
-    <ScrollArea className="min-h-0 w-full flex-1 [&_[data-slot=scroll-area-scrollbar]]:z-20 [&_[data-slot=table-container]]:overflow-visible">
-      <Table className={cn('table-fixed', isFetching && 'animate-pulse')}>
-        <TableHeader className="sticky top-0 z-10 bg-white dark:bg-zinc-800 [&_th]:[box-shadow:0_1px_0_0_var(--border)] [&_tr]:border-b-0">
+    <div className="flex min-h-0 w-full flex-1 flex-col">
+      <Table className="table-fixed">
+        <colgroup>
+          <col className="w-[60%]" />
+          <col className="w-[20%]" />
+          <col className="w-[20%]" />
+        </colgroup>
+        <TableHeader>
           <TableRow>
-            <TableHead className="w-[60%]">عنوان</TableHead>
-            <TableHead className="w-[20%] text-center">تاریخ ایجاد</TableHead>
-            <TableHead className="w-[20%]" />
+            <TableHead>عنوان</TableHead>
+            <TableHead className="text-center">تاریخ ایجاد</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {documents.map((document) => (
-            <TableRow key={document.id}>
-              <TableCell className="whitespace-normal">
-                <Link
-                  to="/documents/$documentId"
-                  params={{ documentId: String(document.id) }}
-                  className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  {document.title}
-                </Link>
-              </TableCell>
-              <TableCell className="text-center">
-                <DocumentCreatedAt createdAt={document.createdAt} />
-              </TableCell>
-              <TableCell>
-                <div className="flex justify-end">
-                  <DocumentOptions documentId={document.id} />
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
       </Table>
-    </ScrollArea>
+      <ScrollArea className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible">
+        <Table className={cn('table-fixed', isFetching && 'animate-pulse')}>
+          <colgroup>
+            <col className="w-[60%]" />
+            <col className="w-[20%]" />
+            <col className="w-[20%]" />
+          </colgroup>
+          <TableBody>
+            {documents.map((document) => (
+              <TableRow key={document.id}>
+                <TableCell className="whitespace-normal">
+                  <Link
+                    to="/documents/$documentId"
+                    params={{ documentId: String(document.id) }}
+                    className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    {document.title}
+                  </Link>
+                </TableCell>
+                <TableCell className="text-center">
+                  <DocumentCreatedAt createdAt={document.createdAt} />
+                </TableCell>
+                <TableCell>
+                  <div className="flex justify-end">
+                    <DocumentOptions documentId={document.id} />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+    </div>
   )
 }
 
