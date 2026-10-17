@@ -33,7 +33,7 @@ function DocumentPage() {
           <LoaderCircle
             role="status"
             aria-label="در حال به روز رسانی سند"
-            className="ms-auto size-5 animate-spin text-muted-foreground"
+            className="ms-auto size-5 animate-spin"
           />
         ) : null}
       </div>
@@ -143,7 +143,7 @@ function DocumentTitle({
         }}
       />
       {isSaving ? (
-        <LoaderCircle className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        <LoaderCircle className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin" />
       ) : null}
     </span>
   ) : (
@@ -211,7 +211,7 @@ function DocumentPending() {
       aria-label="در حال بارگذاری"
       className="flex min-h-32 flex-1 items-center justify-center"
     >
-      <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+      <LoaderCircle className="size-6 animate-spin" />
     </div>
   )
 }

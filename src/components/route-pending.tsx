@@ -7,7 +7,7 @@ function RoutePending() {
       aria-label="در حال بارگذاری"
       className="flex h-full min-h-32 items-center justify-center"
     >
-      <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+      <LoaderCircle className="size-6 animate-spin" />
     </div>
   )
 }

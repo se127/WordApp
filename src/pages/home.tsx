@@ -104,7 +104,7 @@ function DocumentsTable() {
   if (documents.length === 0) {
     return (
       <div className="flex min-h-32 w-full flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">هنوز سندی ثبت نشده است.</p>
+        <p className="text-sm">هنوز سندی ثبت نشده است.</p>
       </div>
     )
   }
@@ -184,7 +184,7 @@ function DocumentsPending() {
       aria-label="در حال بارگذاری سندها"
       className="flex min-h-32 w-full flex-1 items-center justify-center"
     >
-      <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+      <LoaderCircle className="size-6 animate-spin" />
     </div>
   )
 }
