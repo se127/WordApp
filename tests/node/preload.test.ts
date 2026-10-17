@@ -3,11 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   expose: vi.fn(),
   invoke: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: mocks.expose },
-  ipcRenderer: { invoke: mocks.invoke },
+  ipcRenderer: {
+    invoke: mocks.invoke,
+    on: mocks.on,
+    removeListener: mocks.removeListener,
+  },
 }))
 
 type ExposedApi = Window['WordApp']
@@ -36,6 +42,11 @@ describe('preload bridge', () => {
     expect(typeof api.documents.list).toBe('function')
     expect(typeof api.documents.delete).toBe('function')
     expect(typeof api.documents.save).toBe('function')
+    expect(typeof api.windowControls.minimize).toBe('function')
+    expect(typeof api.windowControls.toggleMaximize).toBe('function')
+    expect(typeof api.windowControls.close).toBe('function')
+    expect(typeof api.windowControls.isMaximized).toBe('function')
+    expect(typeof api.windowControls.onMaximizedChange).toBe('function')
   })
 
   it('forwards document calls over the document channels', async () => {
@@ -74,5 +85,49 @@ describe('preload bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:save', 7, {
       title: 'گزارش',
     })
+  })
+
+  it('forwards window control calls over the window channels', async () => {
+    const api = await importPreload()
+
+    mocks.invoke.mockResolvedValue(undefined)
+    await expect(api.windowControls.minimize()).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:window:minimize')
+
+    await expect(api.windowControls.toggleMaximize()).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:window:toggle-maximize')
+
+    await expect(api.windowControls.close()).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:window:close')
+
+    mocks.invoke.mockResolvedValue(true)
+    await expect(api.windowControls.isMaximized()).resolves.toBe(true)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:window:is-maximized')
+  })
+
+  it('reports maximize changes to its subscriber and stops on request', async () => {
+    const api = await importPreload()
+    const callback = vi.fn()
+
+    const unsubscribe = api.windowControls.onMaximizedChange(callback)
+
+    expect(mocks.on).toHaveBeenCalledOnce()
+    const [channel, listener] = mocks.on.mock.calls[0] as [
+      string,
+      (event: unknown, isMaximized: boolean) => void,
+    ]
+    expect(channel).toBe('wordapp:window:maximized-changed')
+
+    listener({}, true)
+    expect(callback).toHaveBeenCalledExactlyOnceWith(true)
+
+    listener({}, false)
+    expect(callback).toHaveBeenLastCalledWith(false)
+
+    unsubscribe()
+    expect(mocks.removeListener).toHaveBeenCalledExactlyOnceWith(
+      channel,
+      listener,
+    )
   })
 })

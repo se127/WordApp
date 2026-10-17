@@ -15,6 +15,11 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  windowCloseChannel,
+  windowIsMaximizedChannel,
+  windowMaximizedChangedChannel,
+  windowMinimizeChannel,
+  windowToggleMaximizeChannel,
 } from './ipc.ts'
 
 const appRoot = app.getAppPath()
@@ -50,6 +55,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
     webPreferences: {
       devTools: !app.isPackaged,
       preload: path.join(appRoot, 'dist-electron', 'preload.cjs'),
@@ -101,6 +107,17 @@ function createWindow(): void {
     void shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  const sendMaximizedState = (isMaximized: boolean): void => {
+    if (mainWindow.isDestroyed()) {
+      return
+    }
+
+    mainWindow.webContents.send(windowMaximizedChangedChannel, isMaximized)
+  }
+
+  mainWindow.on('maximize', () => sendMaximizedState(true))
+  mainWindow.on('unmaximize', () => sendMaximizedState(false))
 
   loadPage()
 }
@@ -219,6 +236,30 @@ void app.whenReady().then(async () => {
         ? database.saveDocument(id, changes)
         : undefined,
   )
+
+  ipcMain.handle(windowMinimizeChannel, (event) =>
+    BrowserWindow.fromWebContents(event.sender)?.minimize(),
+  )
+  ipcMain.handle(windowToggleMaximizeChannel, (event) => {
+    const target = BrowserWindow.fromWebContents(event.sender)
+    if (!target) {
+      return
+    }
+
+    if (target.isMaximized()) {
+      target.unmaximize()
+    } else {
+      target.maximize()
+    }
+  })
+  ipcMain.handle(windowCloseChannel, (event) =>
+    BrowserWindow.fromWebContents(event.sender)?.close(),
+  )
+  ipcMain.handle(windowIsMaximizedChannel, (event) => {
+    const target = BrowserWindow.fromWebContents(event.sender)
+
+    return target ? target.isMaximized() : false
+  })
 
   app.on('will-quit', () => {
     database.close()
