@@ -48,6 +48,17 @@
 - Always type a normal space instead. Write `می روم`, never the version with a hidden
   zero-width character between `می` and `روم`.
 
+## Farsi text — sentence punctuation
+
+- End every Farsi (Persian) sentence with its final punctuation: a period (`.`) for
+  statements and the question mark (`؟`) for questions. Never leave a sentence bare:
+  write `سند حذف شد.`, never `سند حذف شد`.
+- Texts that mark an action in progress keep their trailing `...`: `در حال بارگذاری...`,
+  `در حال ساخت سند...`, and `در حال حذف...` stay as they are.
+- Short labels carry no final punctuation — button text (`افزودن سند`, `انصراف`, `بله`),
+  tooltips and aria-labels (`گزینه ها`, `تغییر پوسته`, `تلاش دوباره برای بارگذاری سند`),
+  and the untitled document title (`بدون عنوان`).
+
 ## Never run the dev or dist scripts
 
 - Never run the dev server or the installer build (`bun dev`, `bun run dev`, `vite`,

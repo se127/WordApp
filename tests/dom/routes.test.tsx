@@ -570,7 +570,7 @@ describe('routes', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      within(dialog).getByText('این عملیات غیر قابل بازگشت است'),
+      within(dialog).getByText('این عملیات غیر قابل بازگشت است.'),
     ).toBeInTheDocument()
     expect(
       within(dialog).getByRole('button', { name: 'بله' }),
@@ -653,7 +653,7 @@ describe('routes', () => {
 
     // Released, the delete lands: home, with the success toast.
     await act(() => finishDelete())
-    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: 'مستندات (0)' }),
     ).toBeInTheDocument()
@@ -683,7 +683,7 @@ describe('routes', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
     await user.click(await screen.findByRole('button', { name: 'بله' }))
 
-    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
 
     // Back on the home page, the count was read again — the delete
     // invalidated it — and shows the store's new number.
@@ -745,11 +745,11 @@ describe('routes', () => {
     const dialog = screen.getByRole('alertdialog')
     expect(within(dialog).getByRole('button', { name: 'انصراف' })).toBeEnabled()
     expect(within(dialog).getByRole('button', { name: 'بله' })).toBeEnabled()
-    expect(screen.queryByText('سند حذف شد')).not.toBeInTheDocument()
+    expect(screen.queryByText('سند حذف شد.')).not.toBeInTheDocument()
 
     // The second attempt goes through and lands home.
     await user.click(within(dialog).getByRole('button', { name: 'بله' }))
-    expect(await screen.findByText('سند حذف شد')).toBeInTheDocument()
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { name: 'مستندات (0)' }),
     ).toBeInTheDocument()
