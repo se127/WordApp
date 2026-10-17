@@ -661,7 +661,7 @@ describe('resetDatabase', () => {
     expect(await reopened.countDocuments()).toBe(0)
   })
 
-  it('inserts the requested number of untitled documents', async () => {
+  it('inserts the requested number of documents with numbered titles', async () => {
     const databasePath = temporaryDatabasePath()
 
     resetDatabase(databasePath, [{ table: 'documents', count: 3 }])
@@ -670,9 +670,47 @@ describe('resetDatabase', () => {
     database = store
 
     expect(await store.countDocuments()).toBe(3)
-    expect((await store.getDocument(1))?.title).toBe(untitledDocumentTitle)
-    expect(await store.getDocument(3)).toBeDefined()
+    expect((await store.getDocument(1))?.title).toBe('سند 1')
+    expect((await store.getDocument(3))?.title).toBe('سند 3')
     expect(await store.getDocument(4)).toBeUndefined()
+  })
+
+  it('staggers the seeded timestamps one minute apart starting from now', async () => {
+    const databasePath = temporaryDatabasePath()
+    const seededAt = Date.UTC(2026, 0, 1, 12, 0, 0)
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(seededAt)
+      resetDatabase(databasePath, [{ table: 'documents', count: 3 }])
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const store = openDatabase(databasePath)
+    database = store
+
+    expect(await store.getDocument(1)).toEqual({
+      id: 1,
+      title: 'سند 1',
+      body: '',
+      createdAt: seededAt,
+      updatedAt: seededAt,
+    })
+    expect(await store.getDocument(2)).toEqual({
+      id: 2,
+      title: 'سند 2',
+      body: '',
+      createdAt: seededAt - 60_000,
+      updatedAt: seededAt - 60_000,
+    })
+    expect(await store.getDocument(3)).toEqual({
+      id: 3,
+      title: 'سند 3',
+      body: '',
+      createdAt: seededAt - 120_000,
+      updatedAt: seededAt - 120_000,
+    })
   })
 
   it('replaces the previous records on every seed', async () => {
