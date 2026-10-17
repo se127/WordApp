@@ -8,9 +8,17 @@ import {
 
 // The operations the dev script lists; their order matters because the answer
 // is printed — and reaches the main process — in list order.
-const operations: DatabaseOperationName[] = ['createDocument', 'countDocuments']
+const operations: DatabaseOperationName[] = [
+  'createDocument',
+  'getDocument',
+  'countDocuments',
+]
 
-const firstFrame = ['> [ ] createDocument', '  [ ] countDocuments']
+const firstFrame = [
+  '> [ ] createDocument',
+  '  [ ] getDocument',
+  '  [ ] countDocuments',
+]
 
 type PromptInput = PassThrough & {
   isTTY?: boolean
@@ -66,7 +74,7 @@ async function type(input: PromptInput, sequence: string): Promise<void> {
 // The prompt backs up over its previous block before redrawing, so only what
 // follows the last cursor-up escape is current.
 function lastOptions(text: string): string[] {
-  const blocks = text.split('\x1b[4A')
+  const blocks = text.split('\x1b[5A')
   const lastBlock = blocks[blocks.length - 1] ?? ''
 
   return lastBlock
@@ -91,6 +99,14 @@ describe('promptDbFailures', () => {
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
       '  [ ] createDocument',
+      '> [ ] getDocument',
+      '  [ ] countDocuments',
+    ])
+
+    await type(input, '\x1b[B')
+    expect(lastOptions(text())).toEqual([
+      '  [ ] createDocument',
+      '  [ ] getDocument',
       '> [ ] countDocuments',
     ])
 
@@ -102,6 +118,7 @@ describe('promptDbFailures', () => {
     await type(input, '\x1b[A')
     expect(lastOptions(text())).toEqual([
       '  [ ] createDocument',
+      '  [ ] getDocument',
       '> [ ] countDocuments',
     ])
   })
@@ -112,6 +129,7 @@ describe('promptDbFailures', () => {
     await type(input, ' ')
     expect(lastOptions(text())).toEqual([
       '> [x] createDocument',
+      '  [ ] getDocument',
       '  [ ] countDocuments',
     ])
 
@@ -123,16 +141,25 @@ describe('promptDbFailures', () => {
   it('answers with the checked operations in list order on enter', async () => {
     const { input, text, answer } = startPrompt()
 
-    // Check countDocuments, then createDocument: the answer must come back in
-    // list order, not in checking order.
+    // Check countDocuments, then getDocument, then createDocument: the answer
+    // must come back in list order, not in checking order.
     await type(input, '\x1b[B')
+    await type(input, '\x1b[B')
+    await type(input, ' ')
+    await type(input, '\x1b[A')
     await type(input, ' ')
     await type(input, '\x1b[A')
     await type(input, ' ')
     await type(input, '\r')
 
-    expect(await answer).toEqual(['createDocument', 'countDocuments'])
-    expect(text()).toContain('db-failure: createDocument, countDocuments')
+    expect(await answer).toEqual([
+      'createDocument',
+      'getDocument',
+      'countDocuments',
+    ])
+    expect(text()).toContain(
+      'db-failure: createDocument, getDocument, countDocuments',
+    )
     // The answer replaced the block instead of joining it: exactly one answer
     // line, and no option lines left behind.
     expect(text().match(/db-failure:/g)).toHaveLength(1)

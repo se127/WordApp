@@ -498,24 +498,28 @@ describe('documents database', () => {
   })
 
   it('fails the operations the --with-db-failure prompt picked and reports them', async () => {
-    vi.stubEnv('DEV_DB_FAILURE', 'createDocument,countDocuments')
+    vi.stubEnv('DEV_DB_FAILURE', 'createDocument,getDocument,countDocuments')
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     try {
       await importMain()
 
       expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith(
-        'createDocument,countDocuments',
+        'createDocument,getDocument,countDocuments',
       )
       expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
         path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
         {
           operationDelayMs: 0,
-          failingOperations: ['createDocument', 'countDocuments'],
+          failingOperations: [
+            'createDocument',
+            'getDocument',
+            'countDocuments',
+          ],
         },
       )
       expect(consoleLog).toHaveBeenCalledWith(
-        'db-failure: createDocument, countDocuments',
+        'db-failure: createDocument, getDocument, countDocuments',
       )
     } finally {
       consoleLog.mockRestore()
@@ -566,7 +570,7 @@ describe('documents database', () => {
     vi.stubEnv('DEV_DB_FAILURE', 'users')
     mocks.parseDbFailureArgument.mockImplementationOnce(() => {
       throw new Error(
-        'Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
       )
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -578,7 +582,7 @@ describe('documents database', () => {
         expect(mocks.app.exit).toHaveBeenCalledWith(1)
       })
       expect(consoleError).toHaveBeenCalledWith(
-        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {
