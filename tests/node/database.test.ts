@@ -330,19 +330,22 @@ describe('databaseOperationNames', () => {
   it('lists the operations the failure knob can make fail', () => {
     // These names are the --with-db-failure prompt's list and the vocabulary
     // of its DEV_DB_FAILURE answer; the store's methods must stay matched to
-    // them. `getDocument` is deliberately left out — the knob does not fail
-    // it.
-    expect(databaseOperationNames).toEqual(['createDocument', 'countDocuments'])
+    // them. `close` is deliberately left out — it runs no query and must
+    // always work.
+    expect(databaseOperationNames).toEqual([
+      'createDocument',
+      'getDocument',
+      'countDocuments',
+    ])
   })
 })
 
 describe('parseDbFailureArgument', () => {
   it('parses the documented comma-separated list, in order', () => {
     expect(parseDbFailureArgument('createDocument')).toEqual(['createDocument'])
-    expect(parseDbFailureArgument('countDocuments,createDocument')).toEqual([
-      'countDocuments',
-      'createDocument',
-    ])
+    expect(
+      parseDbFailureArgument('countDocuments,getDocument,createDocument'),
+    ).toEqual(['countDocuments', 'getDocument', 'createDocument'])
   })
 
   it('treats an empty value as "fail nothing"', () => {
@@ -353,7 +356,6 @@ describe('parseDbFailureArgument', () => {
     for (const value of [
       'users', // an unrelated word
       'CreateDocument', // wrong case
-      'getDocument', // a store method, but not one the knob can fail
       'close', // a store method, but one that never runs a query
       'createDocument,', // trailing separator, empty name
     ]) {
@@ -365,7 +367,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, countDocuments',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments',
     )
   })
 })
@@ -432,6 +434,17 @@ describe('openDatabase failing operations', () => {
     expect(await store.countDocuments()).toBe(0)
   })
 
+  it('fails a selected document read with the injected message', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['getDocument'],
+    })
+
+    const document = await store.createDocument()
+    await expect(store.getDocument(document.id)).rejects.toThrowError(
+      'The getDocument operation failed (injected by --with-db-failure)',
+    )
+  })
+
   it('fails nothing when the selection is empty', async () => {
     const { database: store } = openTestDatabase({ failingOperations: [] })
 
@@ -446,13 +459,14 @@ describe('openDatabase failing operations', () => {
     try {
       const { database: store } = openTestDatabase({
         operationDelayMs: 2000,
-        failingOperations: ['createDocument', 'countDocuments'],
+        failingOperations: ['createDocument', 'getDocument', 'countDocuments'],
       })
 
       const failures: unknown[] = []
       let settled = 0
       const operations = [
         store.createDocument(),
+        store.getDocument(1),
         store.countDocuments(),
       ] as const
       for (const operation of operations) {
@@ -466,10 +480,10 @@ describe('openDatabase failing operations', () => {
       await vi.advanceTimersByTimeAsync(1999)
       expect(settled).toBe(0)
 
-      // At 2000ms both fail with the injected message, so the renderer's
+      // At 2000ms all three fail with the injected message, so the renderer's
       // busy states are watchable under --db-delay before the failure lands.
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(2)
+      expect(settled).toBe(3)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,

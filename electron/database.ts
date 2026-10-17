@@ -35,11 +35,11 @@ export type WordAppDatabase = {
 // The store operations the dev script's --with-db-failure knob can make fail,
 // named exactly as their methods: the prompt lists them, its answer reaches
 // the main process as DEV_DB_FAILURE, and the names selected there fail
-// instead of running (see openDatabase's `failingOperations`). `getDocument`
-// is deliberately not offered, and `close` is not on the list either: it runs
-// no query and must always work.
+// instead of running (see openDatabase's `failingOperations`). `close` is not
+// on the list: it runs no query and must always work.
 export const databaseOperationNames = [
   'createDocument',
+  'getDocument',
   'countDocuments',
 ] as const
 
@@ -221,6 +221,7 @@ export function openDatabase(
 
     async getDocument(id) {
       await waitBeforeQuery()
+      failInjectedOperation('getDocument')
 
       const row = selectDocument.get(id) as DocumentRow | undefined
       return row === undefined ? undefined : toRecord(row)

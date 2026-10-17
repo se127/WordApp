@@ -89,11 +89,13 @@ implementing it — never decide that on your own. If it should:
 - Add its name to `databaseOperationNames` and call
   `failInjectedOperation('<name>')` right after `await waitBeforeQuery()`; the
   failure lands after the delay, like a slow query that then fails. An operation left
-  out of the list (`getDocument` is one) keeps the await and skips the injection.
+  out of the list still starts with `await waitBeforeQuery()` — only the injection is
+  skipped, so `--db-delay` keeps covering it.
 - An offered operation's failure must be visible and harmless in the UI — the same
   rule as a slowed operation: the home page answers a failed create with the error
-  toast and a failed count with the retry button. The page must never blank out or
-  silently wait.
+  toast and a failed count with the retry button, and the document page answers a
+  failed read with its failure message and retry button. The page must never blank
+  out or silently wait.
 - The list is pinned by tests — the names/parse tests in
   `tests/node/database.test.ts`, the "valid operations" messages in
   `tests/node/main.test.ts`, and the prompt fixture in

@@ -23,8 +23,9 @@ const storedDocument = {
 // installs its own stub of it and observes what the pages send through it.
 // `count` reports what `create` stored, the way the database would; a test can
 // take over a call to hold it open and observe the page mid-read: `create`
-// (the button's own spinner), `get` (the content box's pending spinner), or
-// `count` (the heading's inline loader, or its pulsing stale number).
+// (the button's own spinner), `get` (the content box's pending spinner, or its
+// failed-read report and retry), or `count` (the heading's inline loader, or
+// its pulsing stale number).
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
@@ -353,6 +354,123 @@ describe('routes', () => {
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('reports a failed document read with an error and a retry button, and recovers the document when pressed', async () => {
+    let attempts = 0
+    const get = vi.fn((): Promise<typeof storedDocument> => {
+      attempts += 1
+      // The first read fails (a stand-in for the dev script's
+      // --with-db-failure); the retry reads the row for real.
+      return attempts === 1
+        ? Promise.reject(
+            new Error(
+              'The getDocument operation failed (injected by --with-db-failure)',
+            ),
+          )
+        : Promise.resolve(storedDocument)
+    })
+    installBridge({ get })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+
+    // The failed read is reported in the content box — no technical detail —
+    // and the retry button takes the read again; the back button stays, so
+    // the page is never a dead end.
+    expect(
+      await screen.findByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'The getDocument operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+
+    const retry = screen.getByRole('button', {
+      name: 'تلاش دوباره برای بارگذاری سند',
+    })
+    // The retry keeps its destructive color on hover: the class it passes
+    // wins over the outline variant's own hover color in the merge.
+    expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
+    expect(retry).not.toHaveClass('hover:text-foreground')
+
+    await user.click(retry)
+
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+    expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the content-box spinner while a retry from a failed document read is in flight', async () => {
+    let reads = 0
+    let finishRetry!: (document: typeof storedDocument) => void
+    const get = vi.fn((): Promise<typeof storedDocument> => {
+      reads += 1
+      // The first read fails (a stand-in for the dev script's
+      // --with-db-failure); the retry stays open until the test releases it.
+      if (reads === 1) {
+        return Promise.reject(new Error('document read failed'))
+      }
+      return new Promise<typeof storedDocument>((resolve) => {
+        finishRetry = resolve
+      })
+    })
+    installBridge({ get })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره برای بارگذاری سند',
+      }),
+    )
+
+    // The re-read is slow (like a read under --db-delay): the content box
+    // holds the pending spinner while it runs, and the failed report is gone
+    // with it.
+    expect(
+      await screen.findByRole('status', { name: 'در حال بارگذاری' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+
+    await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'))
+    await act(() => finishRetry(storedDocument))
+
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('explains the document retry button with a tooltip', async () => {
+    const get = vi.fn(async (): Promise<typeof storedDocument> => {
+      throw new Error('document read failed')
+    })
+    installBridge({ get })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+
+    await user.hover(
+      await screen.findByRole('button', {
+        name: 'تلاش دوباره برای بارگذاری سند',
+      }),
+    )
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'تلاش دوباره برای بارگذاری سند',
+    )
   })
 
   it('creates an untitled document and opens its page', async () => {
