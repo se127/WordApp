@@ -3,8 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const devKey = 'wordapp-theme-dev'
 const prodKey = 'wordapp-theme'
 
-// theme.ts picks its storage key when it is imported, so import a fresh copy
-// wherever the runtime environment (dev server vs packaged app) matters.
 async function importTheme() {
   vi.resetModules()
   return import('@/lib/theme')

@@ -10,8 +10,6 @@ vi.mock('electron', () => ({
   ipcRenderer: { invoke: mocks.invoke },
 }))
 
-// The bridge contract the renderer sees; mirrors the Window.WordApp type in
-// src/types/global.d.ts.
 type ExposedApi = Window['WordApp']
 
 async function importPreload(): Promise<ExposedApi> {

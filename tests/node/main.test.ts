@@ -16,9 +16,6 @@ import {
   documentsSaveChannel,
 } from '../../electron/ipc.ts'
 
-// Everything electron/main.ts touches is mocked; the mutable pieces (packaged
-// flag, captured window options) are read through this object, so each test
-// can import a fresh copy of main.ts with the state it needs.
 const mocks = vi.hoisted(() => {
   const win = {
     isDestroyed: vi.fn(() => false),
@@ -40,8 +37,6 @@ const mocks = vi.hoisted(() => {
     options: undefined,
   }
 
-  // Stand-in for the SQLite store electron/main.ts opens; the real database
-  // behavior is covered by tests/node/database.test.ts.
   const database = {
     createDocument: vi.fn(),
     getDocument: vi.fn(),
@@ -51,8 +46,6 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(),
   }
 
-  // Stand-ins for the database module's dev-argument exports; their real
-  // behavior is covered by tests/node/database.test.ts.
   const parseSeedArgument = vi.fn((value: string) =>
     value === '' ? [] : [{ table: 'documents', count: 3 }],
   )
@@ -207,7 +200,6 @@ describe('packaged app', () => {
   it('drops the default menu, disables DevTools, and loads the bundled page', async () => {
     stubPlatform('win32')
 
-    // Even a stray dev-server URL must be ignored in a packaged build.
     await importMain({
       isPackaged: true,
       devServerUrl: 'http://127.0.0.1:5173/',
@@ -217,7 +209,6 @@ describe('packaged app', () => {
     expect(mocks.Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null)
 
     const options = windowOptions()
-    // No `frame: false`: the window keeps its native title bar and buttons.
     expect(options.frame).toBeUndefined()
     expect(options.show).toBe(false)
     expect(options.autoHideMenuBar).toBe(true)
@@ -260,8 +251,6 @@ describe('window reveal', () => {
     expect(mocks.win.maximize).toHaveBeenCalledOnce()
     expect(mocks.win.show).toHaveBeenCalledOnce()
 
-    // A late reveal request (e.g. the renderer dying after its first frame)
-    // changes nothing: the window is already shown.
     painted()
     expect(mocks.win.show).toHaveBeenCalledOnce()
   })
@@ -391,8 +380,6 @@ describe('documents database', () => {
     expect(save({}, 1, { body: ['متن'] })).toBeUndefined()
     expect(mocks.database.saveDocument).not.toHaveBeenCalled()
 
-    // An empty change set is well-formed — both fields are optional — so the
-    // save goes through like any other.
     save({}, 1, {})
     expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, {})
   })
@@ -679,7 +666,6 @@ describe('load failures', () => {
       vi.advanceTimersByTime(500)
     }
 
-    // The initial load plus five retries, then the window is revealed.
     expect(mocks.win.loadURL).toHaveBeenCalledTimes(6)
     expect(mocks.win.show).toHaveBeenCalledOnce()
   })
@@ -725,12 +711,9 @@ describe('load failures', () => {
       vi.advanceTimersByTime(500)
     }
 
-    // The initial load plus five retries, with nothing revealed yet.
     expect(mocks.win.loadURL).toHaveBeenCalledTimes(6)
     expect(mocks.win.show).not.toHaveBeenCalled()
 
-    // A successful load starts over with a fresh retry budget: the next
-    // network-changed failure retries again instead of revealing the window.
     listenerOn(mocks.win.webContents, 'did-finish-load')()
     failed({}, -106, 'ERR_NETWORK_CHANGED', 'http://127.0.0.1:5173/', true)
     vi.advanceTimersByTime(500)
@@ -754,7 +737,6 @@ describe('load failures', () => {
     )
     vi.advanceTimersByTime(500)
 
-    // The scheduled retry saw the destroyed window and skipped the load.
     expect(mocks.win.loadURL).toHaveBeenCalledTimes(1)
     expect(mocks.win.show).not.toHaveBeenCalled()
   })
@@ -805,7 +787,6 @@ describe('app lifecycle', () => {
 
     expect(mocks.created.length).toBe(2)
 
-    // With a window already open, activate does nothing.
     activate()
     expect(mocks.created.length).toBe(2)
   })

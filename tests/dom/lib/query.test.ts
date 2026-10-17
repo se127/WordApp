@@ -15,8 +15,6 @@ const storedDocument = {
   updatedAt: 2_000,
 }
 
-// A full preload bridge (src/types/global.d.ts) whose document calls a test
-// can take over.
 function installDocuments(
   documents: Partial<WordAppBridge['documents']> = {},
 ): void {
@@ -42,28 +40,18 @@ describe('query layer', () => {
   it('never retries, never refetches on its own, and keeps the zero client stale time', () => {
     const queries = createQueryClient().getDefaultOptions().queries
 
-    // Zero retries, and mounting onto an errored query does not read again
-    // either: a failed local read fails the same way again.
     expect(queries?.retry).toBe(0)
     expect(queries?.retryOnMount).toBe(false)
-    // All three automatic refetch triggers are off; freshness is explicit —
-    // only an invalidation makes a query read again.
     expect(queries?.refetchOnMount).toBe(false)
     expect(queries?.refetchOnWindowFocus).toBe(false)
     expect(queries?.refetchOnReconnect).toBe(false)
-    // The client itself keeps the zero default; each query opts into an
-    // infinite stale time (see the test below).
     expect(queries?.staleTime).toBeUndefined()
   })
 
   it('keeps each query fresh until a write invalidates it', async () => {
-    // Infinite stale time on both queries: a revisit reuses the cache
-    // instead of reading the database again.
     expect(documentsCountQuery.staleTime).toBe(Infinity)
     expect(documentQuery(1).staleTime).toBe(Infinity)
 
-    // The cache answers repeated reads; an invalidation sends the next read
-    // to the database again.
     const get = vi.fn(async () => storedDocument)
     installDocuments({ get })
     const client = createQueryClient()

@@ -20,16 +20,6 @@ const storedDocument = {
   updatedAt: 1_000,
 }
 
-// `window.WordApp` is the preload bridge (src/types/global.d.ts); every test
-// installs its own stub of it and observes what the pages send through it.
-// `count` reports what `create` stored, the way the database would, and `get`
-// returns the stored row — starting as `storedDocument` and following what
-// `save` stored; a test can take over a call to hold it open and observe the
-// page mid-read: `create` (the button's own spinner), `get` (the content
-// box's pending spinner, or its failed-read report and retry), `count` (the
-// heading's inline loader, or its pulsing stale number), `save` (the title
-// input's spinner), or `remove` (the bridge's delete — named around the
-// reserved word — held open to watch the delete dialog mid-write).
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
@@ -72,12 +62,6 @@ function installBridge(
   return { create, get, count, save, remove }
 }
 
-// Mirrors the provider stack from src/main.tsx plus the QueryClientProvider
-// from src/App.tsx, over a router that starts at the given entry instead of
-// the real hash history. Each call builds a fresh QueryClient, so no query
-// cache leaks between tests. The client comes back along with the router so a
-// test can drive cache changes the UI would trigger itself (the create flow's
-// count invalidation, say).
 function renderRoute(initialEntry: string) {
   const queryClient = createQueryClient()
   const router = createAppRouter(
@@ -99,8 +83,6 @@ function renderRoute(initialEntry: string) {
 }
 
 afterEach(() => {
-  // Sonner keeps its toasts in a store of its own, outside React; drop them
-  // so a lingering toast cannot leak into the next test.
   toast.dismiss()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
@@ -116,9 +98,6 @@ describe('routes', () => {
       name: 'مستندات (0)',
     })
     expect(heading).toBeInTheDocument()
-    // The heading is one fixed-height flex line, so the count's spot swapping
-    // states (number, loader, retry button) never changes the heading's
-    // height and moves what sits under it.
     expect(heading).toHaveClass('flex', 'h-8', 'items-center')
     expect(
       screen.getByRole('button', { name: 'افزودن سند' }),
@@ -138,8 +117,6 @@ describe('routes', () => {
 
     renderRoute('/')
 
-    // The page is not held back while the count reads: the heading shows its
-    // loader in the number's place, and the button is already there.
     const heading = await screen.findByRole('heading')
     expect(within(heading).getByRole('status')).toBeInTheDocument()
     expect(
@@ -159,8 +136,6 @@ describe('routes', () => {
     let finishRefetch!: (count: number) => void
     const count = vi.fn((): Promise<number> => {
       reads += 1
-      // The first read answers right away; the re-read after the create (the
-      // invalidation) stays open until the test releases it.
       if (reads > 1) {
         return new Promise<number>((resolve) => {
           finishRefetch = resolve
@@ -174,14 +149,11 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (0)' })
 
-    // Creating a document invalidates the count; its re-read is held open.
     await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    // The previous count is still on screen, pulsing, and no loader replaces
-    // it; the fresh number lands once the re-read finishes.
     const staleCount = await screen.findByText('(0)')
     expect(staleCount).toHaveClass('animate-pulse')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
@@ -195,8 +167,6 @@ describe('routes', () => {
     let attempts = 0
     const count = vi.fn((): Promise<number> => {
       attempts += 1
-      // The first read fails (a stand-in for the dev script's
-      // --with-db-failure); the retry reads the count for real.
       return attempts === 1
         ? Promise.reject(new Error('count read failed'))
         : Promise.resolve(2)
@@ -209,8 +179,6 @@ describe('routes', () => {
     const retry = await screen.findByRole('button', {
       name: 'تلاش دوباره برای دریافت تعداد سندها',
     })
-    // The retry keeps its destructive color on hover: the class it passes
-    // wins over the outline variant's own hover color in the merge.
     expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
     expect(retry).not.toHaveClass('hover:text-foreground')
 
@@ -252,8 +220,6 @@ describe('routes', () => {
     let finishRetry!: (count: number) => void
     const count = vi.fn((): Promise<number> => {
       reads += 1
-      // The first read fails (a stand-in for the dev script's
-      // --with-db-failure); the retry stays open until the test releases it.
       if (reads === 1) {
         return Promise.reject(new Error('count read failed'))
       }
@@ -272,9 +238,6 @@ describe('routes', () => {
       }),
     )
 
-    // The re-read is slow (like a read under --db-delay): the number's spot
-    // holds the heading's loader while it runs, and the button is gone with
-    // it.
     const heading = screen.getByRole('heading')
     expect(await within(heading).findByRole('status')).toBeInTheDocument()
     expect(
@@ -296,9 +259,6 @@ describe('routes', () => {
     let finishRetry!: (count: number) => void
     const count = vi.fn((): Promise<number> => {
       reads += 1
-      // The first read answers; the invalidation's re-read fails, leaving the
-      // stale number on screen with the error; the retry stays open until the
-      // test releases it.
       if (reads === 1) {
         return Promise.resolve(3)
       }
@@ -315,8 +275,6 @@ describe('routes', () => {
     const { queryClient } = renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (3)' })
 
-    // What a create does to the count: invalidate it and read it again. This
-    // re-read fails, so the number's spot shows the retry button.
     await act(async () => {
       await queryClient
         .invalidateQueries({ queryKey: documentsCountQuery.queryKey })
@@ -327,9 +285,6 @@ describe('routes', () => {
       name: 'تلاش دوباره برای دریافت تعداد سندها',
     })
 
-    // The button is busy while the retry it starts is in flight (the case the
-    // button itself outlives): disabled, with its icon spinning, so a slow
-    // retry stays visible.
     await user.click(retry)
     const busy = screen.getByRole('button', {
       name: 'تلاش دوباره برای دریافت تعداد سندها',
@@ -362,10 +317,6 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    // The page is not held back while the row reads: the back button — alone
-    // on the first line, so the page is never a dead end even mid-read — is
-    // up right away while the loader fills what is under it; the title's
-    // line, and with it the options menu, waits for the row.
     await screen.findByRole('button', { name: 'تغییر پوسته' })
     expect(
       await screen.findByRole('status', { name: 'در حال بارگذاری' }),
@@ -391,8 +342,6 @@ describe('routes', () => {
     let attempts = 0
     const get = vi.fn((): Promise<typeof storedDocument> => {
       attempts += 1
-      // The first read fails (a stand-in for the dev script's
-      // --with-db-failure); the retry reads the row for real.
       return attempts === 1
         ? Promise.reject(
             new Error(
@@ -406,9 +355,6 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    // The failed read is reported in the content box — no technical detail —
-    // and the retry button takes the read again; the back button stays, so
-    // the page is never a dead end.
     expect(
       await screen.findByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
     ).toBeInTheDocument()
@@ -424,8 +370,6 @@ describe('routes', () => {
     const retry = screen.getByRole('button', {
       name: 'تلاش دوباره برای بارگذاری سند',
     })
-    // The retry keeps its destructive color on hover: the class it passes
-    // wins over the outline variant's own hover color in the merge.
     expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
     expect(retry).not.toHaveClass('hover:text-foreground')
 
@@ -445,8 +389,6 @@ describe('routes', () => {
     let finishRetry!: (document: typeof storedDocument) => void
     const get = vi.fn((): Promise<typeof storedDocument> => {
       reads += 1
-      // The first read fails (a stand-in for the dev script's
-      // --with-db-failure); the retry stays open until the test releases it.
       if (reads === 1) {
         return Promise.reject(new Error('document read failed'))
       }
@@ -465,9 +407,6 @@ describe('routes', () => {
       }),
     )
 
-    // The re-read is slow (like a read under --db-delay): the content box
-    // holds the pending spinner while it runs, and the failed report is gone
-    // with it.
     expect(
       await screen.findByRole('status', { name: 'در حال بارگذاری' }),
     ).toBeInTheDocument()
@@ -510,14 +449,7 @@ describe('routes', () => {
     renderRoute('/documents/1')
 
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
-    // The heading fills the title line's free width at the options button's
-    // own height (h-8) and truncates, so a long title never pushes the
-    // options button around.
     expect(heading).toHaveClass('h-8', 'min-w-0', 'flex-1', 'truncate')
-    // The cursor stays the default arrow — the text cursor belongs to the
-    // input alone — and hovering or focusing tints it with a color
-    // transition (bg-gray-100 in light, bg-zinc-700 in dark); taking focus
-    // shows the border in the input's own border color.
     expect(heading).toHaveClass(
       'cursor-default',
       'transition-colors',
@@ -536,9 +468,6 @@ describe('routes', () => {
     renderRoute('/documents/1')
     await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
 
-    // The input sits exactly where the heading was — the icon-button height,
-    // nothing but a border around the text — with the whole title selected,
-    // so typing replaces it.
     const input = await screen.findByRole<HTMLInputElement>('textbox', {
       name: 'عنوان سند',
     })
@@ -556,9 +485,6 @@ describe('routes', () => {
     renderRoute('/documents/1')
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    // The page's focus order is the window strip's theme button, the back
-    // button, then the title: the third Tab lands on the heading, which keeps
-    // being the heading — just with its focus border — and saves nothing.
     await user.tab()
     await user.tab()
     await user.tab()
@@ -568,8 +494,6 @@ describe('routes', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
 
-    // Space is the heading's edit key: it swaps in the input — the whole
-    // title selected, same as a click — and must not leak a space into it.
     await user.keyboard(' ')
 
     const input = await screen.findByRole<HTMLInputElement>('textbox', {
@@ -580,8 +504,6 @@ describe('routes', () => {
     expect(input.selectionStart).toBe(0)
     expect(input.selectionEnd).toBe('بدون عنوان'.length)
 
-    // Tabbing away blurs the input; nothing changed, so it drops back to the
-    // heading without a save.
     await user.tab()
     expect(
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
@@ -618,9 +540,6 @@ describe('routes', () => {
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
     heading.focus()
 
-    // Enter opens the input with the whole title selected; typing replaces
-    // it, and the second Enter commits — the save goes out — and hands the
-    // keyboard back to the heading.
     await user.keyboard('{Enter}')
     const input = await screen.findByRole<HTMLInputElement>('textbox', {
       name: 'عنوان سند',
@@ -633,9 +552,6 @@ describe('routes', () => {
     expect(save).toHaveBeenCalledExactlyOnceWith(1, { title: 'گزارش' })
     await vi.waitFor(() => expect(saved).toHaveFocus())
 
-    // The heading still holds the keyboard: Enter reopens the input, and a
-    // no-change Enter brings the heading back with focus again — no second
-    // save. Tab then moves on from the heading itself, to the options button.
     await user.keyboard('{Enter}')
     await screen.findByRole<HTMLInputElement>('textbox', {
       name: 'عنوان سند',
@@ -661,7 +577,6 @@ describe('routes', () => {
     await user.clear(input)
     await user.type(input, 'گزارش سالانه')
 
-    // Typing alone saves nothing: the write waits for the blur.
     expect(save).not.toHaveBeenCalled()
 
     await user.tab()
@@ -673,8 +588,6 @@ describe('routes', () => {
       await screen.findByRole('heading', { name: 'گزارش سالانه' }),
     ).toBeInTheDocument()
 
-    // The save invalidated the row's query, so the row was read again — once
-    // at load, once after the save.
     await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
   })
 
@@ -713,16 +626,11 @@ describe('routes', () => {
     renderRoute('/documents/1')
     await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
-    // While idle the input's end padding matches its start padding.
     expect(input).not.toHaveClass('pe-8')
     await user.clear(input)
     await user.type(input, 'پیگیری')
     await user.tab()
 
-    // The save is slow (like a write under the dev script's --db-delay): the
-    // edited text stays on screen in a disabled input with a spinner. The
-    // spinner sits in the input's end corner, so the input pads that side
-    // too — a full title never runs under the spinner.
     const pending = screen.getByRole('textbox', { name: 'عنوان سند' })
     expect(pending).toBeDisabled()
     expect(pending).toHaveValue('پیگیری')
@@ -749,8 +657,6 @@ describe('routes', () => {
     let finishReread!: (document: typeof storedDocument) => void
     const get = vi.fn((): Promise<typeof storedDocument> => {
       reads += 1
-      // The first read answers with the row; the re-read after the save (the
-      // invalidation) stays open until the test releases it.
       if (reads === 1) {
         return Promise.resolve(storedDocument)
       }
@@ -768,9 +674,6 @@ describe('routes', () => {
     await user.type(input, 'گزارش')
     await user.tab()
 
-    // The row's re-read is held open (like a read under --db-delay): the
-    // title the user just saved stands, with no bounce back to the old one
-    // and no loading state.
     expect(
       await screen.findByRole('heading', { name: 'گزارش' }),
     ).toBeInTheDocument()
@@ -792,8 +695,6 @@ describe('routes', () => {
     const get = vi.fn(async () => storedRow)
     const save = vi.fn(async (_id: number, changes: DocumentChanges) => {
       attempts += 1
-      // The first save fails (a stand-in for the dev script's
-      // --with-db-failure); the retry stores the change for real.
       if (attempts === 1) {
         throw new Error(
           'The saveDocument operation failed (injected by --with-db-failure)',
@@ -817,8 +718,6 @@ describe('routes', () => {
     await user.type(input, 'پیش نویس')
     await user.tab()
 
-    // The toast tells the user the save failed and to try again; the store's
-    // technical message stays out of it.
     expect(
       await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
     ).toBeInTheDocument()
@@ -828,8 +727,6 @@ describe('routes', () => {
       ),
     ).not.toBeInTheDocument()
 
-    // The edited text stayed in the input — nothing was lost — and the caret
-    // came back to it, so blurring again retries the save.
     const kept = screen.getByRole('textbox', { name: 'عنوان سند' })
     expect(kept).toHaveValue('پیش نویس')
     expect(kept).not.toBeDisabled()
@@ -908,9 +805,6 @@ describe('routes', () => {
       name: 'بازگشت به مستندات',
     })
 
-    // The label is the button's own text and the icon points right — the
-    // back direction in the RTL layout — so nothing explains it through a
-    // tooltip; hovering it raises none.
     expect(backLink.querySelector('svg')).toHaveClass('lucide-arrow-right')
     await user.hover(backLink)
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
@@ -923,16 +817,12 @@ describe('routes', () => {
     renderRoute('/documents/1')
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    // The options button is an ellipsis icon button; its menu holds the
-    // delete item with its trash icon.
     await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
     const deleteItem = await screen.findByRole('menuitem', { name: 'حذف' })
     expect(deleteItem.querySelector('svg')).toHaveClass('lucide-trash')
     expect(deleteItem).toHaveAttribute('data-variant', 'destructive')
     await user.click(deleteItem)
 
-    // Deleting is not immediate: the confirmation dialog spells out what is
-    // being asked, with the destructive confirm and the cancel.
     const dialog = await screen.findByRole('alertdialog')
     expect(
       within(dialog).getByText(
@@ -949,9 +839,6 @@ describe('routes', () => {
       within(dialog).getByRole('button', { name: 'انصراف' }),
     ).toBeInTheDocument()
 
-    // The menu stayed open under the dialog — the modal dialog hides it from
-    // assistive tech with aria-hidden, but it is still mounted — and nothing
-    // was deleted yet.
     expect(
       screen.getByRole('menuitem', { hidden: true, name: 'حذف' }),
     ).toBeInTheDocument()
@@ -969,14 +856,12 @@ describe('routes', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
     const dialog = await screen.findByRole('alertdialog')
 
-    // انصراف dismisses the dialog and leaves the menu it was opened from.
     await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
     await vi.waitFor(() =>
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
     )
     expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
 
-    // Esc dismisses it the same way.
     await user.click(screen.getByRole('menuitem', { name: 'حذف' }))
     await screen.findByRole('alertdialog')
     await user.keyboard('{Escape}')
@@ -985,7 +870,6 @@ describe('routes', () => {
     )
     expect(screen.getByRole('menuitem', { name: 'حذف' })).toBeInTheDocument()
 
-    // Neither dismissal deleted the document.
     expect(remove).not.toHaveBeenCalled()
   })
 
@@ -1008,20 +892,15 @@ describe('routes', () => {
     const dialog = await screen.findByRole('alertdialog')
     await user.click(within(dialog).getByRole('button', { name: 'بله' }))
 
-    // The delete is in flight (like a write under --db-delay): the confirm
-    // button carries the pending label with a spinning icon, and both
-    // buttons are disabled...
     expect(remove).toHaveBeenCalledWith(1)
     const confirm = screen.getByRole('button', { name: 'در حال حذف...' })
     expect(confirm).toBeDisabled()
     expect(confirm.querySelector('svg')).toHaveClass('animate-spin')
     expect(screen.getByRole('button', { name: 'انصراف' })).toBeDisabled()
 
-    // ...and Esc cannot take the dialog down mid-write.
     await user.keyboard('{Escape}')
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
 
-    // Released, the delete lands: home, with the success toast.
     await act(() => finishDelete())
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
@@ -1055,16 +934,12 @@ describe('routes', () => {
 
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
 
-    // Back on the home page, the count was read again — the delete
-    // invalidated it — and shows the store's new number.
     expect(
       await screen.findByRole('heading', { name: 'مستندات (0)' }),
     ).toBeInTheDocument()
     expect(remove).toHaveBeenCalledWith(1)
     expect(count).toHaveBeenCalledTimes(2)
 
-    // The deleted row is out of the query cache: reopening its page reads
-    // the database again instead of showing the cached copy.
     await act(() =>
       router.navigate({
         to: '/documents/$documentId',
@@ -1079,8 +954,6 @@ describe('routes', () => {
     let attempts = 0
     const remove = vi.fn((): Promise<void> => {
       attempts += 1
-      // The first delete fails (a stand-in for the dev script's
-      // --with-db-failure); the retry removes the row for real.
       return attempts === 1
         ? Promise.reject(
             new Error(
@@ -1099,8 +972,6 @@ describe('routes', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
     await user.click(await screen.findByRole('button', { name: 'بله' }))
 
-    // The toast tells the user the delete failed and to try again; the
-    // store's technical message stays out of it.
     expect(
       await screen.findByText('حذف سند ناموفق بود. دوباره تلاش کنید.'),
     ).toBeInTheDocument()
@@ -1110,14 +981,11 @@ describe('routes', () => {
       ),
     ).not.toBeInTheDocument()
 
-    // The dialog stayed open with its buttons ready for another try, and no
-    // success toast was raised.
     const dialog = screen.getByRole('alertdialog')
     expect(within(dialog).getByRole('button', { name: 'انصراف' })).toBeEnabled()
     expect(within(dialog).getByRole('button', { name: 'بله' })).toBeEnabled()
     expect(screen.queryByText('سند حذف شد.')).not.toBeInTheDocument()
 
-    // The second attempt goes through and lands home.
     await user.click(within(dialog).getByRole('button', { name: 'بله' }))
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
@@ -1143,8 +1011,6 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    // Nothing was written while the user was away, so the cached count is
-    // still fresh: it stands, un-pulsed, and neither read happened twice.
     expect(
       await screen.findByRole('heading', { name: 'مستندات (0)' }),
     ).toBeInTheDocument()
@@ -1160,8 +1026,6 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (0)' })
 
-    // The create invalidates the count; the heading shows the re-read number
-    // once the user is back home.
     await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
@@ -1186,8 +1050,6 @@ describe('routes', () => {
     renderRoute('/')
     await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
 
-    // The toast tells the user the create failed and to try again; the
-    // store's technical message stays out of it.
     expect(
       await screen.findByText('افزودن سند ناموفق بود. دوباره تلاش کنید.'),
     ).toBeInTheDocument()
@@ -1197,8 +1059,6 @@ describe('routes', () => {
       ),
     ).not.toBeInTheDocument()
 
-    // No document page opened, the count was not invalidated (its read ran
-    // once, at load), and the button is ready for another try.
     expect(
       screen.getByRole('heading', { name: 'مستندات (0)' }),
     ).toBeInTheDocument()
@@ -1246,7 +1106,6 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    // Nothing changed the row, so the second opening came from the cache.
     expect(get).toHaveBeenCalledOnce()
     expect(count).toHaveBeenCalledOnce()
   })

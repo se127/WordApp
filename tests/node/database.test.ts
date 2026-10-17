@@ -20,17 +20,10 @@ import type {
 let temporaryDirectory: string | undefined
 let database: WordAppDatabase | undefined
 
-// Bun releases SQLite's Windows file handles only once the JavaScript
-// database objects are collected; this suite runs on Bun (like all Vitest
-// here), so force a GC before deleting a test database. On Node the call is a
-// no-op — close() releases the files immediately.
 function collectDatabaseObjects(): void {
   ;(globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun?.gc?.(true)
 }
 
-// A fresh temp directory with a database path inside it, tracked for
-// teardown. For tests that drive the file themselves (through resetDatabase
-// or a raw connection) instead of the open store.
 function temporaryDatabasePath(): string {
   temporaryDirectory = mkdtempSync(
     path.join(tmpdir(), 'wordapp-database-test-'),
@@ -38,8 +31,6 @@ function temporaryDatabasePath(): string {
   return path.join(temporaryDirectory, 'db.sqlite')
 }
 
-// Opens a fresh database in a fresh temp directory and tracks both for
-// teardown, so every test starts from an empty, fully migrated file.
 function openTestDatabase(options?: OpenDatabaseOptions): {
   database: WordAppDatabase
   databasePath: string
@@ -55,16 +46,6 @@ afterEach(async () => {
   database?.close()
   database = undefined
 
-  // Bun releases SQLite's Windows file handles only once the JavaScript
-  // database objects are collected (see collectDatabaseObjects), and a
-  // just-finished test can still keep its store — with the handle — alive in
-  // the async scopes of its last awaits until a turn of the event loop lets
-  // them retire. So collect and try the removal again every turn instead of
-  // using rmSync's own retries, which are synchronous and would never give
-  // the scopes that turn. The bound is generous because the store releases
-  // over many collection passes (its prepared statements are collected one
-  // by one) — a small bound let a handle stay locked through every turn —
-  // while extra turns cost nothing once the handle is already released.
   for (let attempt = 0; temporaryDirectory && attempt < 500; attempt += 1) {
     await new Promise((resolve) => setImmediate(resolve))
     collectDatabaseObjects()
@@ -72,13 +53,9 @@ afterEach(async () => {
     try {
       rmSync(temporaryDirectory, { recursive: true, force: true })
       temporaryDirectory = undefined
-    } catch {
-      // Still held; another turn and collection may release it.
-    }
+    } catch {}
   }
 
-  // Still locked after every turn: fail loudly instead of leaving the temp
-  // directory behind silently.
   if (temporaryDirectory) {
     rmSync(temporaryDirectory, { recursive: true, force: true })
     temporaryDirectory = undefined
@@ -304,7 +281,6 @@ describe('documents', () => {
     const raw = new DatabaseSync(databasePath)
 
     try {
-      // An old updated_at makes the trigger's refresh observable.
       raw
         .prepare('UPDATE documents SET updated_at = ? WHERE id = ?')
         .run(oldUpdate, document.id)
@@ -334,7 +310,6 @@ describe('documents', () => {
       }
 
     try {
-      // An update that sets updated_at itself is left alone by the trigger.
       const explicit = document.createdAt - 60_000
       raw
         .prepare('UPDATE documents SET title = ?, updated_at = ? WHERE id = ?')
@@ -346,7 +321,6 @@ describe('documents', () => {
         updated_at: explicit,
       })
 
-      // An update of the content alone gets its updated_at refreshed.
       raw
         .prepare('UPDATE documents SET title = ? WHERE id = ?')
         .run('ویرایش', document.id)
@@ -356,7 +330,6 @@ describe('documents', () => {
       expect(touched.created_at).toBe(document.createdAt)
       expect(touched.updated_at).toBeGreaterThan(explicit)
 
-      // The store sees the trigger's write through its own connection.
       expect((await store.getDocument(document.id))?.title).toBe('ویرایش')
     } finally {
       raw.close()
@@ -381,13 +354,13 @@ describe('parseSeedArgument', () => {
 
   it('rejects entries that are not <table>,<count>', () => {
     for (const value of [
-      'documents', // no count
-      'documents,', // no count
-      ',50', // no table
-      'documents,twenty', // not a number
-      '2documents,50', // table must start with a letter or underscore
-      'documents,50-', // trailing separator
-      '-documents,50', // leading separator
+      'documents',
+      'documents,',
+      ',50',
+      'documents,twenty',
+      '2documents,50',
+      'documents,50-',
+      '-documents,50',
     ]) {
       expect(() => parseSeedArgument(value)).toThrowError(/Invalid --seed/)
     }
@@ -413,13 +386,13 @@ describe('parseDbDelayArgument', () => {
 
   it('rejects values that are not <milliseconds>ms', () => {
     for (const value of [
-      '2000', // no unit
-      '2s', // wrong unit
-      'ms', // no number
-      '2000ms500', // trailing garbage
-      '2000 ms', // space before the unit
-      '2000MS', // wrong case
-      '-2000ms', // negative
+      '2000',
+      '2s',
+      'ms',
+      '2000ms500',
+      '2000 ms',
+      '2000MS',
+      '-2000ms',
     ]) {
       expect(() => parseDbDelayArgument(value)).toThrowError(
         /Invalid --db-delay/,
@@ -438,10 +411,6 @@ describe('parseDbDelayArgument', () => {
 
 describe('databaseOperationNames', () => {
   it('lists the operations the failure knob can make fail', () => {
-    // These names are the --with-db-failure prompt's list and the vocabulary
-    // of its DEV_DB_FAILURE answer; the store's methods must stay matched to
-    // them. `close` is deliberately left out — it runs no query and must
-    // always work.
     expect(databaseOperationNames).toEqual([
       'createDocument',
       'getDocument',
@@ -466,10 +435,10 @@ describe('parseDbFailureArgument', () => {
 
   it('rejects names that are not store operations', () => {
     for (const value of [
-      'users', // an unrelated word
-      'CreateDocument', // wrong case
-      'close', // a store method, but one that never runs a query
-      'createDocument,', // trailing separator, empty name
+      'users',
+      'CreateDocument',
+      'close',
+      'createDocument,',
     ]) {
       expect(() => parseDbFailureArgument(value)).toThrowError(
         /Invalid --with-db-failure operation/,
@@ -548,8 +517,6 @@ describe('openDatabase failing operations', () => {
       failingOperations: ['countDocuments'],
     })
 
-    // The unselected operations still run: a document can be created and
-    // looked up while the count fails.
     const document = await store.createDocument()
     expect(await store.getDocument(document.id)).toEqual(document)
 
@@ -645,12 +612,9 @@ describe('openDatabase failing operations', () => {
         })
       }
 
-      // The delay comes first: 1999ms in, no operation has failed yet.
       await vi.advanceTimersByTimeAsync(1999)
       expect(settled).toBe(0)
 
-      // At 2000ms all five fail with the injected message, so the renderer's
-      // busy states are watchable under --db-delay before the failure lands.
       await vi.advanceTimersByTimeAsync(1)
       expect(settled).toBe(5)
       for (const error of failures) {
