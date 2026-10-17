@@ -307,6 +307,10 @@ function tableNames(database: DatabaseSync): string[] {
 const quoteIdentifier = (name: string): string =>
   `"${name.replaceAll('"', '""')}"`
 
+const documentSeedIntervalMs = 60_000
+
+const seededDocumentTitle = (position: number): string => `سند ${position}`
+
 function insertSeedRows(
   database: DatabaseSync,
   seed: readonly SeedEntry[],
@@ -325,9 +329,10 @@ function insertSeedRows(
            VALUES (?, ?, ?, ?)`,
         )
 
+        const seededAt = Date.now()
         for (let index = 0; index < count; index += 1) {
-          const now = Date.now()
-          insert.run(untitledDocumentTitle, '', now, now)
+          const timestamp = seededAt - index * documentSeedIntervalMs
+          insert.run(seededDocumentTitle(index + 1), '', timestamp, timestamp)
         }
 
         break
