@@ -127,7 +127,7 @@ function DocumentOptions({ documentId }: { documentId: number }) {
         return
       }
 
-      toast.success('سند حذف شد')
+      toast.success('سند حذف شد.')
 
       // The deleted row changes the stored count. Invalidate it so the next
       // read asks the database again; not awaited, because returning home
@@ -206,7 +206,7 @@ function DocumentOptions({ documentId }: { documentId: number }) {
               آیا مطمئن هستید که می خواهید این سند را حذف کنید؟
             </AlertDialogTitle>
             <AlertDialogDescription>
-              این عملیات غیر قابل بازگشت است
+              این عملیات غیر قابل بازگشت است.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
