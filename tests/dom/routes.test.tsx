@@ -1173,10 +1173,17 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('link', { name: 'گزارش سالانه' })
 
-    expect(screen.getByRole('table')).toHaveClass('table-fixed')
-    expect(screen.getByRole('columnheader', { name: 'عنوان' })).toHaveClass(
-      'w-[60%]',
+    const [headerTable, bodyTable] = screen.getAllByRole('table')
+    expect(headerTable).toHaveClass('table-fixed')
+    expect(bodyTable).toHaveClass('table-fixed')
+    const headerColWidths = Array.from(headerTable.querySelectorAll('col')).map(
+      (col) => col.className,
     )
+    const bodyColWidths = Array.from(bodyTable.querySelectorAll('col')).map(
+      (col) => col.className,
+    )
+    expect(headerColWidths).toEqual(['w-[60%]', 'w-[20%]', 'w-[20%]'])
+    expect(bodyColWidths).toEqual(headerColWidths)
     expect(
       screen.getByRole('columnheader', { name: 'تاریخ ایجاد' }),
     ).toHaveClass('text-center')
@@ -1209,26 +1216,12 @@ describe('routes', () => {
     expect(optionsCell).not.toHaveClass('text-center')
     expect(optionsCell?.querySelector('div')).toHaveClass('justify-end')
 
-    const header = screen
-      .getByRole('columnheader', { name: 'عنوان' })
-      .closest('thead')
-    expect(header).toHaveClass(
-      'sticky',
-      'top-0',
-      'z-10',
-      'bg-white',
-      'dark:bg-zinc-800',
-    )
-    expect(header).toHaveClass('[&_tr]:border-b-0')
-    expect(header).toHaveClass('[&_th]:[box-shadow:0_1px_0_0_var(--border)]')
+    expect(headerTable.closest('[data-slot="scroll-area-viewport"]')).toBeNull()
     expect(
-      screen.getByRole('table').closest('[data-slot="scroll-area-viewport"]'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('table').closest('[data-slot="scroll-area"]'),
-    ).toHaveClass(
+      bodyTable.closest('[data-slot="scroll-area-viewport"]'),
+    ).not.toBeNull()
+    expect(bodyTable.closest('[data-slot="scroll-area"]')).toHaveClass(
       '[&_[data-slot=table-container]]:overflow-visible',
-      '[&_[data-slot=scroll-area-scrollbar]]:z-20',
     )
   })
 
@@ -1341,7 +1334,9 @@ describe('routes', () => {
     const { queryClient } = renderRoute('/')
     await screen.findByRole('link', { name: 'بدون عنوان' })
 
-    expect(screen.getByRole('table')).not.toHaveClass('animate-pulse')
+    expect(
+      screen.getByRole('link', { name: 'بدون عنوان' }).closest('table'),
+    ).not.toHaveClass('animate-pulse')
 
     await act(async () => {
       void queryClient.invalidateQueries({
@@ -1350,7 +1345,9 @@ describe('routes', () => {
     })
 
     await vi.waitFor(() =>
-      expect(screen.getByRole('table')).toHaveClass('animate-pulse'),
+      expect(
+        screen.getByRole('link', { name: 'بدون عنوان' }).closest('table'),
+      ).toHaveClass('animate-pulse'),
     )
     expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
@@ -1361,7 +1358,9 @@ describe('routes', () => {
       await screen.findByRole('link', { name: 'عنوان تازه' }),
     ).toBeInTheDocument()
     await vi.waitFor(() =>
-      expect(screen.getByRole('table')).not.toHaveClass('animate-pulse'),
+      expect(
+        screen.getByRole('link', { name: 'عنوان تازه' }).closest('table'),
+      ).not.toHaveClass('animate-pulse'),
     )
   })
 
