@@ -1770,6 +1770,9 @@ describe('routes', () => {
     const footer = await screen.findByRole('status')
     expect(footer).toHaveTextContent('در حال بارگذاری بیشتر...')
     expect(footer.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+    expect(
+      screen.getByRole('link', { name: 'سند 50' }).closest('table'),
+    ).not.toHaveClass('animate-pulse')
     await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3))
     expect(list).toHaveBeenLastCalledWith({
       cursor: { createdAt: documents[49].createdAt, id: documents[49].id },

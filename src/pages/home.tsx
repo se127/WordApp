@@ -105,6 +105,7 @@ function DocumentsTable() {
     isFetchNextPageError,
     isFetching,
     isFetchingNextPage,
+    isRefetching,
     refetch,
   } = useInfiniteQuery(documentsQuery)
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -209,7 +210,7 @@ function DocumentsTable() {
         ref={attachScrollArea}
         className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible"
       >
-        <Table className={cn('table-fixed', isFetching && 'animate-pulse')}>
+        <Table className={cn('table-fixed', isRefetching && 'animate-pulse')}>
           <colgroup>
             <col className="w-[60%]" />
             <col className="w-[20%]" />
