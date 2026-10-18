@@ -17,10 +17,12 @@ import {
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
+import type { DocumentRecord } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 function HomePage() {
@@ -79,6 +81,16 @@ function HomePage() {
   )
 }
 
+const estimatedTableRowHeight = 37
+const tableRowOverscan = 8
+
+const estimateTableRowSize = () => estimatedTableRowHeight
+
+const measureTableRow = (row: HTMLTableRowElement) => {
+  const measured = row.getBoundingClientRect().height
+  return measured > 0 ? measured : estimatedTableRowHeight
+}
+
 function DocumentsTable() {
   const {
     data: documents,
@@ -86,6 +98,27 @@ function DocumentsTable() {
     isFetching,
     refetch,
   } = useQuery(documentsQuery)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
+    viewportRef.current =
+      node?.querySelector<HTMLDivElement>(
+        '[data-slot="scroll-area-viewport"]',
+      ) ?? null
+  }, [])
+  const getItemKey = useCallback(
+    (index: number) => documents?.[index]?.id ?? index,
+    [documents],
+  )
+
+  // oxlint-disable-next-line react/incompatible-library
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+    count: documents?.length ?? 0,
+    estimateSize: estimateTableRowSize,
+    getItemKey,
+    getScrollElement: () => viewportRef.current,
+    measureElement: measureTableRow,
+    overscan: tableRowOverscan,
+  })
 
   if (isError) {
     return (
@@ -109,6 +142,10 @@ function DocumentsTable() {
     )
   }
 
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const firstVirtualRow = virtualRows[0]
+  const lastVirtualRow = virtualRows[virtualRows.length - 1]
+
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
       <Table className="table-fixed">
@@ -125,7 +162,10 @@ function DocumentsTable() {
           </TableRow>
         </TableHeader>
       </Table>
-      <ScrollArea className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible">
+      <ScrollArea
+        ref={attachScrollArea}
+        className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible"
+      >
         <Table className={cn('table-fixed', isFetching && 'animate-pulse')}>
           <colgroup>
             <col className="w-[60%]" />
@@ -133,36 +173,71 @@ function DocumentsTable() {
             <col className="w-[20%]" />
           </colgroup>
           <TableBody>
-            {documents.map((document) => (
-              <TableRow key={document.id}>
-                <TableCell className="whitespace-normal">
-                  <Link
-                    to="/documents/$documentId"
-                    params={{ documentId: String(document.id) }}
-                    className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    {document.title}
-                  </Link>
-                  {document.updatedAt !== document.createdAt ? (
-                    <DocumentUpdatedAt updatedAt={document.updatedAt} />
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-center">
-                  <DocumentCreatedAt createdAt={document.createdAt} />
-                </TableCell>
-                <TableCell>
-                  <div className="flex justify-end">
-                    <DocumentOptions documentId={document.id} />
-                  </div>
-                </TableCell>
-              </TableRow>
+            <TableRowSpacer height={firstVirtualRow?.start ?? 0} />
+            {virtualRows.map((virtualRow) => (
+              <DocumentTableRow
+                key={virtualRow.key}
+                document={documents[virtualRow.index]}
+                index={virtualRow.index}
+                measureElement={rowVirtualizer.measureElement}
+              />
             ))}
+            <TableRowSpacer
+              height={
+                lastVirtualRow
+                  ? rowVirtualizer.getTotalSize() - lastVirtualRow.end
+                  : 0
+              }
+            />
           </TableBody>
         </Table>
       </ScrollArea>
     </div>
   )
 }
+
+function TableRowSpacer({ height }: { height: number }) {
+  return (
+    <tr data-slot="table-row-spacer" aria-hidden="true" style={{ height }}>
+      <td colSpan={3} style={{ padding: 0 }} />
+    </tr>
+  )
+}
+
+const DocumentTableRow = memo(function DocumentTableRow({
+  document,
+  index,
+  measureElement,
+}: {
+  document: DocumentRecord
+  index: number
+  measureElement: (node: HTMLTableRowElement | null) => void
+}) {
+  return (
+    <TableRow data-index={index} ref={measureElement}>
+      <TableCell className="whitespace-normal">
+        <Link
+          to="/documents/$documentId"
+          params={{ documentId: String(document.id) }}
+          className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {document.title}
+        </Link>
+        {document.updatedAt !== document.createdAt ? (
+          <DocumentUpdatedAt updatedAt={document.updatedAt} />
+        ) : null}
+      </TableCell>
+      <TableCell className="text-center">
+        <DocumentCreatedAt createdAt={document.createdAt} />
+      </TableCell>
+      <TableCell>
+        <div className="flex justify-end">
+          <DocumentOptions documentId={document.id} />
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+})
 
 function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
   return (

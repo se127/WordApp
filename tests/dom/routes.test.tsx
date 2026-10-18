@@ -14,6 +14,22 @@ import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const dateSpies = vi.hoisted(() => ({
+  formatAbsoluteDate: vi.fn(),
+  formatRelativeTime: vi.fn(),
+}))
+
+vi.mock('@/lib/date', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/date')>()
+  dateSpies.formatAbsoluteDate.mockImplementation(actual.formatAbsoluteDate)
+  dateSpies.formatRelativeTime.mockImplementation(actual.formatRelativeTime)
+  return {
+    ...actual,
+    formatAbsoluteDate: dateSpies.formatAbsoluteDate,
+    formatRelativeTime: dateSpies.formatRelativeTime,
+  }
+})
+
 type WordAppBridge = Window['WordApp']
 
 const storedDocument = {
@@ -1678,5 +1694,142 @@ describe('routes', () => {
       await screen.findByRole('link', { name: 'گزارش تازه' }),
     ).toBeInTheDocument()
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('mounts only the rows around the visible part of the list body', async () => {
+    const documents = Array.from({ length: 120 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+
+    renderRoute('/')
+
+    const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
+    const viewport = firstTitle.closest<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    if (!viewport) {
+      throw new Error('the list body is missing its scroll area viewport')
+    }
+
+    const titlesAtTop = screen
+      .getAllByRole('link', { name: /^سند / })
+      .map((link) => link.textContent)
+    expect(titlesAtTop).toHaveLength(25)
+    expect(titlesAtTop).not.toContain('سند 119')
+
+    await act(() => {
+      viewport.scrollTop = 2960
+      viewport.dispatchEvent(new Event('scroll'))
+    })
+
+    const titlesAfterScroll = screen
+      .getAllByRole('link', { name: /^سند / })
+      .map((link) => link.textContent)
+    expect(titlesAfterScroll).toHaveLength(33)
+    expect(titlesAfterScroll[0]).toBe('سند 72')
+    expect(titlesAfterScroll).toContain('سند 80')
+    expect(titlesAfterScroll).not.toContain('سند 0')
+    expect(titlesAfterScroll).not.toContain('سند 119')
+  })
+
+  it('keeps the whole list scrollable with spacer rows while a window of rows is mounted', async () => {
+    const documents = Array.from({ length: 120 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+
+    renderRoute('/')
+
+    const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
+    const viewport = firstTitle.closest<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    if (!viewport) {
+      throw new Error('the list body is missing its scroll area viewport')
+    }
+
+    const spacerHeights = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-slot="table-row-spacer"]',
+        ),
+      ).map((spacer) => Number.parseFloat(spacer.style.height))
+
+    expect(spacerHeights()).toEqual([0, 3515])
+
+    await act(() => {
+      viewport.scrollTop = 3840
+      viewport.dispatchEvent(new Event('scroll'))
+    })
+
+    expect(screen.getByRole('link', { name: 'سند 119' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'سند 0' }),
+    ).not.toBeInTheDocument()
+    expect(spacerHeights()).toEqual([3515, 0])
+  })
+
+  it('re-renders only the rows that enter the window while scrolling', async () => {
+    const documents = Array.from({ length: 120 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+
+    renderRoute('/')
+
+    const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
+    const viewport = firstTitle.closest<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    if (!viewport) {
+      throw new Error('the list body is missing its scroll area viewport')
+    }
+
+    dateSpies.formatRelativeTime.mockClear()
+
+    await act(() => {
+      viewport.scrollTop = 37
+      viewport.dispatchEvent(new Event('scroll'))
+    })
+
+    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(26)
+    expect(dateSpies.formatRelativeTime.mock.calls.length).toBeLessThan(5)
+  })
+
+  it('keeps the mounted window bounded when the rows cannot be measured', async () => {
+    const documents = Array.from({ length: 120 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+
+    const unmeasurable = vi
+      .spyOn(Element.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect())
+
+    try {
+      renderRoute('/')
+
+      await screen.findByRole('link', { name: 'سند 0' })
+
+      await act(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 100)
+        })
+      })
+
+      const titles = screen.getAllByRole('link', { name: /^سند / })
+      expect(titles.length).toBeLessThan(40)
+    } finally {
+      unmeasurable.mockRestore()
+    }
   })
 })
