@@ -39,7 +39,7 @@ function DocumentOptions({
 
   const deleteDocument = async (): Promise<void> => {
     setIsDeleting(true)
-    try {
+    await (async () => {
       const deleted = await window.WordApp?.documents.delete(documentId).then(
         () => true,
         () => {
@@ -66,9 +66,9 @@ function DocumentOptions({
       queryClient.removeQueries({
         queryKey: documentQuery(documentId).queryKey,
       })
-    } finally {
+    })().finally(() => {
       setIsDeleting(false)
-    }
+    })
   }
 
   return (

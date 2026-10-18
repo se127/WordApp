@@ -136,6 +136,36 @@ implementing it — never decide that on your own. If it should:
   familiar with how to use them: which components exist and their props, structure, and
   exports.
 
+## React Compiler — keep renderer code compilable
+
+`vite.config.ts` runs the React Compiler over `src/**` through
+`@rolldown/plugin-babel`, using the `reactCompiler` preset it exports. Memoization only
+reaches the components the compiler actually compiles, so keep that wiring intact and
+treat every skip as a bug:
+
+- After changing anything under `src/`, run `bun run check:react-compiler`. It
+  transforms every renderer file with the same preset as the build (it imports
+  `reactCompiler` from `vite.config.ts`) and reports, per file, every function the
+  compiler compiled — with memo slot counts — and every failure or skip. It exits
+  non-zero on unexpected failures, so it is the gate.
+- Vitest does not run the compiler (`vitest.config.ts`), so the check script is the
+  proof that changed renderer code is compiled; `tests/node/react-compiler-check.test.ts`
+  pins that every file compiles and that the app root and pages stay memoized.
+- The compiler cannot compile `try`/`finally` — it skips the whole function — so async
+  cleanup in handlers uses promise `.finally()`, as in `addDocument`
+  (`src/pages/home.tsx`) and `deleteDocument` (`src/components/document-options.tsx`).
+  Never add a new `try`/`finally` in renderer code and never convert those two back.
+- Never write `'use no memo'` or `'use no forget'` directives, and never silence
+  `react-hooks/rules-of-hooks` or `react-hooks/exhaustive-deps` with an
+  `eslint-disable-next-line` — the compiler treats both as opt-outs and skips the
+  function.
+- `scripts/react-compiler-check.ts` pins accepted skips — currently only TanStack
+  Virtual's `useVirtualizer()`, which the compiler never memoizes on purpose. The check
+  fails when a pinned skip stops matching, so remove stale entries; never add a new
+  accepted skip without asking the user first.
+- Keep `@babel/core` on 7.x (`package.json`): with Babel 8 the compiler bails out on
+  code that destructures with defaults and silently leaves those functions uncompiled.
+
 ## Status and loading text — never gray
 
 - Spinners, «در حال ...» text, and empty-state sentences (like
@@ -161,15 +191,17 @@ implementing it — never decide that on your own. If it should:
 
 ## Pre-commit checks — mandatory, in this order
 
-Before any commit, run all four and fix whatever they report:
+Before any commit, run all five and fix whatever they report:
 
 1. Lint: `bun run lint` — fix all reported problems.
 2. Format: `bun run format` (Prettier) — fix all reported problems.
 3. Tests: `bun run test` (Vitest) — all tests must pass.
-4. Build: `bun run build` — must finish successfully.
+4. React Compiler: `bun run check:react-compiler` — every renderer file must compile;
+   fix what it reports, and never pin a new accepted skip without asking.
+5. Build: `bun run build` — must finish successfully.
 
 If any check fails, you are not allowed to commit. Fix the problems first, then re-run
-all four checks, and repeat until everything passes.
+all five checks, and repeat until everything passes.
 
 ## Never commit without permission
 

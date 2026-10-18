@@ -4,13 +4,11 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
+export const reactCompiler = reactCompilerPreset()
+
 export default defineConfig({
   base: './',
-  plugins: [
-    react(),
-    babel({ presets: [reactCompilerPreset()] }),
-    tailwindcss(),
-  ],
+  plugins: [react(), babel({ presets: [reactCompiler] }), tailwindcss()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

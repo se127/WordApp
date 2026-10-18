@@ -32,7 +32,7 @@ function HomePage() {
 
   const addDocument = async (): Promise<void> => {
     setIsCreating(true)
-    try {
+    await (async () => {
       const document = await window.WordApp?.documents.create().catch(() => {
         toast.error('افزودن سند ناموفق بود. دوباره تلاش کنید.')
         return undefined
@@ -52,9 +52,9 @@ function HomePage() {
         to: '/documents/$documentId',
         params: { documentId: String(document.id) },
       })
-    } finally {
+    })().finally(() => {
       setIsCreating(false)
-    }
+    })
   }
 
   return (
