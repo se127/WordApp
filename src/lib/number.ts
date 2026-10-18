@@ -1,4 +1,4 @@
-const numberFormat = new Intl.NumberFormat('en-US')
+const numberFormat = new Intl.NumberFormat('fa-IR')
 
 export function formatNumber(value: number): string {
   return numberFormat.format(value)

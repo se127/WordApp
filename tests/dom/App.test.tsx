@@ -61,7 +61,7 @@ describe('App', () => {
     document.body.append(loading)
 
     renderApp()
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     expect(document.getElementById('app-loading')).toBeNull()
   })
@@ -80,7 +80,7 @@ describe('App', () => {
     ).toBeInTheDocument()
     expect(await screen.findByRole('main')).toBeInTheDocument()
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(
       await screen.findByRole('button', { name: 'افزودن سند' }),
@@ -91,7 +91,7 @@ describe('App', () => {
     installBridge()
 
     renderApp()
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     vi.useFakeTimers()
     try {

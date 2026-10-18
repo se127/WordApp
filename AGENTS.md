@@ -190,13 +190,13 @@ treat every skip as a bug:
 ## Numbers — group thousands with `formatNumber`
 
 - Any number shown in the UI that reads as a count or amount and can plausibly pass 999
-  must be rendered through `formatNumber` (`src/lib/number.ts`), so 3000 shows as `3,000`.
+  must be rendered through `formatNumber` (`src/lib/number.ts`), so 3000 shows as `۳٬۰۰۰`.
   The document count in the «مستندات» heading (`DocumentCount`, `src/pages/home.tsx`) is
   the shape to follow.
 - Never hand-roll the grouping — no bare `toLocaleString()` (it follows the OS locale),
   no regex rewrites, no `Intl.NumberFormat` built at each call site. `formatNumber` pins
-  `en-US`, so the output is Latin digits with a comma in every runtime, matching the app's
-  Latin-digit policy.
+  `fa-IR`, so the output is Persian digits with the `٬` thousands separator in every
+  runtime.
 - Do not group numbers where separators are wrong: date and clock parts (a Persian year
   must stay `1405`, never `1,405`) and relative-time units (`5 دقیقه ی پیش`).
 

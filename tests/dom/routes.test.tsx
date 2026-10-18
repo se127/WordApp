@@ -223,7 +223,7 @@ describe('routes', () => {
     renderRoute('/')
 
     const heading = await screen.findByRole('heading', {
-      name: 'مستندات (0)',
+      name: 'مستندات (۰)',
     })
     expect(heading).toBeInTheDocument()
     expect(heading).toHaveClass('flex', 'h-8', 'items-center')
@@ -240,7 +240,7 @@ describe('routes', () => {
     renderRoute('/')
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (3,000)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۳٬۰۰۰)' }),
     ).toBeInTheDocument()
   })
 
@@ -265,7 +265,7 @@ describe('routes', () => {
     await act(() => finishCount(3))
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (3)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۳)' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
@@ -286,20 +286,20 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    const staleCount = await screen.findByText('(0)')
+    const staleCount = await screen.findByText('(۰)')
     expect(staleCount).toHaveClass('animate-pulse')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     await act(() => finishRefetch(1))
 
-    expect(await screen.findByText('(1)')).not.toHaveClass('animate-pulse')
+    expect(await screen.findByText('(۱)')).not.toHaveClass('animate-pulse')
   })
 
   it('shows a destructive retry button when the count read fails and recovers the count when pressed', async () => {
@@ -324,7 +324,7 @@ describe('routes', () => {
     await user.click(retry)
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (2)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۲)' }),
     ).toBeInTheDocument()
     expect(count).toHaveBeenCalledTimes(2)
     expect(
@@ -389,7 +389,7 @@ describe('routes', () => {
     await act(() => finishRetry(5))
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (5)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۵)' }),
     ).toBeInTheDocument()
   })
 
@@ -412,7 +412,7 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     const { queryClient } = renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (3)' })
+    await screen.findByRole('heading', { name: 'مستندات (۳)' })
 
     await act(async () => {
       await queryClient
@@ -435,7 +435,7 @@ describe('routes', () => {
     await act(() => finishRetry(4))
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (4)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۴)' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', {
@@ -959,7 +959,7 @@ describe('routes', () => {
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
   })
 
@@ -1073,7 +1073,7 @@ describe('routes', () => {
     await act(() => finishDelete())
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
   })
 
@@ -1087,7 +1087,7 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     const { router } = renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (1)' })
+    await screen.findByRole('heading', { name: 'مستندات (۱)' })
 
     await act(() =>
       router.navigate({
@@ -1104,7 +1104,7 @@ describe('routes', () => {
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(remove).toHaveBeenCalledWith(1)
     expect(count).toHaveBeenCalledTimes(2)
@@ -1158,7 +1158,7 @@ describe('routes', () => {
     await user.click(within(dialog).getByRole('button', { name: 'بله' }))
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(remove).toHaveBeenCalledTimes(2)
   })
@@ -1168,7 +1168,7 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     const { router } = renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await act(() =>
       router.navigate({
@@ -1181,9 +1181,9 @@ describe('routes', () => {
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (0)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('(0)')).not.toHaveClass('animate-pulse')
+    expect(screen.getByText('(۰)')).not.toHaveClass('animate-pulse')
     expect(get).toHaveBeenCalledOnce()
     expect(count).toHaveBeenCalledOnce()
   })
@@ -1193,14 +1193,14 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
     expect(
-      await screen.findByRole('heading', { name: 'مستندات (1)' }),
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
     ).toBeInTheDocument()
 
     expect(create).toHaveBeenCalledOnce()
@@ -1229,7 +1229,7 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
 
     expect(
-      screen.getByRole('heading', { name: 'مستندات (0)' }),
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
     expect(count).toHaveBeenCalledOnce()
@@ -1254,7 +1254,7 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     const { router } = renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await act(() =>
       router.navigate({
@@ -1265,7 +1265,7 @@ describe('routes', () => {
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await act(() =>
       router.navigate({
@@ -1581,7 +1581,7 @@ describe('routes', () => {
       ),
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'مستندات (0)' }),
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
 
@@ -1981,7 +1981,7 @@ describe('routes', () => {
       expect(screen.queryByRole('table')).not.toBeInTheDocument(),
     )
     expect(
-      screen.getByRole('heading', { name: 'مستندات (0)' }),
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(remove).toHaveBeenCalledWith(1)
     await vi.waitFor(() =>
@@ -2007,7 +2007,7 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (0)' })
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
     expect(
       await screen.findByText('هنوز سندی ثبت نشده است.'),
     ).toBeInTheDocument()
@@ -2017,7 +2017,7 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    await screen.findByRole('heading', { name: 'مستندات (1)' })
+    await screen.findByRole('heading', { name: 'مستندات (۱)' })
     expect(
       await screen.findByRole('link', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
