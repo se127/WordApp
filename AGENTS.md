@@ -176,6 +176,19 @@ treat every skip as a bug:
   directly under its primary counterpart, the way an `AlertDialogDescription` sits
   lighter under its `AlertDialogTitle`. When in doubt, use the primary color.
 
+## Numbers — group thousands with `formatNumber`
+
+- Any number shown in the UI that reads as a count or amount and can plausibly pass 999
+  must be rendered through `formatNumber` (`src/lib/number.ts`), so 3000 shows as `3,000`.
+  The document count in the «مستندات» heading (`DocumentCount`, `src/pages/home.tsx`) is
+  the shape to follow.
+- Never hand-roll the grouping — no bare `toLocaleString()` (it follows the OS locale),
+  no regex rewrites, no `Intl.NumberFormat` built at each call site. `formatNumber` pins
+  `en-US`, so the output is Latin digits with a comma in every runtime, matching the app's
+  Latin-digit policy.
+- Do not group numbers where separators are wrong: date and clock parts (a Persian year
+  must stay `1405`, never `1,405`) and relative-time units (`5 دقیقه ی پیش`).
+
 ## Tests — always in step with the code
 
 - Always write tests for the code you add or change, in the same commit. When you remove

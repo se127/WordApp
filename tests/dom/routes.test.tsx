@@ -152,6 +152,17 @@ describe('routes', () => {
     expect(count).toHaveBeenCalledOnce()
   })
 
+  it('groups the document count with thousands separators', async () => {
+    const count = vi.fn(async () => 3000)
+    installBridge({ count })
+
+    renderRoute('/')
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (3,000)' }),
+    ).toBeInTheDocument()
+  })
+
   it('renders the page right away and loads the count inline in the heading', async () => {
     let finishCount!: (count: number) => void
     const count = vi.fn(

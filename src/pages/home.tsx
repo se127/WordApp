@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
+import { formatNumber } from '@/lib/number'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import type { DocumentRecord } from '@/types/global'
@@ -327,7 +328,7 @@ function DocumentCount() {
 
   return (
     <span className={isFetching ? 'animate-pulse' : undefined}>
-      ({documentCount})
+      ({formatNumber(documentCount)})
     </span>
   )
 }
