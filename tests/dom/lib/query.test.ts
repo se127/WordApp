@@ -2,6 +2,7 @@ import {
   createQueryClient,
   documentsCountQuery,
   documentsQuery,
+  documentPageSize,
   documentQuery,
 } from '@/lib/query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +26,10 @@ function installDocuments(
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 1),
-      list: vi.fn(async () => [storedDocument]),
+      list: vi.fn(async () => ({
+        documents: [storedDocument],
+        nextCursor: null,
+      })),
       delete: vi.fn(async () => undefined),
       save: vi.fn(async () => undefined),
       ...documents,
@@ -86,20 +90,27 @@ describe('query layer', () => {
   })
 
   it('reads the documents list through the preload bridge', async () => {
-    const list = vi.fn(async () => [storedDocument])
+    const page = { documents: [storedDocument], nextCursor: null }
+    const list = vi.fn(async () => page)
     installDocuments({ list })
 
-    await expect(createQueryClient().query(documentsQuery)).resolves.toEqual([
-      storedDocument,
-    ])
+    await expect(
+      createQueryClient().infiniteQuery(documentsQuery),
+    ).resolves.toEqual({ pages: [page], pageParams: [null] })
     expect(list).toHaveBeenCalledOnce()
+    expect(list).toHaveBeenCalledWith({
+      cursor: null,
+      limit: documentPageSize,
+    })
   })
 
   it('resolves a missing preload bridge to null instead of throwing', async () => {
     await expect(
       createQueryClient().query(documentsCountQuery),
     ).resolves.toBeNull()
-    await expect(createQueryClient().query(documentsQuery)).resolves.toBeNull()
+    await expect(
+      createQueryClient().infiniteQuery(documentsQuery),
+    ).resolves.toEqual({ pages: [null], pageParams: [null] })
     await expect(
       createQueryClient().query(documentQuery(1)),
     ).resolves.toBeNull()

@@ -15,6 +15,21 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type DocumentListCursor = {
+  createdAt: number
+  id: number
+}
+
+export type DocumentListOptions = {
+  cursor: DocumentListCursor | null
+  limit: number
+}
+
+export type DocumentListPage = {
+  documents: DocumentRecord[]
+  nextCursor: DocumentListCursor | null
+}
+
 type DocumentRow = {
   id: number
   title: string
@@ -27,7 +42,7 @@ export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
   countDocuments: () => Promise<number>
-  listDocuments: () => Promise<DocumentRecord[]>
+  listDocuments: (options: DocumentListOptions) => Promise<DocumentListPage>
   deleteDocument: (id: number) => Promise<void>
   saveDocument: (
     id: number,
@@ -41,6 +56,7 @@ export const databaseOperationNames = [
   'getDocument',
   'countDocuments',
   'listDocuments',
+  'listMoreDocuments',
   'deleteDocument',
   'saveDocument',
 ] as const
@@ -70,6 +86,11 @@ BEGIN
   SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
   WHERE id = NEW.id;
 END;
+`,
+  `
+DROP INDEX documents_created_at_idx;
+
+CREATE INDEX documents_created_at_id_idx ON documents (created_at DESC, id DESC);
 `,
 ]
 
@@ -150,10 +171,18 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
-  const selectDocuments = database.prepare(
+  const selectFirstDocumentPage = database.prepare(
     `SELECT id, title, body, created_at, updated_at
      FROM documents
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+  )
+  const selectDocumentPageAfter = database.prepare(
+    `SELECT id, title, body, created_at, updated_at
+     FROM documents
+     WHERE (created_at, id) < (?, ?)
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
   )
 
   const deleteDocumentById = database.prepare(
@@ -210,12 +239,28 @@ export function openDatabase(
       return row.count
     },
 
-    async listDocuments() {
+    async listDocuments({ cursor, limit }) {
       await waitBeforeQuery()
-      failInjectedOperation('listDocuments')
+      failInjectedOperation(
+        cursor === null ? 'listDocuments' : 'listMoreDocuments',
+      )
 
-      const rows = selectDocuments.all() as DocumentRow[]
-      return rows.map(toRecord)
+      const rows = (
+        cursor === null
+          ? selectFirstDocumentPage.all(limit + 1)
+          : selectDocumentPageAfter.all(cursor.createdAt, cursor.id, limit + 1)
+      ) as DocumentRow[]
+
+      const pageRows = rows.slice(0, limit)
+      const lastRow = pageRows.at(-1)
+
+      return {
+        documents: pageRows.map(toRecord),
+        nextCursor:
+          rows.length > limit && lastRow !== undefined
+            ? { createdAt: lastRow.created_at, id: lastRow.id }
+            : null,
+      }
     },
 
     async deleteDocument(id) {

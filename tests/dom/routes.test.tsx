@@ -2,11 +2,17 @@ import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   createQueryClient,
+  documentPageSize,
   documentsCountQuery,
   documentsQuery,
 } from '@/lib/query'
 import { createAppRouter } from '@/router'
-import type { DocumentChanges } from '@/types/global'
+import type {
+  DocumentChanges,
+  DocumentListCursor,
+  DocumentListOptions,
+  DocumentListPage,
+} from '@/types/global'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, render, screen, within } from '@testing-library/react'
@@ -40,12 +46,56 @@ const storedDocument = {
   updatedAt: 1_000,
 }
 
+function documentListPage(
+  documents: Array<typeof storedDocument>,
+  { cursor, limit }: DocumentListOptions,
+): DocumentListPage {
+  const start =
+    cursor === null
+      ? 0
+      : documents.findIndex(
+          (document) =>
+            document.createdAt === cursor.createdAt &&
+            document.id === cursor.id,
+        ) + 1
+  const page = documents.slice(start, start + limit)
+  const lastDocument = page.at(-1)
+
+  return {
+    documents: page,
+    nextCursor:
+      documents.length > start + limit && lastDocument
+        ? { createdAt: lastDocument.createdAt, id: lastDocument.id }
+        : null,
+  }
+}
+
+function infiniteDocumentPages(documents: Array<typeof storedDocument>) {
+  const pages: DocumentListPage[] = []
+  const pageParams: Array<DocumentListCursor | null> = []
+  let cursor: DocumentListCursor | null = null
+
+  for (let start = 0; start < documents.length; start += documentPageSize) {
+    const pageDocuments = documents.slice(start, start + documentPageSize)
+    const lastDocument = pageDocuments.at(-1)
+
+    pageParams.push(cursor)
+    cursor =
+      start + documentPageSize < documents.length && lastDocument
+        ? { createdAt: lastDocument.createdAt, id: lastDocument.id }
+        : null
+    pages.push({ documents: pageDocuments, nextCursor: cursor })
+  }
+
+  return { pages, pageParams }
+}
+
 function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
     get?: (id: number) => Promise<typeof storedDocument | undefined>
     count?: () => Promise<number>
-    list?: () => Promise<Array<typeof storedDocument>>
+    list?: (options: DocumentListOptions) => Promise<DocumentListPage>
     save?: (
       id: number,
       changes: DocumentChanges,
@@ -63,7 +113,9 @@ function installBridge(
     })
   const get = options.get ?? vi.fn(async () => storedRow)
   const count = options.count ?? vi.fn(async () => storedCount)
-  const list = options.list ?? vi.fn(async () => [])
+  const list =
+    options.list ??
+    vi.fn(async () => ({ documents: [], nextCursor: null }) as DocumentListPage)
   const save =
     options.save ??
     vi.fn(async (_id: number, changes: DocumentChanges) => {
@@ -95,7 +147,9 @@ function installDocumentsBridge(documents: Array<typeof storedDocument>) {
   const stored = [...documents]
 
   return installBridge({
-    list: vi.fn(async () => [...stored]),
+    list: vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(stored, options),
+    ),
     get: vi.fn(async (id: number) =>
       stored.find((document) => document.id === id),
     ),
@@ -109,8 +163,35 @@ function installDocumentsBridge(documents: Array<typeof storedDocument>) {
   })
 }
 
-function renderRoute(initialEntry: string) {
+function listViewport(): HTMLElement {
+  const viewport = document.querySelector<HTMLElement>(
+    '[data-slot="scroll-area-viewport"]',
+  )
+  if (!viewport) {
+    throw new Error('the list body is missing its scroll area viewport')
+  }
+  return viewport
+}
+
+async function scrollListTo(scrollTop: number): Promise<void> {
+  await act(() => {
+    const viewport = listViewport()
+    viewport.scrollTop = scrollTop
+    viewport.dispatchEvent(new Event('scroll'))
+  })
+}
+
+function renderRoute(
+  initialEntry: string,
+  { seedDocuments }: { seedDocuments?: Array<typeof storedDocument> } = {},
+) {
   const queryClient = createQueryClient()
+  if (seedDocuments) {
+    queryClient.setQueryData(
+      documentsQuery.queryKey,
+      infiniteDocumentPages(seedDocuments),
+    )
+  }
   const router = createAppRouter(
     createMemoryHistory({ initialEntries: [initialEntry] }),
     queryClient,
@@ -1370,10 +1451,10 @@ describe('routes', () => {
   })
 
   it('keeps the home page usable with a centered loader while the first list read is in flight', async () => {
-    let finishList!: (documents: Array<typeof storedDocument>) => void
+    let finishList!: (page: DocumentListPage) => void
     const list = vi.fn(
-      () =>
-        new Promise<Array<typeof storedDocument>>((resolve) => {
+      (_options: DocumentListOptions) =>
+        new Promise<DocumentListPage>((resolve) => {
           finishList = resolve
         }),
     )
@@ -1387,8 +1468,17 @@ describe('routes', () => {
     expect(status).toHaveClass('items-center', 'justify-center')
     expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledExactlyOnceWith({
+      cursor: null,
+      limit: documentPageSize,
+    })
 
-    await act(() => finishList([{ ...storedDocument, title: 'یادداشت' }]))
+    await act(() =>
+      finishList({
+        documents: [{ ...storedDocument, title: 'یادداشت' }],
+        nextCursor: null,
+      }),
+    )
 
     expect(
       await screen.findByRole('link', { name: 'یادداشت' }),
@@ -1398,16 +1488,18 @@ describe('routes', () => {
 
   it('keeps the stale rows and pulses the table while the list re-reads', async () => {
     let reads = 0
-    let finishReread!: (documents: Array<typeof storedDocument>) => void
-    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
-      reads += 1
-      if (reads > 1) {
-        return new Promise<Array<typeof storedDocument>>((resolve) => {
-          finishReread = resolve
-        })
-      }
-      return Promise.resolve([storedDocument])
-    })
+    let finishReread!: (page: DocumentListPage) => void
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        reads += 1
+        if (reads > 1) {
+          return new Promise<DocumentListPage>((resolve) => {
+            finishReread = resolve
+          })
+        }
+        return Promise.resolve(documentListPage([storedDocument], options))
+      },
+    )
     installBridge({ list })
 
     const { queryClient } = renderRoute('/')
@@ -1431,7 +1523,12 @@ describe('routes', () => {
     expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
-    await act(() => finishReread([{ ...storedDocument, title: 'عنوان تازه' }]))
+    await act(() =>
+      finishReread({
+        documents: [{ ...storedDocument, title: 'عنوان تازه' }],
+        nextCursor: null,
+      }),
+    )
 
     expect(
       await screen.findByRole('link', { name: 'عنوان تازه' }),
@@ -1445,16 +1542,18 @@ describe('routes', () => {
 
   it('reports a failed list read with an error and a retry button, and recovers the table when pressed', async () => {
     let attempts = 0
-    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
-      attempts += 1
-      return attempts === 1
-        ? Promise.reject(
-            new Error(
-              'The listDocuments operation failed (injected by --with-db-failure)',
-            ),
-          )
-        : Promise.resolve([storedDocument])
-    })
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        attempts += 1
+        return attempts === 1
+          ? Promise.reject(
+              new Error(
+                'The listDocuments operation failed (injected by --with-db-failure)',
+              ),
+            )
+          : Promise.resolve(documentListPage([storedDocument], options))
+      },
+    )
     installBridge({ list })
     const user = userEvent.setup()
 
@@ -1498,16 +1597,18 @@ describe('routes', () => {
 
   it('shows the centered loader while a retry from a failed list read is in flight', async () => {
     let attempts = 0
-    let finishRetry!: (documents: Array<typeof storedDocument>) => void
-    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
-      attempts += 1
-      if (attempts === 1) {
-        return Promise.reject(new Error('list read failed'))
-      }
-      return new Promise<Array<typeof storedDocument>>((resolve) => {
-        finishRetry = resolve
-      })
-    })
+    let finishRetry!: (page: DocumentListPage) => void
+    const list = vi.fn(
+      (_options: DocumentListOptions): Promise<DocumentListPage> => {
+        attempts += 1
+        if (attempts === 1) {
+          return Promise.reject(new Error('list read failed'))
+        }
+        return new Promise<DocumentListPage>((resolve) => {
+          finishRetry = resolve
+        })
+      },
+    )
     installBridge({ list })
     const user = userEvent.setup()
 
@@ -1526,7 +1627,9 @@ describe('routes', () => {
       screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
     ).not.toBeInTheDocument()
 
-    await act(() => finishRetry([storedDocument]))
+    await act(() =>
+      finishRetry({ documents: [storedDocument], nextCursor: null }),
+    )
 
     expect(
       await screen.findByRole('link', { name: 'بدون عنوان' }),
@@ -1536,19 +1639,21 @@ describe('routes', () => {
 
   it('keeps the retry button busy with a spinner while a stale list re-reads', async () => {
     let reads = 0
-    let finishRetry!: (documents: Array<typeof storedDocument>) => void
-    const list = vi.fn((): Promise<Array<typeof storedDocument>> => {
-      reads += 1
-      if (reads === 1) {
-        return Promise.resolve([storedDocument])
-      }
-      if (reads === 2) {
-        return Promise.reject(new Error('list re-read failed'))
-      }
-      return new Promise<Array<typeof storedDocument>>((resolve) => {
-        finishRetry = resolve
-      })
-    })
+    let finishRetry!: (page: DocumentListPage) => void
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        reads += 1
+        if (reads === 1) {
+          return Promise.resolve(documentListPage([storedDocument], options))
+        }
+        if (reads === 2) {
+          return Promise.reject(new Error('list re-read failed'))
+        }
+        return new Promise<DocumentListPage>((resolve) => {
+          finishRetry = resolve
+        })
+      },
+    )
     installBridge({ list })
     const user = userEvent.setup()
 
@@ -1574,7 +1679,9 @@ describe('routes', () => {
     expect(busy.querySelector('svg')).toHaveClass('animate-spin')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
 
-    await act(() => finishRetry([storedDocument]))
+    await act(() =>
+      finishRetry({ documents: [storedDocument], nextCursor: null }),
+    )
 
     expect(
       await screen.findByRole('link', { name: 'بدون عنوان' }),
@@ -1587,9 +1694,11 @@ describe('routes', () => {
   })
 
   it('shows the list retry as a labeled button without a tooltip', async () => {
-    const list = vi.fn(async (): Promise<Array<typeof storedDocument>> => {
-      throw new Error('list read failed')
-    })
+    const list = vi.fn(
+      async (_options: DocumentListOptions): Promise<DocumentListPage> => {
+        throw new Error('list read failed')
+      },
+    )
     installBridge({ list })
     const user = userEvent.setup()
 
@@ -1603,6 +1712,244 @@ describe('routes', () => {
 
     await user.hover(retry)
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('shows the first twenty-five documents and asks for nothing else when the list ends there', async () => {
+    const documents = Array.from({ length: 25 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(documents, options),
+    )
+    installBridge({ list })
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 25' })
+    expect(screen.getAllByRole('link')).toHaveLength(25)
+    expect(list).toHaveBeenCalledExactlyOnceWith({
+      cursor: null,
+      limit: documentPageSize,
+    })
+    expect(
+      screen.queryByText('در حال بارگذاری بیشتر...'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('loads the next page when the end of the list is reached, with the loading footer while it runs', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    let finishThirdPage: (() => void) | undefined
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        if (options.cursor !== null && options.cursor.id === documents[49].id) {
+          return new Promise<DocumentListPage>((resolve) => {
+            finishThirdPage = () =>
+              resolve(documentListPage(documents, options))
+          })
+        }
+        return Promise.resolve(documentListPage(documents, options))
+      },
+    )
+    installBridge({ list })
+
+    renderRoute('/')
+
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+
+    await scrollListTo(99999)
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 50' }),
+    ).toBeInTheDocument()
+    const footer = await screen.findByRole('status')
+    expect(footer).toHaveTextContent('در حال بارگذاری بیشتر...')
+    expect(footer.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3))
+    expect(list).toHaveBeenLastCalledWith({
+      cursor: { createdAt: documents[49].createdAt, id: documents[49].id },
+      limit: documentPageSize,
+    })
+
+    await act(() => finishThirdPage?.())
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 75' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByText('در حال بارگذاری بیشتر...'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(list).toHaveBeenCalledTimes(3)
+  })
+
+  it('loads each page once while the end of the list is hit back and forth repeatedly', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    const pendingPages = new Map<number, () => void>()
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        const cursor = options.cursor
+        if (cursor !== null) {
+          return new Promise<DocumentListPage>((resolve) => {
+            pendingPages.set(cursor.id, () =>
+              resolve(documentListPage(documents, options)),
+            )
+          })
+        }
+        return Promise.resolve(documentListPage(documents, options))
+      },
+    )
+    installBridge({ list })
+
+    renderRoute('/')
+
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+    expect([...pendingPages.keys()]).toEqual([documents[24].id])
+
+    for (let round = 0; round < 4; round += 1) {
+      await scrollListTo(99999)
+      await scrollListTo(0)
+    }
+
+    expect(list).toHaveBeenCalledTimes(2)
+
+    await act(() => pendingPages.get(documents[24].id)?.())
+    expect(list).toHaveBeenCalledTimes(2)
+
+    await scrollListTo(99999)
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(3))
+    expect([...pendingPages.keys()]).toEqual([
+      documents[24].id,
+      documents[49].id,
+    ])
+
+    for (let round = 0; round < 4; round += 1) {
+      await scrollListTo(0)
+      await scrollListTo(99999)
+    }
+
+    expect(list).toHaveBeenCalledTimes(3)
+
+    await scrollListTo(0)
+    const topTitles = screen
+      .getAllByRole('link')
+      .map((link) => link.textContent)
+    await scrollListTo(99999)
+    const endTitles = screen
+      .getAllByRole('link')
+      .map((link) => link.textContent)
+    expect(new Set([...topTitles, ...endTitles]).size).toBe(
+      topTitles.length + endTitles.length,
+    )
+
+    await act(() => pendingPages.get(documents[49].id)?.())
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 75' }),
+    ).toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(3)
+
+    await scrollListTo(0)
+    await scrollListTo(99999)
+
+    expect(list).toHaveBeenCalledTimes(3)
+    expect(list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: null, limit: documentPageSize },
+      {
+        cursor: { createdAt: documents[24].createdAt, id: documents[24].id },
+        limit: documentPageSize,
+      },
+      {
+        cursor: { createdAt: documents[49].createdAt, id: documents[49].id },
+        limit: documentPageSize,
+      },
+    ])
+  })
+
+  it('keeps the loaded rows and retries from the footer when a later page fails', async () => {
+    const documents = Array.from({ length: 30 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    let attempts = 0
+    let finishRetry: (() => void) | undefined
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<DocumentListPage> => {
+        if (options.cursor !== null) {
+          attempts += 1
+          if (attempts === 1) {
+            return Promise.reject(
+              new Error(
+                'The listMoreDocuments operation failed (injected by --with-db-failure)',
+              ),
+            )
+          }
+          if (attempts === 2) {
+            return new Promise<DocumentListPage>((resolve) => {
+              finishRetry = () => resolve(documentListPage(documents, options))
+            })
+          }
+        }
+        return Promise.resolve(documentListPage(documents, options))
+      },
+    )
+    installBridge({ list })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    const message = await screen.findByText(
+      'بارگذاری سندهای بیشتر ناموفق بود. دوباره تلاش کنید.',
+    )
+    expect(message.closest('div')).toHaveClass(
+      'items-center',
+      'justify-center',
+      'flex-col',
+    )
+    expect(
+      screen.queryByText(
+        'The listMoreDocuments operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'سند 25' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'سند 26' }),
+    ).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
+
+    await user.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+
+    const footer = await screen.findByRole('status')
+    expect(footer).toHaveTextContent('در حال بارگذاری بیشتر...')
+    expect(
+      screen.queryByText('بارگذاری سندهای بیشتر ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(3)
+
+    await act(() => finishRetry?.())
+
+    await scrollListTo(99999)
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 30' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByText('در حال بارگذاری بیشتر...'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(list).toHaveBeenCalledTimes(3)
   })
 
   it('deletes a row through its options menu without leaving the home page', async () => {
@@ -1636,7 +1983,9 @@ describe('routes', () => {
 
   it('re-reads the documents list once the created document is stored', async () => {
     const stored: Array<typeof storedDocument> = []
-    const list = vi.fn(async () => [...stored])
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(stored, options),
+    )
     const count = vi.fn(async () => stored.length)
     const create = vi.fn(async () => {
       const created = { ...storedDocument }
@@ -1669,7 +2018,9 @@ describe('routes', () => {
 
   it('re-reads the documents list after a title save so the table shows the new title', async () => {
     const stored = [{ ...storedDocument }]
-    const list = vi.fn(async () => [...stored])
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(stored, options),
+    )
     const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
     const save = vi.fn(async (id: number, changes: DocumentChanges) => {
       const index = stored.findIndex((row) => row.id === id)
@@ -1713,9 +2064,9 @@ describe('routes', () => {
       id: index + 1,
       title: `سند ${index}`,
     }))
-    installDocumentsBridge(documents)
+    installBridge()
 
-    renderRoute('/')
+    renderRoute('/', { seedDocuments: documents })
 
     const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
     const viewport = firstTitle.closest<HTMLElement>(
@@ -1752,9 +2103,9 @@ describe('routes', () => {
       id: index + 1,
       title: `سند ${index}`,
     }))
-    installDocumentsBridge(documents)
+    installBridge()
 
-    renderRoute('/')
+    renderRoute('/', { seedDocuments: documents })
 
     const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
     const viewport = firstTitle.closest<HTMLElement>(
@@ -1791,9 +2142,9 @@ describe('routes', () => {
       id: index + 1,
       title: `سند ${index}`,
     }))
-    installDocumentsBridge(documents)
+    installBridge()
 
-    renderRoute('/')
+    renderRoute('/', { seedDocuments: documents })
 
     const firstTitle = await screen.findByRole('link', { name: 'سند 0' })
     const viewport = firstTitle.closest<HTMLElement>(
@@ -1820,14 +2171,14 @@ describe('routes', () => {
       id: index + 1,
       title: `سند ${index}`,
     }))
-    installDocumentsBridge(documents)
+    installBridge()
 
     const unmeasurable = vi
       .spyOn(Element.prototype, 'getBoundingClientRect')
       .mockReturnValue(new DOMRect())
 
     try {
-      renderRoute('/')
+      renderRoute('/', { seedDocuments: documents })
 
       await screen.findByRole('link', { name: 'سند 0' })
 

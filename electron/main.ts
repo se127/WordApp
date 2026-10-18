@@ -7,7 +7,12 @@ import {
   parseSeedArgument,
   resetDatabase,
 } from './database.ts'
-import type { DatabaseOperationName, DocumentChanges } from './database.ts'
+import type {
+  DatabaseOperationName,
+  DocumentChanges,
+  DocumentListCursor,
+  DocumentListOptions,
+} from './database.ts'
 import {
   documentsCountChannel,
   documentsCreateChannel,
@@ -134,6 +139,34 @@ function isDocumentChanges(value: unknown): value is DocumentChanges {
   )
 }
 
+function isDocumentListCursor(value: unknown): value is DocumentListCursor {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { createdAt, id } = value as { createdAt?: unknown; id?: unknown }
+  return (
+    typeof createdAt === 'number' &&
+    Number.isSafeInteger(createdAt) &&
+    typeof id === 'number' &&
+    Number.isSafeInteger(id)
+  )
+}
+
+function isDocumentListOptions(value: unknown): value is DocumentListOptions {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { cursor, limit } = value as { cursor?: unknown; limit?: unknown }
+  return (
+    (cursor === null || cursor === undefined || isDocumentListCursor(cursor)) &&
+    typeof limit === 'number' &&
+    Number.isSafeInteger(limit) &&
+    limit > 0
+  )
+}
+
 void app.whenReady().then(async () => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.wordapp.app')
@@ -208,7 +241,11 @@ void app.whenReady().then(async () => {
       : undefined,
   )
   ipcMain.handle(documentsCountChannel, () => database.countDocuments())
-  ipcMain.handle(documentsListChannel, () => database.listDocuments())
+  ipcMain.handle(documentsListChannel, (_event, options: unknown) =>
+    isDocumentListOptions(options)
+      ? database.listDocuments(options)
+      : undefined,
+  )
   ipcMain.handle(documentsDeleteChannel, (_event, id: unknown) =>
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.deleteDocument(id)

@@ -19,11 +19,15 @@ import { formatNumber } from '@/lib/number'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import type { DocumentRecord } from '@/types/global'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
-import { memo, useCallback, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 function HomePage() {
@@ -94,18 +98,29 @@ const measureTableRow = (row: HTMLTableRowElement) => {
 
 function DocumentsTable() {
   const {
-    data: documents,
+    data,
+    fetchNextPage,
+    hasNextPage,
     isError,
+    isFetchNextPageError,
     isFetching,
+    isFetchingNextPage,
     refetch,
-  } = useQuery(documentsQuery)
+  } = useInfiniteQuery(documentsQuery)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const fetchingNextPageRef = useRef(false)
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
     viewportRef.current =
       node?.querySelector<HTMLDivElement>(
         '[data-slot="scroll-area-viewport"]',
       ) ?? null
   }, [])
+  const documents =
+    data === undefined
+      ? undefined
+      : data.pages.some((page) => page === null)
+        ? null
+        : data.pages.flatMap((page) => page?.documents ?? [])
   const getItemKey = useCallback(
     (index: number) => documents?.[index]?.id ?? index,
     [documents],
@@ -121,7 +136,38 @@ function DocumentsTable() {
     overscan: tableRowOverscan,
   })
 
-  if (isError) {
+  const virtualRows = rowVirtualizer.getVirtualItems()
+  const firstVirtualRow = virtualRows[0]
+  const lastVirtualRow = virtualRows[virtualRows.length - 1]
+  const lastVirtualRowIndex = lastVirtualRow?.index
+  const documentsLength = documents?.length ?? 0
+
+  useEffect(() => {
+    if (
+      lastVirtualRowIndex === undefined ||
+      lastVirtualRowIndex < documentsLength - 1 ||
+      !hasNextPage ||
+      isFetching ||
+      isError ||
+      fetchingNextPageRef.current
+    ) {
+      return
+    }
+
+    fetchingNextPageRef.current = true
+    void fetchNextPage({ cancelRefetch: false }).finally(() => {
+      fetchingNextPageRef.current = false
+    })
+  }, [
+    documentsLength,
+    fetchNextPage,
+    hasNextPage,
+    isError,
+    isFetching,
+    lastVirtualRowIndex,
+  ])
+
+  if (isError && !isFetchNextPageError) {
     return (
       <DocumentsRetry isRetrying={isFetching} onRetry={() => void refetch()} />
     )
@@ -142,10 +188,6 @@ function DocumentsTable() {
       </div>
     )
   }
-
-  const virtualRows = rowVirtualizer.getVirtualItems()
-  const firstVirtualRow = virtualRows[0]
-  const lastVirtualRow = virtualRows[virtualRows.length - 1]
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
@@ -192,9 +234,52 @@ function DocumentsTable() {
             />
           </TableBody>
         </Table>
+        <DocumentsListFooter
+          isError={isError}
+          isFetchingNextPage={isFetchingNextPage}
+          onRetry={() => void fetchNextPage()}
+        />
       </ScrollArea>
     </div>
   )
+}
+
+function DocumentsListFooter({
+  isError,
+  isFetchingNextPage,
+  onRetry,
+}: {
+  isError: boolean
+  isFetchingNextPage: boolean
+  onRetry: () => void
+}) {
+  if (isFetchingNextPage) {
+    return (
+      <div
+        role="status"
+        className="flex w-full items-center justify-center gap-2 p-4 text-sm"
+      >
+        <LoaderCircle className="size-4 animate-spin" />
+        در حال بارگذاری بیشتر...
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex w-full flex-col items-center justify-center gap-3 p-4">
+        <p className="text-sm text-destructive">
+          بارگذاری سندهای بیشتر ناموفق بود. دوباره تلاش کنید.
+        </p>
+        <Button variant="outline" onClick={onRetry}>
+          <RefreshCw className="text-destructive" />
+          تلاش دوباره
+        </Button>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function TableRowSpacer({ height }: { height: number }) {

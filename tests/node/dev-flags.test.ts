@@ -83,11 +83,12 @@ describe('formatOperationLabel', () => {
         formatOperationLabel('getDocument'),
         formatOperationLabel('countDocuments'),
         formatOperationLabel('listDocuments'),
+        formatOperationLabel('listMoreDocuments'),
         formatOperationLabel('deleteDocument'),
         formatOperationLabel('saveDocument'),
       ].join(', '),
     ).toBe(
-      'create document, get document, count documents, list documents, delete document, save document',
+      'create document, get document, count documents, list documents, list more documents, delete document, save document',
     )
   })
 })

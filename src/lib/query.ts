@@ -1,4 +1,9 @@
-import { QueryClient, queryOptions } from '@tanstack/react-query'
+import type { DocumentListCursor } from '@/types/global'
+import {
+  infiniteQueryOptions,
+  QueryClient,
+  queryOptions,
+} from '@tanstack/react-query'
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -22,9 +27,17 @@ export const documentsCountQuery = queryOptions({
   staleTime: Infinity,
 })
 
-export const documentsQuery = queryOptions({
+export const documentPageSize = 25
+
+export const documentsQuery = infiniteQueryOptions({
   queryKey: ['documents', 'list'],
-  queryFn: async () => (await window.WordApp?.documents.list()) ?? null,
+  queryFn: async ({ pageParam }) =>
+    (await window.WordApp?.documents.list({
+      cursor: pageParam,
+      limit: documentPageSize,
+    })) ?? null,
+  initialPageParam: null as DocumentListCursor | null,
+  getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   staleTime: Infinity,
 })
 

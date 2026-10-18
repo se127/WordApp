@@ -30,7 +30,7 @@ function installControls(overrides: Partial<WindowControls> = {}) {
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 0),
-      list: vi.fn(async () => []),
+      list: vi.fn(async () => ({ documents: [], nextCursor: null })),
       delete: vi.fn(async () => undefined),
       save: vi.fn(async () => storedDocument),
     },

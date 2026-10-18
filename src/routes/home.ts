@@ -9,6 +9,6 @@ export const homeRoute = createRoute({
   component: HomePage,
   loader: ({ context }) => {
     void context.queryClient.query(documentsCountQuery).catch(() => {})
-    void context.queryClient.query(documentsQuery).catch(() => {})
+    void context.queryClient.infiniteQuery(documentsQuery).catch(() => {})
   },
 })

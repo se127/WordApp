@@ -11,6 +11,21 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type DocumentListCursor = {
+  createdAt: number
+  id: number
+}
+
+export type DocumentListOptions = {
+  cursor: DocumentListCursor | null
+  limit: number
+}
+
+export type DocumentListPage = {
+  documents: DocumentRecord[]
+  nextCursor: DocumentListCursor | null
+}
+
 export type WindowControls = {
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
@@ -27,7 +42,7 @@ declare global {
         create: () => Promise<DocumentRecord>
         get: (id: number) => Promise<DocumentRecord | undefined>
         count: () => Promise<number>
-        list: () => Promise<DocumentRecord[]>
+        list: (options: DocumentListOptions) => Promise<DocumentListPage>
         delete: (id: number) => Promise<void>
         save: (
           id: number,

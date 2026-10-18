@@ -424,20 +424,67 @@ describe('documents database', () => {
     expect(handlerFor('handle', documentsCountChannel)({})).toBe(3)
   })
 
-  it('lists documents over IPC', async () => {
+  it('lists a page of documents over IPC', async () => {
     await importMain()
-    const records = [
-      {
-        id: 1,
-        title: 'بدون عنوان',
-        body: '',
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    ]
-    mocks.database.listDocuments.mockReturnValue(records)
+    const page = {
+      documents: [
+        {
+          id: 1,
+          title: 'بدون عنوان',
+          body: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      nextCursor: { createdAt: 1, id: 1 },
+    }
+    mocks.database.listDocuments.mockReturnValue(page)
+    const list = handlerFor('handle', documentsListChannel)
 
-    expect(handlerFor('handle', documentsListChannel)({})).toEqual(records)
+    expect(list({}, { cursor: null, limit: 15 })).toEqual(page)
+    expect(mocks.database.listDocuments).toHaveBeenCalledWith({
+      cursor: null,
+      limit: 15,
+    })
+
+    expect(list({}, { cursor: { createdAt: 5, id: 3 }, limit: 15 })).toEqual(
+      page,
+    )
+    expect(mocks.database.listDocuments).toHaveBeenLastCalledWith({
+      cursor: { createdAt: 5, id: 3 },
+      limit: 15,
+    })
+
+    expect(list({}, { cursor: undefined, limit: 15 })).toEqual(page)
+    expect(mocks.database.listDocuments).toHaveBeenLastCalledWith({
+      cursor: undefined,
+      limit: 15,
+    })
+  })
+
+  it('ignores list calls without usable options', async () => {
+    await importMain()
+    const list = handlerFor('handle', documentsListChannel)
+
+    expect(list({})).toBeUndefined()
+    expect(list({}, undefined)).toBeUndefined()
+    expect(list({}, null)).toBeUndefined()
+    expect(list({}, 'list')).toBeUndefined()
+    expect(list({}, { cursor: null })).toBeUndefined()
+    expect(list({}, { cursor: null, limit: 0 })).toBeUndefined()
+    expect(list({}, { cursor: null, limit: -1 })).toBeUndefined()
+    expect(list({}, { cursor: null, limit: 1.5 })).toBeUndefined()
+    expect(list({}, { cursor: null, limit: Number.NaN })).toBeUndefined()
+    expect(list({}, { cursor: null, limit: '15' })).toBeUndefined()
+    expect(list({}, { cursor: 7, limit: 15 })).toBeUndefined()
+    expect(list({}, { cursor: { createdAt: 1 }, limit: 15 })).toBeUndefined()
+    expect(
+      list({}, { cursor: { createdAt: 1, id: '1' }, limit: 15 }),
+    ).toBeUndefined()
+    expect(
+      list({}, { cursor: { createdAt: 1.5, id: 1 }, limit: 15 }),
+    ).toBeUndefined()
+    expect(mocks.database.listDocuments).not.toHaveBeenCalled()
   })
 
   it('deletes documents over IPC', async () => {
@@ -683,7 +730,7 @@ describe('documents database', () => {
     vi.stubEnv('DEV_DB_FAILURE', 'users')
     mocks.parseDbFailureArgument.mockImplementationOnce(() => {
       throw new Error(
-        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, deleteDocument, saveDocument',
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
       )
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -695,7 +742,7 @@ describe('documents database', () => {
         expect(mocks.app.exit).toHaveBeenCalledWith(1)
       })
       expect(consoleError).toHaveBeenCalledWith(
-        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, deleteDocument, saveDocument',
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

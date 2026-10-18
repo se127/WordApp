@@ -14,6 +14,7 @@ import {
   untitledDocumentTitle,
 } from '../../electron/database.ts'
 import type {
+  DocumentRecord,
   OpenDatabaseOptions,
   WordAppDatabase,
 } from '../../electron/database.ts'
@@ -70,7 +71,7 @@ describe('openDatabase', () => {
 
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 1,
+        user_version: 2,
       })
       expect(raw.prepare('PRAGMA journal_mode').get()).toEqual({
         journal_mode: 'wal',
@@ -101,12 +102,12 @@ describe('openDatabase', () => {
       const objects = raw
         .prepare(
           `SELECT type, name FROM sqlite_master
-           WHERE name IN ('documents_created_at_idx', 'documents_touch_updated_at')
+           WHERE name IN ('documents_created_at_id_idx', 'documents_touch_updated_at')
            ORDER BY type`,
         )
         .all()
       expect(objects).toEqual([
-        { type: 'index', name: 'documents_created_at_idx' },
+        { type: 'index', name: 'documents_created_at_id_idx' },
         { type: 'trigger', name: 'documents_touch_updated_at' },
       ])
     } finally {
@@ -114,23 +115,123 @@ describe('openDatabase', () => {
     }
   })
 
-  it('serves the newest-first document list from the created_at index', () => {
+  it('serves the newest-first first page from the created_at and id index', () => {
     const { databasePath } = openTestDatabase()
     const raw = new DatabaseSync(databasePath)
 
     try {
-      const plan = raw
-        .prepare(
-          `EXPLAIN QUERY PLAN
-           SELECT id, title, body, created_at, updated_at
-           FROM documents
-           ORDER BY created_at DESC`,
-        )
-        .all() as Array<{ detail: string }>
-
-      expect(plan.map((step) => step.detail).join('\n')).toContain(
-        'documents_created_at_idx',
+      const details = (
+        raw
+          .prepare(
+            `EXPLAIN QUERY PLAN
+             SELECT id, title, body, created_at, updated_at
+             FROM documents
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?`,
+          )
+          .all() as Array<{ detail: string }>
       )
+        .map((step) => step.detail)
+        .join('\n')
+
+      expect(details).toContain('documents_created_at_id_idx')
+      expect(details).not.toContain('TEMP B-TREE')
+    } finally {
+      raw.close()
+    }
+  })
+
+  it('seeks into the created_at and id index for a cursor page', () => {
+    const { databasePath } = openTestDatabase()
+    const raw = new DatabaseSync(databasePath)
+
+    try {
+      const details = (
+        raw
+          .prepare(
+            `EXPLAIN QUERY PLAN
+             SELECT id, title, body, created_at, updated_at
+             FROM documents
+             WHERE (created_at, id) < (?, ?)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?`,
+          )
+          .all() as Array<{ detail: string }>
+      )
+        .map((step) => step.detail)
+        .join('\n')
+
+      expect(details).toContain('SEARCH documents USING INDEX')
+      expect(details).toContain('documents_created_at_id_idx')
+      expect(details).not.toContain('TEMP B-TREE')
+    } finally {
+      raw.close()
+    }
+  })
+
+  it('migrates an existing version 1 file and keeps its documents', async () => {
+    const databasePath = temporaryDatabasePath()
+    const legacy = new DatabaseSync(databasePath)
+    legacy.exec(`
+CREATE TABLE documents (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX documents_created_at_idx ON documents (created_at DESC);
+
+CREATE TRIGGER documents_touch_updated_at
+AFTER UPDATE ON documents
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+  UPDATE documents
+  SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  WHERE id = NEW.id;
+END;
+`)
+    legacy.exec('PRAGMA user_version = 1')
+    legacy
+      .prepare(
+        `INSERT INTO documents (title, body, created_at, updated_at)
+         VALUES ('سند قدیمی', '', 1000, 1000)`,
+      )
+      .run()
+    legacy.close()
+
+    const store = openDatabase(databasePath)
+    database = store
+
+    expect(await store.listDocuments({ cursor: null, limit: 15 })).toEqual({
+      documents: [
+        {
+          id: 1,
+          title: 'سند قدیمی',
+          body: '',
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+      ],
+      nextCursor: null,
+    })
+
+    const raw = new DatabaseSync(databasePath)
+    try {
+      expect(raw.prepare('PRAGMA user_version').get()).toEqual({
+        user_version: 2,
+      })
+      expect(
+        raw
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'index'
+             ORDER BY name`,
+          )
+          .all(),
+      ).toEqual([{ name: 'documents_created_at_id_idx' }])
     } finally {
       raw.close()
     }
@@ -150,7 +251,7 @@ describe('openDatabase', () => {
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 1,
+        user_version: 2,
       })
     } finally {
       raw.close()
@@ -191,7 +292,10 @@ describe('documents', () => {
   it('lists nothing before the first document', async () => {
     const { database: store } = openTestDatabase()
 
-    expect(await store.listDocuments()).toEqual([])
+    expect(await store.listDocuments({ cursor: null, limit: 15 })).toEqual({
+      documents: [],
+      nextCursor: null,
+    })
   })
 
   it('lists the stored documents newest first and drops a deleted one', async () => {
@@ -205,11 +309,125 @@ describe('documents', () => {
       vi.setSystemTime(1_001_000)
       const second = await store.createDocument()
 
-      expect(await store.listDocuments()).toEqual([second, first])
+      expect(await store.listDocuments({ cursor: null, limit: 15 })).toEqual({
+        documents: [second, first],
+        nextCursor: null,
+      })
 
       await store.deleteDocument(second.id)
 
-      expect(await store.listDocuments()).toEqual([first])
+      expect(await store.listDocuments({ cursor: null, limit: 15 })).toEqual({
+        documents: [first],
+        nextCursor: null,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pages the list newest first through the cursor without repeating a document', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+      const created: DocumentRecord[] = []
+
+      for (let index = 0; index < 5; index += 1) {
+        vi.setSystemTime(1_000_000 + index * 1000)
+        created.push(await store.createDocument())
+      }
+
+      const firstPage = await store.listDocuments({ cursor: null, limit: 2 })
+      expect(firstPage.documents).toEqual([created[4], created[3]])
+      expect(firstPage.nextCursor).toEqual({
+        createdAt: created[3].createdAt,
+        id: created[3].id,
+      })
+
+      const secondPage = await store.listDocuments({
+        cursor: firstPage.nextCursor,
+        limit: 2,
+      })
+      expect(secondPage.documents).toEqual([created[2], created[1]])
+      expect(secondPage.nextCursor).toEqual({
+        createdAt: created[1].createdAt,
+        id: created[1].id,
+      })
+
+      const thirdPage = await store.listDocuments({
+        cursor: secondPage.nextCursor,
+        limit: 2,
+      })
+      expect(thirdPage.documents).toEqual([created[0]])
+      expect(thirdPage.nextCursor).toBeNull()
+
+      const listedIds = [
+        ...firstPage.documents,
+        ...secondPage.documents,
+        ...thirdPage.documents,
+      ].map((document) => document.id)
+      expect(new Set(listedIds).size).toBe(listedIds.length)
+      expect(new Set(listedIds)).toEqual(
+        new Set(created.map((document) => document.id)),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('breaks created_at ties by the newest id', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+
+      vi.setSystemTime(2_000_000)
+      const first = await store.createDocument()
+      const second = await store.createDocument()
+      const third = await store.createDocument()
+
+      expect(first.createdAt).toBe(second.createdAt)
+      expect(second.createdAt).toBe(third.createdAt)
+
+      const firstPage = await store.listDocuments({ cursor: null, limit: 2 })
+      expect(firstPage.documents).toEqual([third, second])
+      expect(firstPage.nextCursor).toEqual({
+        createdAt: second.createdAt,
+        id: second.id,
+      })
+
+      const secondPage = await store.listDocuments({
+        cursor: firstPage.nextCursor,
+        limit: 2,
+      })
+      expect(secondPage.documents).toEqual([first])
+      expect(secondPage.nextCursor).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not advertise another page when the last page is full', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+
+      for (let index = 0; index < 4; index += 1) {
+        vi.setSystemTime(3_000_000 + index * 1000)
+        await store.createDocument()
+      }
+
+      const firstPage = await store.listDocuments({ cursor: null, limit: 2 })
+      expect(firstPage.documents).toHaveLength(2)
+      expect(firstPage.nextCursor).not.toBeNull()
+
+      const secondPage = await store.listDocuments({
+        cursor: firstPage.nextCursor,
+        limit: 2,
+      })
+      expect(secondPage.documents).toHaveLength(2)
+      expect(secondPage.nextCursor).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -450,6 +668,7 @@ describe('databaseOperationNames', () => {
       'getDocument',
       'countDocuments',
       'listDocuments',
+      'listMoreDocuments',
       'deleteDocument',
       'saveDocument',
     ])
@@ -483,7 +702,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, deleteDocument, saveDocument',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
     )
   })
 })
@@ -499,7 +718,7 @@ describe('openDatabase operation delay', () => {
         store.createDocument(),
         store.countDocuments(),
         store.getDocument(1),
-        store.listDocuments(),
+        store.listDocuments({ cursor: null, limit: 15 }),
       ] as const
       let settled = 0
       for (const operation of operations) {
@@ -518,7 +737,7 @@ describe('openDatabase operation delay', () => {
       expect(created.title).toBe(untitledDocumentTitle)
       expect(count).toBe(1)
       expect(fetched).toEqual(created)
-      expect(listed).toEqual([created])
+      expect(listed).toEqual({ documents: [created], nextCursor: null })
     } finally {
       vi.useRealTimers()
     }
@@ -584,14 +803,42 @@ describe('openDatabase failing operations', () => {
     )
   })
 
-  it('fails a selected list read with the injected message', async () => {
+  it('fails a selected first list read but not a load more read', async () => {
     const { database: store } = openTestDatabase({
       failingOperations: ['listDocuments'],
     })
 
-    await store.createDocument()
-    await expect(store.listDocuments()).rejects.toThrowError(
+    const document = await store.createDocument()
+    await expect(
+      store.listDocuments({ cursor: null, limit: 15 }),
+    ).rejects.toThrowError(
       'The listDocuments operation failed (injected by --with-db-failure)',
+    )
+    expect(
+      await store.listDocuments({
+        cursor: { createdAt: document.createdAt, id: document.id },
+        limit: 15,
+      }),
+    ).toEqual({ documents: [], nextCursor: null })
+  })
+
+  it('fails a selected load more read after a successful first page', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['listMoreDocuments'],
+    })
+
+    const document = await store.createDocument()
+    expect(await store.listDocuments({ cursor: null, limit: 15 })).toEqual({
+      documents: [document],
+      nextCursor: null,
+    })
+    await expect(
+      store.listDocuments({
+        cursor: { createdAt: document.createdAt, id: document.id },
+        limit: 15,
+      }),
+    ).rejects.toThrowError(
+      'The listMoreDocuments operation failed (injected by --with-db-failure)',
     )
   })
 
@@ -640,6 +887,7 @@ describe('openDatabase failing operations', () => {
           'getDocument',
           'countDocuments',
           'listDocuments',
+          'listMoreDocuments',
           'deleteDocument',
           'saveDocument',
         ],
@@ -651,7 +899,8 @@ describe('openDatabase failing operations', () => {
         store.createDocument(),
         store.getDocument(1),
         store.countDocuments(),
-        store.listDocuments(),
+        store.listDocuments({ cursor: null, limit: 15 }),
+        store.listDocuments({ cursor: { createdAt: 0, id: 0 }, limit: 15 }),
         store.deleteDocument(1),
         store.saveDocument(1, { title: 'گزارش' }),
       ] as const
@@ -666,7 +915,7 @@ describe('openDatabase failing operations', () => {
       expect(settled).toBe(0)
 
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(6)
+      expect(settled).toBe(7)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,
@@ -687,7 +936,7 @@ describe('resetDatabase', () => {
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 1,
+        user_version: 2,
       })
       expect(
         raw.prepare('SELECT COUNT(*) AS count FROM documents').get(),
