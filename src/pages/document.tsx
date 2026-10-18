@@ -30,11 +30,14 @@ function DocumentPage() {
           </Link>
         </Button>
         {document !== undefined && isFetching ? (
-          <LoaderCircle
+          <span
             role="status"
             aria-label="در حال به روز رسانی سند"
-            className="ms-auto size-5 animate-spin"
-          />
+            className="ms-auto flex items-center gap-2 text-sm"
+          >
+            <LoaderCircle className="size-4 animate-spin" />
+            در حال به روز رسانی سند...
+          </span>
         ) : null}
       </div>
 
@@ -143,7 +146,11 @@ function DocumentTitle({
         }}
       />
       {isSaving ? (
-        <LoaderCircle className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin" />
+        <LoaderCircle
+          role="status"
+          aria-label="در حال ذخیره ی سند"
+          className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin"
+        />
       ) : null}
     </span>
   ) : (
@@ -197,7 +204,7 @@ function DocumentRetry({ onRetry }: { onRetry: () => void }) {
         بارگذاری سند ناموفق بود. دوباره تلاش کنید.
       </p>
       <Button variant="outline" onClick={onRetry}>
-        <RefreshCw className="text-destructive" />
+        <RefreshCw className="size-4 text-destructive" />
         تلاش دوباره
       </Button>
     </div>
@@ -208,10 +215,11 @@ function DocumentPending() {
   return (
     <div
       role="status"
-      aria-label="در حال بارگذاری"
-      className="flex min-h-32 flex-1 items-center justify-center"
+      aria-label="در حال بارگذاری سند"
+      className="flex min-h-32 flex-1 items-center justify-center gap-2 text-sm"
     >
-      <LoaderCircle className="size-6 animate-spin" />
+      <LoaderCircle className="size-4 animate-spin" />
+      در حال بارگذاری سند...
     </div>
   )
 }

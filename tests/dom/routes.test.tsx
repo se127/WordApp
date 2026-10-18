@@ -429,7 +429,7 @@ describe('routes', () => {
       name: 'تلاش دوباره برای دریافت تعداد سندها',
     })
     expect(busy).toBeDisabled()
-    expect(busy.querySelector('svg')).toHaveClass('animate-spin')
+    expect(busy.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
 
     await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'))
     await act(() => finishRetry(4))
@@ -457,9 +457,10 @@ describe('routes', () => {
     renderRoute('/documents/1')
 
     await screen.findByRole('button', { name: 'تغییر پوسته' })
-    expect(
-      await screen.findByRole('status', { name: 'در حال بارگذاری' }),
-    ).toBeInTheDocument()
+    const status = await screen.findByRole('status', {
+      name: 'در حال بارگذاری سند',
+    })
+    expect(status).toHaveTextContent('در حال بارگذاری سند...')
     expect(
       screen.getByRole('link', { name: 'بازگشت به مستندات' }),
     ).toBeInTheDocument()
@@ -553,7 +554,7 @@ describe('routes', () => {
     )
 
     expect(
-      await screen.findByRole('status', { name: 'در حال بارگذاری' }),
+      await screen.findByRole('status', { name: 'در حال بارگذاری سند' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
@@ -786,8 +787,12 @@ describe('routes', () => {
     expect(pending).toHaveValue('پیگیری')
     expect(pending).toHaveClass('pe-8')
     expect(pending.parentElement?.querySelector('svg')).toHaveClass(
+      'size-4',
       'animate-spin',
     )
+    expect(
+      screen.getByRole('status', { name: 'در حال ذخیره ی سند' }),
+    ).toBeInTheDocument()
 
     storedRow = {
       ...storedRow,
@@ -831,7 +836,9 @@ describe('routes', () => {
     const updating = await screen.findByRole('status', {
       name: 'در حال به روز رسانی سند',
     })
-    expect(updating).toHaveClass('ms-auto', 'animate-spin')
+    expect(updating).toHaveClass('ms-auto')
+    expect(updating).toHaveTextContent('در حال به روز رسانی سند...')
+    expect(updating.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
     expect(updating.closest('div')).toContainElement(
       screen.getByRole('link', { name: 'بازگشت به مستندات' }),
     )
@@ -930,7 +937,7 @@ describe('routes', () => {
 
     const button = screen.getByRole('button', { name: 'در حال ساخت سند...' })
     expect(button).toBeDisabled()
-    expect(button.querySelector('svg')).toHaveClass('animate-spin')
+    expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
 
     await act(() => finishCreate(storedDocument))
 
@@ -1057,7 +1064,7 @@ describe('routes', () => {
     expect(remove).toHaveBeenCalledWith(1)
     const confirm = screen.getByRole('button', { name: 'در حال حذف...' })
     expect(confirm).toBeDisabled()
-    expect(confirm.querySelector('svg')).toHaveClass('animate-spin')
+    expect(confirm.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
     expect(screen.getByRole('button', { name: 'انصراف' })).toBeDisabled()
 
     await user.keyboard('{Escape}')
@@ -1466,6 +1473,7 @@ describe('routes', () => {
       name: 'در حال بارگذاری سندها',
     })
     expect(status).toHaveClass('items-center', 'justify-center')
+    expect(status).toHaveTextContent('در حال بارگذاری سندها...')
     expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(list).toHaveBeenCalledExactlyOnceWith({
@@ -1676,7 +1684,7 @@ describe('routes', () => {
       name: 'تلاش دوباره',
     })
     expect(busy).toBeDisabled()
-    expect(busy.querySelector('svg')).toHaveClass('animate-spin')
+    expect(busy.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
 
     await act(() =>

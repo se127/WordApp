@@ -176,6 +176,17 @@ treat every skip as a bug:
   directly under its primary counterpart, the way an `AlertDialogDescription` sits
   lighter under its `AlertDialogTitle`. When in doubt, use the primary color.
 
+## Loading icons — always `size-4`
+
+- Every loading icon in the app renders at 16px: write `size-4` on the icon itself
+  (`LoaderCircle`, a spinning `RefreshCw`) — even inside a `Button`, instead of
+  leaving the size to the parent. `animate-spin` is what marks it as loading.
+- Never give a loader another size — no `size-3`, `size-5`, `size-6`, `size-8`, no
+  `h-*`/`w-*` overrides. One shared size keeps every loading state identical.
+- `animate-pulse` stays reserved for stale content that keeps its data on screen
+  while it re-reads (the table and the count in `src/pages/home.tsx`). The spinner
+  tests in `tests/dom/routes.test.tsx` pin `size-4` together with `animate-spin`.
+
 ## Numbers — group thousands with `formatNumber`
 
 - Any number shown in the UI that reads as a count or amount and can plausibly pass 999

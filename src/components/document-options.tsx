@@ -127,7 +127,7 @@ function DocumentOptions({
             >
               {isDeleting ? (
                 <>
-                  <LoaderCircle className="animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                   در حال حذف...
                 </>
               ) : (

@@ -71,7 +71,7 @@ function HomePage() {
       <Button disabled={isCreating} onClick={addDocument}>
         {isCreating ? (
           <>
-            <LoaderCircle className="animate-spin" />
+            <LoaderCircle className="size-4 animate-spin" />
             در حال ساخت سند...
           </>
         ) : (
@@ -273,7 +273,7 @@ function DocumentsListFooter({
           بارگذاری سندهای بیشتر ناموفق بود. دوباره تلاش کنید.
         </p>
         <Button variant="outline" onClick={onRetry}>
-          <RefreshCw className="text-destructive" />
+          <RefreshCw className="size-4 text-destructive" />
           تلاش دوباره
         </Button>
       </div>
@@ -363,9 +363,10 @@ function DocumentsPending() {
     <div
       role="status"
       aria-label="در حال بارگذاری سندها"
-      className="flex min-h-32 w-full flex-1 items-center justify-center"
+      className="flex min-h-32 w-full flex-1 items-center justify-center gap-2 text-sm"
     >
-      <LoaderCircle className="size-6 animate-spin" />
+      <LoaderCircle className="size-4 animate-spin" />
+      در حال بارگذاری سندها...
     </div>
   )
 }
@@ -384,7 +385,10 @@ function DocumentsRetry({
       </p>
       <Button variant="outline" disabled={isRetrying} onClick={onRetry}>
         <RefreshCw
-          className={cn('text-destructive', isRetrying && 'animate-spin')}
+          className={cn(
+            'size-4 text-destructive',
+            isRetrying && 'animate-spin',
+          )}
         />
         تلاش دوباره
       </Button>
@@ -439,7 +443,7 @@ function CountRetry({
           disabled={isRetrying}
           onClick={onRetry}
         >
-          <RefreshCw className={isRetrying ? 'animate-spin' : undefined} />
+          <RefreshCw className={cn('size-4', isRetrying && 'animate-spin')} />
         </Button>
       </TooltipTrigger>
       <TooltipContent>{retryLabel}</TooltipContent>
@@ -452,7 +456,7 @@ function CountPending() {
     <LoaderCircle
       role="status"
       aria-label="در حال بارگذاری"
-      className="size-5 animate-spin text-black dark:text-white"
+      className="size-4 animate-spin text-black dark:text-white"
     />
   )
 }
