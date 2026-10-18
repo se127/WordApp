@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   databaseOperationNames,
+  emptySeed,
   openDatabase,
   parseDbDelayArgument,
   parseDbFailureArgument,
@@ -361,6 +362,12 @@ describe('documents', () => {
     } finally {
       raw.close()
     }
+  })
+})
+
+describe('emptySeed', () => {
+  it('describes the documents table left with no records after a reset', () => {
+    expect(emptySeed).toEqual([{ table: 'documents', count: 0 }])
   })
 })
 

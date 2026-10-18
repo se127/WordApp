@@ -4,13 +4,16 @@ import path from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import {
   databaseOperationNames,
+  emptySeed,
   parseDbDelayArgument,
   parseSeedArgument,
+  type DatabaseOperationName,
 } from '../electron/database.ts'
 import {
   DbFailurePromptCanceledError,
   promptDbFailures,
 } from './db-failure-prompt.ts'
+import { formatDevFlags } from './dev-flags.ts'
 
 const require = createRequire(import.meta.url)
 
@@ -19,13 +22,13 @@ const electronBinary: string = require('electron')
 const projectRoot = path.join(import.meta.dirname, '..')
 const mode = process.argv[2]
 
-function readSeedArgument(): string {
+function readSeedArgument(): string | undefined {
   const argument = process.argv
     .slice(3)
     .find((value) => value === '--seed' || value.startsWith('--seed='))
 
   if (argument === undefined) {
-    return ''
+    return undefined
   }
 
   if (mode !== 'dev') {
@@ -51,13 +54,13 @@ function readSeedArgument(): string {
   return value
 }
 
-function readDbDelayArgument(): string {
+function readDbDelayArgument(): string | undefined {
   const argument = process.argv
     .slice(3)
     .find((value) => value === '--db-delay' || value.startsWith('--db-delay='))
 
   if (argument === undefined) {
-    return ''
+    return undefined
   }
 
   if (mode !== 'dev') {
@@ -108,9 +111,9 @@ function readDbFailureFlag(): boolean {
   return true
 }
 
-async function readDbFailures(): Promise<string> {
+async function readDbFailures(): Promise<DatabaseOperationName[]> {
   if (!withDbFailure) {
-    return ''
+    return []
   }
 
   if (!process.stdin.isTTY) {
@@ -121,7 +124,7 @@ async function readDbFailures(): Promise<string> {
   }
 
   try {
-    return (await promptDbFailures(databaseOperationNames)).join(',')
+    return await promptDbFailures(databaseOperationNames)
   } catch (error) {
     if (error instanceof DbFailurePromptCanceledError) {
       process.exit(130)
@@ -132,8 +135,8 @@ async function readDbFailures(): Promise<string> {
   }
 }
 
-const seed = readSeedArgument()
-const dbDelay = readDbDelayArgument()
+const seedArgument = readSeedArgument()
+const dbDelayArgument = readDbDelayArgument()
 const withDbFailure = readDbFailureFlag()
 
 let viteServer: ViteDevServer | undefined
@@ -150,11 +153,11 @@ async function shutdown(code: number): Promise<never> {
   process.exit(code)
 }
 
-function runBun(args: string[]): Promise<void> {
+function runBun(args: string[], quiet = false): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: projectRoot,
-      stdio: 'inherit',
+      stdio: quiet ? ['ignore', 'ignore', 'inherit'] : 'inherit',
     })
 
     child.once('error', reject)
@@ -168,24 +171,31 @@ function runBun(args: string[]): Promise<void> {
   })
 }
 
-async function bundleEntry(entry: string, outFile: string): Promise<void> {
-  await runBun([
-    'build',
-    entry,
-    '--outfile',
-    outFile,
-    '--format',
-    'cjs',
-    '--target',
-    'node',
-    '--external',
-    'electron',
-  ])
+async function bundleEntry(
+  entry: string,
+  outFile: string,
+  quiet = false,
+): Promise<void> {
+  await runBun(
+    [
+      'build',
+      entry,
+      '--outfile',
+      outFile,
+      '--format',
+      'cjs',
+      '--target',
+      'node',
+      '--external',
+      'electron',
+    ],
+    quiet,
+  )
 }
 
-async function buildElectronSources(): Promise<void> {
-  await bundleEntry('electron/main.ts', 'dist-electron/main.cjs')
-  await bundleEntry('electron/preload.ts', 'dist-electron/preload.cjs')
+async function buildElectronSources(quiet = false): Promise<void> {
+  await bundleEntry('electron/main.ts', 'dist-electron/main.cjs', quiet)
+  await bundleEntry('electron/preload.ts', 'dist-electron/preload.cjs', quiet)
 }
 
 function launchElectron(
@@ -194,7 +204,7 @@ function launchElectron(
   devDbDelay: string,
   devDbFailures: string,
 ): ChildProcess {
-  console.log(`\nStarting Electron with the dev server at ${devServerUrl}\n`)
+  console.log('\nstarting electron dev...')
 
   const electron = spawn(electronBinary, ['.'], {
     cwd: projectRoot,
@@ -218,10 +228,25 @@ function launchElectron(
 async function dev(): Promise<void> {
   const dbFailures = await readDbFailures()
 
-  await buildElectronSources()
+  const requestedSeed =
+    seedArgument === undefined ? [] : parseSeedArgument(seedArgument)
+
+  console.log(
+    formatDevFlags({
+      seedEntries: requestedSeed.length > 0 ? requestedSeed : emptySeed,
+      dbDelayMs:
+        dbDelayArgument === undefined
+          ? 0
+          : parseDbDelayArgument(dbDelayArgument),
+      failingOperations: withDbFailure ? dbFailures : undefined,
+    }),
+  )
+
+  await buildElectronSources(true)
 
   const server = await createServer({
     root: projectRoot,
+    clearScreen: false,
     server: { host: '127.0.0.1', port: 5173, strictPort: true },
   })
   await server.listen()
@@ -233,9 +258,12 @@ async function dev(): Promise<void> {
     return shutdown(1)
   }
 
-  server.printUrls()
-
-  electronProcess = launchElectron(devServerUrl, seed, dbDelay, dbFailures)
+  electronProcess = launchElectron(
+    devServerUrl,
+    seedArgument ?? '',
+    dbDelayArgument ?? '',
+    dbFailures.join(','),
+  )
 }
 
 async function build(): Promise<void> {

@@ -503,41 +503,29 @@ describe('documents database', () => {
 
   it('resets the dev database to the dev script seed before opening it', async () => {
     vi.stubEnv('DEV_SEED', 'documents,3')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseSeedArgument).toHaveBeenCalledWith('documents,3')
-      expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        [{ table: 'documents', count: 3 }],
-      )
-      expect(mocks.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.openDatabase.mock.invocationCallOrder[0],
-      )
-      expect(consoleLog).toHaveBeenCalledWith('Seeded documents: 3')
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseSeedArgument).toHaveBeenCalledWith('documents,3')
+    expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      [{ table: 'documents', count: 3 }],
+    )
+    expect(mocks.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.openDatabase.mock.invocationCallOrder[0],
+    )
   })
 
   it('only empties the dev database when the dev script passed no seed', async () => {
     vi.stubEnv('DEV_SEED', '')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseSeedArgument).toHaveBeenCalledWith('')
-      expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        [],
-      )
-      expect(consoleLog).not.toHaveBeenCalled()
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseSeedArgument).toHaveBeenCalledWith('')
+    expect(mocks.resetDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      [],
+    )
   })
 
   it('leaves the database alone when the dev script did not set a seed', async () => {
@@ -580,40 +568,28 @@ describe('documents database', () => {
     }
   })
 
-  it('slows every store operation by the dev script db delay and reports it', async () => {
+  it('slows every store operation by the dev script db delay', async () => {
     vi.stubEnv('DEV_DB_DELAY', '2000ms')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('2000ms')
-      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        { operationDelayMs: 2000, failingOperations: [] },
-      )
-      expect(consoleLog).toHaveBeenCalledWith('db-delay: 2000ms')
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('2000ms')
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      { operationDelayMs: 2000, failingOperations: [] },
+    )
   })
 
-  it('keeps operations immediate and logs nothing when no db delay was passed', async () => {
+  it('keeps operations immediate when no db delay was passed', async () => {
     vi.stubEnv('DEV_DB_DELAY', '')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('')
-      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        { operationDelayMs: 0, failingOperations: [] },
-      )
-      expect(consoleLog).not.toHaveBeenCalled()
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseDbDelayArgument).toHaveBeenCalledWith('')
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      { operationDelayMs: 0, failingOperations: [] },
+    )
   })
 
   it('ignores the dev db delay in a packaged app', async () => {
@@ -652,51 +628,33 @@ describe('documents database', () => {
     }
   })
 
-  it('fails the operations the --with-db-failure prompt picked and reports them', async () => {
+  it('fails the operations the --with-db-failure prompt picked', async () => {
     vi.stubEnv('DEV_DB_FAILURE', 'createDocument,getDocument,countDocuments')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith(
-        'createDocument,getDocument,countDocuments',
-      )
-      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        {
-          operationDelayMs: 0,
-          failingOperations: [
-            'createDocument',
-            'getDocument',
-            'countDocuments',
-          ],
-        },
-      )
-      expect(consoleLog).toHaveBeenCalledWith(
-        'db-failure: createDocument, getDocument, countDocuments',
-      )
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith(
+      'createDocument,getDocument,countDocuments',
+    )
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      {
+        operationDelayMs: 0,
+        failingOperations: ['createDocument', 'getDocument', 'countDocuments'],
+      },
+    )
   })
 
-  it('fails nothing and logs nothing when the prompt picked nothing', async () => {
+  it('fails nothing when the prompt picked nothing', async () => {
     vi.stubEnv('DEV_DB_FAILURE', '')
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    try {
-      await importMain()
+    await importMain()
 
-      expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith('')
-      expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
-        path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
-        { operationDelayMs: 0, failingOperations: [] },
-      )
-      expect(consoleLog).not.toHaveBeenCalled()
-    } finally {
-      consoleLog.mockRestore()
-    }
+    expect(mocks.parseDbFailureArgument).toHaveBeenCalledWith('')
+    expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
+      { operationDelayMs: 0, failingOperations: [] },
+    )
   })
 
   it('fails nothing when the dev script did not send a selection', async () => {

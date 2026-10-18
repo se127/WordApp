@@ -246,6 +246,8 @@ export function openDatabase(
 
 export type SeedEntry = { table: string; count: number }
 
+export const emptySeed: SeedEntry[] = [{ table: 'documents', count: 0 }]
+
 export function parseSeedArgument(value: string): SeedEntry[] {
   if (value === '') {
     return []

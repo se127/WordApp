@@ -1,6 +1,7 @@
 import { emitKeypressEvents, type Key } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { DatabaseOperationName } from '../electron/database.ts'
+import { formatOperationLabel } from './dev-flags.ts'
 
 export class DbFailurePromptCanceledError extends Error {
   constructor() {
@@ -38,7 +39,7 @@ export function promptDbFailures(
     ): string =>
       `${index === cursor ? '>' : ' '} ${
         checked.has(operation) ? '[x]' : '[ ]'
-      } ${operation}`
+      } ${formatOperationLabel(operation)}`
 
     const draw = (lines: string[]): void => {
       if (drawnLines > 0) {
@@ -50,22 +51,6 @@ export function promptDbFailures(
 
     const redraw = (): void => {
       draw([...titleLines, ...operations.map(optionLine)])
-    }
-
-    const printAnswer = (answer: string): void => {
-      if (drawnLines > 0) {
-        output.write(`\x1b[${drawnLines}A`)
-      }
-      output.write(`\r\x1b[2K${answer}\r\n`)
-
-      for (let line = 1; line < drawnLines; line += 1) {
-        output.write('\r\x1b[2K\r\n')
-      }
-      if (drawnLines > 1) {
-        output.write(`\x1b[${drawnLines - 1}A`)
-      }
-
-      drawnLines = 0
     }
 
     const erase = (): void => {
@@ -99,9 +84,7 @@ export function promptDbFailures(
 
     const answerWith = (): void => {
       const picked = operations.filter((operation) => checked.has(operation))
-      printAnswer(
-        `db-failure: ${picked.length > 0 ? picked.join(', ') : 'none'}`,
-      )
+      erase()
       settle()
       resolve(picked)
     }

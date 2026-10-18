@@ -16,12 +16,12 @@ const operations: DatabaseOperationName[] = [
 ]
 
 const firstFrame = [
-  '> [ ] createDocument',
-  '  [ ] getDocument',
-  '  [ ] countDocuments',
-  '  [ ] listDocuments',
-  '  [ ] deleteDocument',
-  '  [ ] saveDocument',
+  '> [ ] create document',
+  '  [ ] get document',
+  '  [ ] count documents',
+  '  [ ] list documents',
+  '  [ ] delete document',
+  '  [ ] save document',
 ]
 
 type PromptInput = PassThrough & {
@@ -92,52 +92,52 @@ describe('promptDbFailures', () => {
 
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '> [ ] getDocument',
-      '  [ ] countDocuments',
-      '  [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '  [ ] saveDocument',
+      '  [ ] create document',
+      '> [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] delete document',
+      '  [ ] save document',
     ])
 
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '  [ ] getDocument',
-      '> [ ] countDocuments',
-      '  [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '  [ ] saveDocument',
+      '  [ ] create document',
+      '  [ ] get document',
+      '> [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] delete document',
+      '  [ ] save document',
     ])
 
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '  [ ] getDocument',
-      '  [ ] countDocuments',
-      '> [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '  [ ] saveDocument',
+      '  [ ] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '> [ ] list documents',
+      '  [ ] delete document',
+      '  [ ] save document',
     ])
 
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '  [ ] getDocument',
-      '  [ ] countDocuments',
-      '  [ ] listDocuments',
-      '> [ ] deleteDocument',
-      '  [ ] saveDocument',
+      '  [ ] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '> [ ] delete document',
+      '  [ ] save document',
     ])
 
     await type(input, '\x1b[B')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '  [ ] getDocument',
-      '  [ ] countDocuments',
-      '  [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '> [ ] saveDocument',
+      '  [ ] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] delete document',
+      '> [ ] save document',
     ])
 
     await type(input, '\x1b[B')
@@ -145,12 +145,12 @@ describe('promptDbFailures', () => {
 
     await type(input, '\x1b[A')
     expect(lastOptions(text())).toEqual([
-      '  [ ] createDocument',
-      '  [ ] getDocument',
-      '  [ ] countDocuments',
-      '  [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '> [ ] saveDocument',
+      '  [ ] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] delete document',
+      '> [ ] save document',
     ])
   })
 
@@ -159,12 +159,12 @@ describe('promptDbFailures', () => {
 
     await type(input, ' ')
     expect(lastOptions(text())).toEqual([
-      '> [x] createDocument',
-      '  [ ] getDocument',
-      '  [ ] countDocuments',
-      '  [ ] listDocuments',
-      '  [ ] deleteDocument',
-      '  [ ] saveDocument',
+      '> [x] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] delete document',
+      '  [ ] save document',
     ])
 
     await type(input, ' ')
@@ -188,20 +188,16 @@ describe('promptDbFailures', () => {
       'getDocument',
       'countDocuments',
     ])
-    expect(text()).toContain(
-      'db-failure: createDocument, getDocument, countDocuments',
-    )
-    expect(text().match(/db-failure:/g)).toHaveLength(1)
     expect(lastOptions(text())).toEqual([])
   })
 
-  it('answers "none" when nothing is checked', async () => {
+  it('answers with no operations and wipes the prompt when nothing is checked', async () => {
     const { input, text, answer } = startPrompt()
 
     await type(input, '\n')
 
     expect(await answer).toEqual([])
-    expect(text()).toContain('db-failure: none')
+    expect(lastOptions(text())).toEqual([])
   })
 
   it('ignores keys that are not arrows, space, or enter', async () => {
@@ -254,7 +250,6 @@ describe('promptDbFailures', () => {
     await type(input, '\x03')
 
     expect(await caught).toBeInstanceOf(DbFailurePromptCanceledError)
-    expect(text()).not.toContain('db-failure:')
     expect(lastOptions(text())).toEqual([])
     expect(rawModes).toEqual([true, false])
   })
@@ -279,6 +274,6 @@ describe('promptDbFailures', () => {
     await flushStreams()
 
     expect(await caught).toEqual(new Error('stdin exploded'))
-    expect(text()).not.toContain('db-failure:')
+    expect(lastOptions(text())).toEqual([])
   })
 })

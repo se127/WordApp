@@ -154,12 +154,7 @@ void app.whenReady().then(async () => {
 
   if (devSeed !== undefined) {
     try {
-      const seed = parseSeedArgument(devSeed)
-      resetDatabase(databasePath, seed)
-
-      for (const { table, count } of seed) {
-        console.log(`Seeded ${table}: ${count}`)
-      }
+      resetDatabase(databasePath, parseSeedArgument(devSeed))
     } catch (error) {
       console.error(
         `The dev seed could not be applied: ${
@@ -175,10 +170,6 @@ void app.whenReady().then(async () => {
   if (devDbDelay !== undefined) {
     try {
       operationDelayMs = parseDbDelayArgument(devDbDelay)
-
-      if (devDbDelay !== '') {
-        console.log(`db-delay: ${operationDelayMs}ms`)
-      }
     } catch (error) {
       console.error(
         `The dev db delay could not be applied: ${
@@ -194,10 +185,6 @@ void app.whenReady().then(async () => {
   if (devDbFailures !== undefined) {
     try {
       failingOperations = parseDbFailureArgument(devDbFailures)
-
-      if (failingOperations.length > 0) {
-        console.log(`db-failure: ${failingOperations.join(', ')}`)
-      }
     } catch (error) {
       console.error(
         `The dev db failure could not be applied: ${
