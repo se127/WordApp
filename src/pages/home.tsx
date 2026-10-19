@@ -395,7 +395,10 @@ const DocumentTableRow = memo(function DocumentTableRow({
       </TableCell>
       <TableCell>
         <div className="flex justify-end">
-          <DocumentOptions documentId={document.id} />
+          <DocumentOptions
+            documentId={document.id}
+            documentTitle={document.title}
+          />
         </div>
       </TableCell>
     </TableRow>

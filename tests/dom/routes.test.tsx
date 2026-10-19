@@ -1997,7 +1997,15 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
     await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
-    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(
+      within(dialog).getByText(
+        'آیا مطمئن هستید که می خواهید سند «یادداشت» را حذف کنید؟',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
 
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
 

@@ -28,9 +28,11 @@ import { toast } from 'sonner'
 
 function DocumentOptions({
   documentId,
+  documentTitle,
   onDocumentDeleted,
 }: {
   documentId: number
+  documentTitle?: string
   onDocumentDeleted?: () => Promise<void> | void
 }) {
   const queryClient = useQueryClient()
@@ -109,7 +111,9 @@ function DocumentOptions({
         >
           <AlertDialogHeader>
             <AlertDialogTitle>
-              آیا مطمئن هستید که می خواهید این سند را حذف کنید؟
+              {documentTitle === undefined
+                ? 'آیا مطمئن هستید که می خواهید این سند را حذف کنید؟'
+                : `آیا مطمئن هستید که می خواهید سند «${documentTitle}» را حذف کنید؟`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               این عملیات غیر قابل بازگشت است.
