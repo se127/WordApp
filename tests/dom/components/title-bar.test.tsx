@@ -1,5 +1,11 @@
 import { TitleBar } from '@/components/title-bar'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from '@tanstack/react-router'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -41,12 +47,22 @@ function installControls(overrides: Partial<WindowControls> = {}) {
   return controls
 }
 
-const renderTitleBar = () =>
-  render(
+async function renderTitleBar() {
+  const router = createRouter({
+    routeTree: createRootRoute({ component: TitleBar }),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+
+  const result = render(
     <TooltipProvider>
-      <TitleBar />
+      <RouterProvider router={router} />
     </TooltipProvider>,
   )
+
+  await screen.findByText('WordApp')
+
+  return result
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -54,14 +70,14 @@ afterEach(() => {
 })
 
 describe('TitleBar', () => {
-  it('centers the black-and-white app name in the bar', () => {
+  it('centers the black-and-white app name in the bar', async () => {
     installControls()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     const name = screen.getByText('WordApp')
     const bar = name.closest('div[dir="ltr"]')
-    expect(bar).toHaveClass('relative', 'flex', 'h-12', 'items-center')
+    expect(bar).toHaveClass('relative', 'flex', 'h-16', 'items-center')
     expect(name).toHaveClass(
       'absolute',
       'left-1/2',
@@ -71,10 +87,10 @@ describe('TitleBar', () => {
     )
   })
 
-  it('hosts the theme picker at the left edge, inset like the content box', () => {
+  it('hosts the theme picker at the left edge, inset like the content box', async () => {
     installControls()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     const bar = screen.getByText('WordApp').closest('div[dir="ltr"]')
     const picker = within(bar as HTMLElement).getByRole('button', {
@@ -85,10 +101,10 @@ describe('TitleBar', () => {
     expect(picker.parentElement).toHaveClass('no-drag-region', 'ps-4')
   })
 
-  it('sizes every window button to the full bar height with the normal cursor', () => {
+  it('sizes every window button to the full bar height with the normal cursor', async () => {
     installControls()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     for (const label of ['کوچک کردن', 'تمام صفحه', 'بستن']) {
       expect(screen.getByRole('button', { name: label })).toHaveClass(
@@ -99,10 +115,30 @@ describe('TitleBar', () => {
     }
   })
 
+  it('offers an outline icon home link before the window controls, spaced and with a tooltip', async () => {
+    installControls()
+    const user = userEvent.setup()
+
+    await renderTitleBar()
+
+    const home = screen.getByRole('link', { name: 'خانه' })
+    expect(home).toHaveAttribute('data-variant', 'outline')
+    expect(home).toHaveAttribute('data-size', 'icon')
+    expect(home).toHaveClass('no-drag-region', 'me-3')
+    expect(home.querySelector('svg')).toHaveClass('lucide-house')
+
+    const minimize = screen.getByRole('button', { name: 'کوچک کردن' })
+    expect(home.nextElementSibling).toBe(minimize)
+    expect(home.parentElement).toBe(minimize.parentElement)
+
+    await user.hover(home)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('خانه')
+  })
+
   it('starts from the bridge maximize state and flips to restore', async () => {
     installControls({ isMaximized: vi.fn(async () => true) })
 
-    renderTitleBar()
+    await renderTitleBar()
 
     expect(
       await screen.findByRole('button', { name: 'بازگرداندن' }),
@@ -121,7 +157,7 @@ describe('TitleBar', () => {
       }),
     })
 
-    renderTitleBar()
+    await renderTitleBar()
     const maximize = await screen.findByRole('button', { name: 'تمام صفحه' })
     expect(maximize.querySelector('svg')).toHaveClass('lucide-square')
 
@@ -140,7 +176,7 @@ describe('TitleBar', () => {
     const controls = installControls()
     const user = userEvent.setup()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     await user.click(screen.getByRole('button', { name: 'کوچک کردن' }))
     expect(controls.minimize).toHaveBeenCalledOnce()
@@ -156,19 +192,19 @@ describe('TitleBar', () => {
     installControls()
     const user = userEvent.setup()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     await user.hover(screen.getByRole('button', { name: 'کوچک کردن' }))
     expect(await screen.findByRole('tooltip')).toHaveTextContent('کوچک کردن')
   })
 
-  it('stops listening for maximize changes once unmounted', () => {
+  it('stops listening for maximize changes once unmounted', async () => {
     const unsubscribe = vi.fn()
     installControls({
       onMaximizedChange: vi.fn(() => unsubscribe),
     })
 
-    const { unmount } = renderTitleBar()
+    const { unmount } = await renderTitleBar()
     unmount()
 
     expect(unsubscribe).toHaveBeenCalledOnce()
@@ -177,7 +213,7 @@ describe('TitleBar', () => {
   it('still renders and answers clicks without the preload bridge', async () => {
     const user = userEvent.setup()
 
-    renderTitleBar()
+    await renderTitleBar()
 
     await user.click(screen.getByRole('button', { name: 'کوچک کردن' }))
     await user.click(screen.getByRole('button', { name: 'تمام صفحه' }))

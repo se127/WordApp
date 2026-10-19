@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -5,7 +6,8 @@ import {
 } from '@/components/ui/tooltip'
 import { ThemePicker } from '@/components/theme-picker'
 import { cn } from '@/lib/utils'
-import { Copy, Minus, Square, X } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Copy, House, Minus, Square, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
 function TitleBar() {
@@ -35,7 +37,7 @@ function TitleBar() {
   return (
     <div
       dir="ltr"
-      className="relative flex h-12 shrink-0 items-center justify-between select-none drag-region"
+      className="relative flex h-16 shrink-0 items-center justify-between select-none drag-region"
     >
       <div className="flex h-full items-center ps-4 no-drag-region">
         <ThemePicker />
@@ -44,6 +46,22 @@ function TitleBar() {
         WordApp
       </div>
       <div className="flex h-full items-center justify-end">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              asChild
+              aria-label="خانه"
+              className="me-3 no-drag-region"
+            >
+              <Link to="/">
+                <House />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">خانه</TooltipContent>
+        </Tooltip>
         <WindowButton
           label="کوچک کردن"
           onClick={() => void controls?.minimize()}

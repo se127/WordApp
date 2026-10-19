@@ -657,6 +657,7 @@ describe('routes', () => {
     await user.tab()
     await user.tab()
     await user.tab()
+    await user.tab()
 
     expect(screen.getByRole('button', { name: 'تمام صفحه' })).toHaveFocus()
 
@@ -999,6 +1000,20 @@ describe('routes', () => {
     expect(backLink.querySelector('svg')).toHaveClass('lucide-arrow-right')
     await user.hover(backLink)
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('returns to the home page through the title bar home link', async () => {
+    installDocumentsBridge([storedDocument])
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
   })
 
   it('offers delete in the options menu and asks for confirmation before deleting', async () => {
@@ -1351,9 +1366,11 @@ describe('routes', () => {
     expect(titleCell).toHaveClass('whitespace-normal')
     expect(titleCell).not.toHaveClass('whitespace-nowrap')
 
-    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(
-      ['گزارش سالانه', 'پیش نویس'],
-    )
+    expect(
+      within(bodyTable)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['گزارش سالانه', 'پیش نویس'])
 
     expect(screen.getByRole('cell', { name: '5 دقیقه ی پیش' })).toHaveClass(
       'text-center',
@@ -1760,7 +1777,7 @@ describe('routes', () => {
     renderRoute('/')
 
     await screen.findByRole('link', { name: 'سند 25' })
-    expect(screen.getAllByRole('link')).toHaveLength(25)
+    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(25)
     expect(list).toHaveBeenCalledExactlyOnceWith({
       cursor: null,
       limit: documentPageSize,
@@ -1877,11 +1894,11 @@ describe('routes', () => {
 
     await scrollListTo(0)
     const topTitles = screen
-      .getAllByRole('link')
+      .getAllByRole('link', { name: /^سند / })
       .map((link) => link.textContent)
     await scrollListTo(99999)
     const endTitles = screen
-      .getAllByRole('link')
+      .getAllByRole('link', { name: /^سند / })
       .map((link) => link.textContent)
     expect(new Set([...topTitles, ...endTitles]).size).toBe(
       topTitles.length + endTitles.length,
