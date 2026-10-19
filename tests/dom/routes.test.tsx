@@ -252,7 +252,9 @@ describe('routes', () => {
     expect(heading).toBeInTheDocument()
     expect(heading).toHaveClass('flex', 'h-8', 'items-center')
     expect(
-      screen.getByRole('button', { name: 'افزودن سند' }),
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
     ).toBeInTheDocument()
     expect(count).toHaveBeenCalledOnce()
   })
@@ -283,7 +285,9 @@ describe('routes', () => {
     const heading = await screen.findByRole('heading')
     expect(within(heading).getByRole('status')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'افزودن سند' }),
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
     ).toBeInTheDocument()
 
     await act(() => finishCount(3))
@@ -312,10 +316,14 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
-    await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
 
     const staleCount = await screen.findByText('(۰)')
     expect(staleCount).toHaveClass('animate-pulse')
@@ -468,7 +476,7 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('shows the pending spinner under the back button while the document row is loading, then the title with its options menu', async () => {
+  it('shows the pending spinner while the document row is loading, then the title with its options menu', async () => {
     let finishGet!: (document: typeof storedDocument) => void
     const get = vi.fn(
       () =>
@@ -485,9 +493,6 @@ describe('routes', () => {
       name: 'در حال بارگذاری سند',
     })
     expect(status).toHaveTextContent('در حال بارگذاری سند...')
-    expect(
-      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
-    ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'گزینه ها' }),
     ).not.toBeInTheDocument()
@@ -527,9 +532,6 @@ describe('routes', () => {
       'justify-center',
       'flex-col',
     )
-    expect(
-      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
-    ).toBeInTheDocument()
     expect(
       screen.queryByText(
         'The getDocument operation failed (injected by --with-db-failure)',
@@ -653,7 +655,11 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
 
+    await user.tab()
+    await user.tab()
+    await user.tab()
     await user.tab()
     await user.tab()
     await user.tab()
@@ -661,7 +667,6 @@ describe('routes', () => {
 
     expect(screen.getByRole('button', { name: 'تمام صفحه' })).toHaveFocus()
 
-    await user.tab()
     await user.tab()
     await user.tab()
 
@@ -832,7 +837,7 @@ describe('routes', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
-  it('keeps the saved title and the back-row loader on screen while the row re-reads', async () => {
+  it('keeps the saved title and the updating loader on screen while the row re-reads', async () => {
     let reads = 0
     let finishReread!: (document: typeof storedDocument) => void
     const get = vi.fn((): Promise<typeof storedDocument> => {
@@ -864,9 +869,6 @@ describe('routes', () => {
     expect(updating).toHaveClass('ms-auto')
     expect(updating).toHaveTextContent('در حال به روز رسانی سند...')
     expect(updating.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
-    expect(updating.closest('div')).toContainElement(
-      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
-    )
 
     await vi.waitFor(() => expect(finishReread).toBeTypeOf('function'))
     await act(() =>
@@ -937,7 +939,11 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      await within(screen.getByRole('main')).findByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
 
     expect(create).toHaveBeenCalledOnce()
     expect(
@@ -946,7 +952,28 @@ describe('routes', () => {
     expect(get).toHaveBeenCalledWith(1)
   })
 
-  it('disables the button and shows a spinner while the document is being created', async () => {
+  it('creates a document from the title bar add button and opens its page', async () => {
+    const { create, get } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
+
+    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    await user.click(
+      within(titleBar as HTMLElement).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(get).toHaveBeenCalledWith(1)
+  })
+
+  it('disables both create buttons and shows a spinner while the document is being created', async () => {
     let finishCreate!: (document: typeof storedDocument) => void
     const create = vi.fn(
       () =>
@@ -958,11 +985,24 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      await within(screen.getByRole('main')).findByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
 
-    const button = screen.getByRole('button', { name: 'در حال ساخت سند...' })
+    const button = within(screen.getByRole('main')).getByRole('button', {
+      name: 'در حال ساخت سند...',
+    })
     expect(button).toBeDisabled()
     expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+
+    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    expect(
+      within(titleBar as HTMLElement).getByRole('button', {
+        name: 'در حال ساخت سند...',
+      }),
+    ).toBeDisabled()
 
     await act(() => finishCreate(storedDocument))
 
@@ -971,35 +1011,38 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
-  it('returns to the home page through the back button', async () => {
-    const { get } = installBridge()
+  it('keeps the home create button busy while the title bar creates a document', async () => {
+    let finishCreate!: (document: typeof storedDocument) => void
+    const create = vi.fn(
+      () =>
+        new Promise<typeof storedDocument>((resolve) => {
+          finishCreate = resolve
+        }),
+    )
+    installBridge({ create })
     const user = userEvent.setup()
 
-    renderRoute('/documents/1')
+    renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
+
+    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    await user.click(
+      within(titleBar as HTMLElement).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
+
+    const button = within(screen.getByRole('main')).getByRole('button', {
+      name: 'در حال ساخت سند...',
+    })
+    expect(button).toBeDisabled()
+    expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+
+    await act(() => finishCreate(storedDocument))
+
     expect(
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
-    expect(get).toHaveBeenCalledWith(1)
-
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
-
-    expect(
-      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
-    ).toBeInTheDocument()
-  })
-
-  it('shows the back button with its icon and label, without a tooltip', async () => {
-    installBridge()
-    const user = userEvent.setup()
-
-    renderRoute('/documents/1')
-    const backLink = await screen.findByRole('link', {
-      name: 'بازگشت به مستندات',
-    })
-
-    expect(backLink.querySelector('svg')).toHaveClass('lucide-arrow-right')
-    await user.hover(backLink)
-    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('returns to the home page through the title bar home link', async () => {
@@ -1217,7 +1260,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
 
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۰)' }),
@@ -1234,10 +1277,14 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
-    await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۱)' }),
     ).toBeInTheDocument()
@@ -1256,7 +1303,11 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      await within(screen.getByRole('main')).findByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
 
     expect(
       await screen.findByText('افزودن سند ناموفق بود. دوباره تلاش کنید.'),
@@ -1270,7 +1321,11 @@ describe('routes', () => {
     expect(
       screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+    expect(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    ).toBeEnabled()
     expect(count).toHaveBeenCalledOnce()
   })
 
@@ -1279,7 +1334,11 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    await user.click(await screen.findByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      await within(screen.getByRole('main')).findByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
 
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
@@ -1303,7 +1362,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await act(() =>
@@ -1515,7 +1574,11 @@ describe('routes', () => {
     })
     expect(status).toHaveClass('items-center', 'justify-center')
     expect(status).toHaveTextContent('در حال بارگذاری سندها...')
-    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+    expect(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    ).toBeEnabled()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(list).toHaveBeenCalledExactlyOnceWith({
       cursor: null,
@@ -1624,7 +1687,11 @@ describe('routes', () => {
     expect(
       screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
+    expect(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    ).toBeEnabled()
 
     const retry = screen.getByRole('button', {
       name: 'تلاش دوباره',
@@ -2036,9 +2103,6 @@ describe('routes', () => {
     await vi.waitFor(() =>
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
     )
-    expect(
-      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
-    ).not.toBeInTheDocument()
   })
 
   it('keeps the row checkboxes hidden until the selection toggle is pressed', async () => {
@@ -2447,14 +2511,20 @@ describe('routes', () => {
       await screen.findByText('هنوز سندی ثبت نشده است.'),
     ).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'افزودن سند' }))
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
 
     await screen.findByRole('heading', { name: 'مستندات (۱)' })
     expect(
-      await screen.findByRole('link', { name: 'بدون عنوان' }),
+      await within(screen.getByRole('main')).findByRole('link', {
+        name: 'بدون عنوان',
+      }),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('هنوز سندی ثبت نشده است.'),
@@ -2496,10 +2566,11 @@ describe('routes', () => {
 
     await screen.findByRole('heading', { name: 'گزارش تازه' })
 
-    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
 
+    const bodyTable = (await screen.findAllByRole('table'))[1]
     expect(
-      await screen.findByRole('link', { name: 'گزارش تازه' }),
+      await within(bodyTable).findByRole('link', { name: 'گزارش تازه' }),
     ).toBeInTheDocument()
     expect(list).toHaveBeenCalledTimes(2)
   })

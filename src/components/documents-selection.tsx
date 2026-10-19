@@ -14,12 +14,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { DocumentTabsContext } from '@/lib/document-tabs'
 import { formatNumber } from '@/lib/number'
 import { documentQuery, documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { ListChecks, LoaderCircle, Trash } from 'lucide-react'
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { toast } from 'sonner'
 
 const toggleSelectionLabel = 'انتخاب گروهی اسناد'
@@ -36,6 +37,7 @@ function DocumentsSelectionToolbar({
   onDocumentsDeleted: () => void
 }) {
   const queryClient = useQueryClient()
+  const { closeDocumentTab } = useContext(DocumentTabsContext)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const selectedCount = selectedIds.size
@@ -68,6 +70,7 @@ function DocumentsSelectionToolbar({
       onDocumentsDeleted()
 
       for (const id of ids) {
+        closeDocumentTab(id)
         queryClient.removeQueries({ queryKey: documentQuery(id).queryKey })
       }
     })().finally(() => {

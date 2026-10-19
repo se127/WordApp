@@ -1,13 +1,16 @@
+import { DocumentTabs } from '@/components/document-tabs'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ThemePicker } from '@/components/theme-picker'
+import { useCreateDocument } from '@/lib/documents'
 import { cn } from '@/lib/utils'
 import { Link } from '@tanstack/react-router'
-import { Copy, House, Minus, Square, X } from 'lucide-react'
+import { Copy, House, LoaderCircle, Minus, Plus, Square, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
 function TitleBar() {
@@ -37,15 +40,18 @@ function TitleBar() {
   return (
     <div
       dir="ltr"
-      className="relative flex h-16 shrink-0 items-center justify-between select-none drag-region"
+      className="flex h-16 shrink-0 items-center select-none drag-region"
     >
-      <div className="flex h-full items-center ps-4 no-drag-region">
+      <div className="flex h-full shrink-0 items-center gap-3 ps-4 no-drag-region">
         <ThemePicker />
+        <span className="text-sm font-medium text-black dark:text-white">
+          WordApp
+        </span>
       </div>
-      <div className="absolute left-1/2 -translate-x-1/2 text-sm font-medium text-black dark:text-white">
-        WordApp
-      </div>
-      <div className="flex h-full items-center justify-end">
+      <DocumentTabs />
+      <div className="flex h-full shrink-0 items-center justify-end">
+        <AddDocumentButton />
+        <Separator orientation="vertical" className="my-auto me-3 h-8" />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -83,6 +89,33 @@ function TitleBar() {
         </WindowButton>
       </div>
     </div>
+  )
+}
+
+function AddDocumentButton() {
+  const { createDocument, isCreating } = useCreateDocument()
+  const label = isCreating ? 'در حال ساخت سند...' : 'افزودن سند'
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label={label}
+          className="me-3 no-drag-region"
+          disabled={isCreating}
+          onClick={() => void createDocument()}
+        >
+          {isCreating ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : (
+            <Plus />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   )
 }
 

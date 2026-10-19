@@ -20,10 +20,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { DocumentTabsContext } from '@/lib/document-tabs'
 import { documentQuery, documentsCountQuery, documentsQuery } from '@/lib/query'
 import { useQueryClient } from '@tanstack/react-query'
 import { Ellipsis, LoaderCircle, Trash } from 'lucide-react'
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { toast } from 'sonner'
 
 function DocumentOptions({
@@ -36,6 +37,7 @@ function DocumentOptions({
   onDocumentDeleted?: () => Promise<void> | void
 }) {
   const queryClient = useQueryClient()
+  const { closeDocumentTab } = useContext(DocumentTabsContext)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
@@ -55,6 +57,7 @@ function DocumentOptions({
 
       toast.success('سند حذف شد.')
       setIsDeleteDialogOpen(false)
+      closeDocumentTab(documentId)
 
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,

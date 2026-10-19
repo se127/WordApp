@@ -2,7 +2,7 @@ import App from '@/App'
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { queryClient } from '@/lib/query'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -84,7 +84,9 @@ describe('App', () => {
       await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: 'افزودن سند' }),
+      await within(screen.getByRole('main')).findByRole('button', {
+        name: 'افزودن سند',
+      }),
     ).toBeInTheDocument()
   })
 

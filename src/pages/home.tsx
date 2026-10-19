@@ -17,52 +17,19 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
+import { useCreateDocument } from '@/lib/documents'
 import { formatNumber } from '@/lib/number'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import type { DocumentRecord } from '@/types/global'
-import {
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 
 function HomePage() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const [isCreating, setIsCreating] = useState(false)
-
-  const addDocument = async (): Promise<void> => {
-    setIsCreating(true)
-    await (async () => {
-      const document = await window.WordApp?.documents.create().catch(() => {
-        toast.error('افزودن سند ناموفق بود. دوباره تلاش کنید.')
-        return undefined
-      })
-      if (!document) {
-        return
-      }
-
-      void queryClient.invalidateQueries({
-        queryKey: documentsCountQuery.queryKey,
-      })
-      void queryClient.invalidateQueries({
-        queryKey: documentsQuery.queryKey,
-      })
-
-      await navigate({
-        to: '/documents/$documentId',
-        params: { documentId: String(document.id) },
-      })
-    })().finally(() => {
-      setIsCreating(false)
-    })
-  }
+  const { createDocument, isCreating } = useCreateDocument()
 
   return (
     <div className="flex h-full flex-col items-start gap-3 p-6">
@@ -70,7 +37,7 @@ function HomePage() {
         {'مستندات '}
         <DocumentCount />
       </h1>
-      <Button disabled={isCreating} onClick={addDocument}>
+      <Button disabled={isCreating} onClick={createDocument}>
         {isCreating ? (
           <>
             <LoaderCircle className="size-4 animate-spin" />
