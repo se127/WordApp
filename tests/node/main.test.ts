@@ -12,6 +12,7 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
+  documentsDeleteManyChannel,
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
@@ -54,6 +55,7 @@ const mocks = vi.hoisted(() => {
     countDocuments: vi.fn(),
     listDocuments: vi.fn(),
     deleteDocument: vi.fn(),
+    deleteDocuments: vi.fn(),
     saveDocument: vi.fn(),
     close: vi.fn(),
   }
@@ -504,6 +506,34 @@ describe('documents database', () => {
     expect(mocks.database.deleteDocument).not.toHaveBeenCalled()
   })
 
+  it('deletes a batch of documents over IPC', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', documentsDeleteManyChannel)({}, [1, 2, 3]),
+    ).toBeUndefined()
+    expect(mocks.database.deleteDocuments).toHaveBeenCalledExactlyOnceWith([
+      1, 2, 3,
+    ])
+  })
+
+  it('ignores batch delete calls that are not a list of ids', async () => {
+    await importMain()
+    const removeMany = handlerFor('handle', documentsDeleteManyChannel)
+
+    expect(removeMany({}, 1)).toBeUndefined()
+    expect(removeMany({}, '1')).toBeUndefined()
+    expect(removeMany({}, null)).toBeUndefined()
+    expect(removeMany({}, undefined)).toBeUndefined()
+    expect(removeMany({}, [1, '2'])).toBeUndefined()
+    expect(removeMany({}, [1, 1.5])).toBeUndefined()
+    expect(removeMany({}, [Number.NaN])).toBeUndefined()
+    expect(mocks.database.deleteDocuments).not.toHaveBeenCalled()
+
+    removeMany({}, [])
+    expect(mocks.database.deleteDocuments).toHaveBeenCalledExactlyOnceWith([])
+  })
+
   it('saves document changes over IPC', async () => {
     await importMain()
     const record = {
@@ -730,7 +760,7 @@ describe('documents database', () => {
     vi.stubEnv('DEV_DB_FAILURE', 'users')
     mocks.parseDbFailureArgument.mockImplementationOnce(() => {
       throw new Error(
-        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
+        'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, deleteDocuments, saveDocument',
       )
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -742,7 +772,7 @@ describe('documents database', () => {
         expect(mocks.app.exit).toHaveBeenCalledWith(1)
       })
       expect(consoleError).toHaveBeenCalledWith(
-        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
+        'The dev db failure could not be applied: Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, deleteDocuments, saveDocument',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {

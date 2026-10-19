@@ -1,5 +1,7 @@
 import { DocumentOptions } from '@/components/document-options'
+import { DocumentsSelectionToolbar } from '@/components/documents-selection'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Table,
@@ -108,6 +110,10 @@ function DocumentsTable() {
     isRefetching,
     refetch,
   } = useInfiniteQuery(documentsQuery)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(
+    new Set<number>(),
+  )
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const fetchingNextPageRef = useRef(false)
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
@@ -126,6 +132,24 @@ function DocumentsTable() {
     (index: number) => documents?.[index]?.id ?? index,
     [documents],
   )
+  const toggleSelecting = useCallback((): void => {
+    setIsSelecting((selecting) => !selecting)
+    setSelectedIds(new Set<number>())
+  }, [])
+  const toggleSelectedDocument = useCallback((id: number): void => {
+    setSelectedIds((ids) => {
+      const next = new Set(ids)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+  const clearSelectedDocuments = useCallback((): void => {
+    setSelectedIds(new Set<number>())
+  }, [])
 
   // oxlint-disable-next-line react/incompatible-library
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
@@ -192,14 +216,17 @@ function DocumentsTable() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
+      <DocumentsSelectionToolbar
+        isSelecting={isSelecting}
+        selectedIds={selectedIds}
+        onToggleSelecting={toggleSelecting}
+        onDocumentsDeleted={clearSelectedDocuments}
+      />
       <Table className="table-fixed">
-        <colgroup>
-          <col className="w-[60%]" />
-          <col className="w-[20%]" />
-          <col className="w-[20%]" />
-        </colgroup>
+        <DocumentTableColumns isSelecting={isSelecting} />
         <TableHeader>
           <TableRow>
+            {isSelecting ? <TableHead /> : null}
             <TableHead>عنوان</TableHead>
             <TableHead className="text-center">تاریخ ایجاد</TableHead>
             <TableHead />
@@ -211,19 +238,21 @@ function DocumentsTable() {
         className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible"
       >
         <Table className={cn('table-fixed', isRefetching && 'animate-pulse')}>
-          <colgroup>
-            <col className="w-[60%]" />
-            <col className="w-[20%]" />
-            <col className="w-[20%]" />
-          </colgroup>
+          <DocumentTableColumns isSelecting={isSelecting} />
           <TableBody>
-            <TableRowSpacer height={firstVirtualRow?.start ?? 0} />
+            <TableRowSpacer
+              height={firstVirtualRow?.start ?? 0}
+              columns={isSelecting ? 4 : 3}
+            />
             {virtualRows.map((virtualRow) => (
               <DocumentTableRow
                 key={virtualRow.key}
                 document={documents[virtualRow.index]}
                 index={virtualRow.index}
                 measureElement={rowVirtualizer.measureElement}
+                isSelecting={isSelecting}
+                isSelected={selectedIds.has(documents[virtualRow.index].id)}
+                onToggleSelected={toggleSelectedDocument}
               />
             ))}
             <TableRowSpacer
@@ -232,6 +261,7 @@ function DocumentsTable() {
                   ? rowVirtualizer.getTotalSize() - lastVirtualRow.end
                   : 0
               }
+              columns={isSelecting ? 4 : 3}
             />
           </TableBody>
         </Table>
@@ -242,6 +272,17 @@ function DocumentsTable() {
         />
       </ScrollArea>
     </div>
+  )
+}
+
+function DocumentTableColumns({ isSelecting }: { isSelecting: boolean }) {
+  return (
+    <colgroup>
+      {isSelecting ? <col className="w-6" /> : null}
+      <col className="w-[60%]" />
+      <col className="w-[20%]" />
+      <col className="w-[20%]" />
+    </colgroup>
   )
 }
 
@@ -283,10 +324,16 @@ function DocumentsListFooter({
   return null
 }
 
-function TableRowSpacer({ height }: { height: number }) {
+function TableRowSpacer({
+  height,
+  columns,
+}: {
+  height: number
+  columns: number
+}) {
   return (
     <tr data-slot="table-row-spacer" aria-hidden="true" style={{ height }}>
-      <td colSpan={3} style={{ padding: 0 }} />
+      <td colSpan={columns} style={{ padding: 0 }} />
     </tr>
   )
 }
@@ -295,21 +342,50 @@ const DocumentTableRow = memo(function DocumentTableRow({
   document,
   index,
   measureElement,
+  isSelecting,
+  isSelected,
+  onToggleSelected,
 }: {
   document: DocumentRecord
   index: number
   measureElement: (node: HTMLTableRowElement | null) => void
+  isSelecting: boolean
+  isSelected: boolean
+  onToggleSelected: (id: number) => void
 }) {
   return (
-    <TableRow data-index={index} ref={measureElement}>
+    <TableRow
+      data-index={index}
+      data-state={isSelected ? 'selected' : undefined}
+      ref={measureElement}
+    >
+      {isSelecting ? (
+        <TableCell>
+          <Checkbox
+            checked={isSelected}
+            aria-label={`انتخاب سند ${document.title}`}
+            onCheckedChange={() => onToggleSelected(document.id)}
+          />
+        </TableCell>
+      ) : null}
       <TableCell className="whitespace-normal">
-        <Link
-          to="/documents/$documentId"
-          params={{ documentId: String(document.id) }}
-          className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          {document.title}
-        </Link>
+        {isSelecting ? (
+          <button
+            type="button"
+            className="block w-full rounded-sm text-start break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={() => onToggleSelected(document.id)}
+          >
+            {document.title}
+          </button>
+        ) : (
+          <Link
+            to="/documents/$documentId"
+            params={{ documentId: String(document.id) }}
+            className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {document.title}
+          </Link>
+        )}
         {document.updatedAt !== document.createdAt ? (
           <DocumentUpdatedAt updatedAt={document.updatedAt} />
         ) : null}

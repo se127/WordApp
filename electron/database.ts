@@ -44,6 +44,7 @@ export type WordAppDatabase = {
   countDocuments: () => Promise<number>
   listDocuments: (options: DocumentListOptions) => Promise<DocumentListPage>
   deleteDocument: (id: number) => Promise<void>
+  deleteDocuments: (ids: readonly number[]) => Promise<void>
   saveDocument: (
     id: number,
     changes: DocumentChanges,
@@ -58,6 +59,7 @@ export const databaseOperationNames = [
   'listDocuments',
   'listMoreDocuments',
   'deleteDocument',
+  'deleteDocuments',
   'saveDocument',
 ] as const
 
@@ -188,6 +190,9 @@ export function openDatabase(
   const deleteDocumentById = database.prepare(
     'DELETE FROM documents WHERE id = ?',
   )
+  const deleteDocumentsByIds = database.prepare(
+    `DELETE FROM documents WHERE id IN (SELECT value FROM json_each(?))`,
+  )
   const updateDocument = database.prepare(
     `UPDATE documents SET title = COALESCE(?, title), body = COALESCE(?, body)
      WHERE id = ?`,
@@ -268,6 +273,17 @@ export function openDatabase(
       failInjectedOperation('deleteDocument')
 
       deleteDocumentById.run(id)
+    },
+
+    async deleteDocuments(ids) {
+      await waitBeforeQuery()
+      failInjectedOperation('deleteDocuments')
+
+      if (ids.length === 0) {
+        return
+      }
+
+      deleteDocumentsByIds.run(JSON.stringify(ids))
     },
 
     async saveDocument(id, changes) {

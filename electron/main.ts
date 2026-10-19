@@ -17,6 +17,7 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
+  documentsDeleteManyChannel,
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
@@ -139,6 +140,13 @@ function isDocumentChanges(value: unknown): value is DocumentChanges {
   )
 }
 
+function isDocumentIds(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every((id) => typeof id === 'number' && Number.isSafeInteger(id))
+  )
+}
+
 function isDocumentListCursor(value: unknown): value is DocumentListCursor {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -250,6 +258,9 @@ void app.whenReady().then(async () => {
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.deleteDocument(id)
       : undefined,
+  )
+  ipcMain.handle(documentsDeleteManyChannel, (_event, ids: unknown) =>
+    isDocumentIds(ids) ? database.deleteDocuments(ids) : undefined,
   )
   ipcMain.handle(
     documentsSaveChannel,

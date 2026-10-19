@@ -44,6 +44,7 @@ declare global {
         count: () => Promise<number>
         list: (options: DocumentListOptions) => Promise<DocumentListPage>
         delete: (id: number) => Promise<void>
+        deleteMany: (ids: number[]) => Promise<void>
         save: (
           id: number,
           changes: DocumentChanges,

@@ -13,6 +13,7 @@ const operations: DatabaseOperationName[] = [
   'listDocuments',
   'listMoreDocuments',
   'deleteDocument',
+  'deleteDocuments',
   'saveDocument',
 ]
 
@@ -23,6 +24,7 @@ const firstFrame = [
   '  [ ] list documents',
   '  [ ] list more documents',
   '  [ ] delete document',
+  '  [ ] delete documents',
   '  [ ] save document',
 ]
 
@@ -100,6 +102,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 
@@ -111,6 +114,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 
@@ -122,6 +126,7 @@ describe('promptDbFailures', () => {
       '> [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 
@@ -133,6 +138,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '> [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 
@@ -144,6 +150,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '> [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 
@@ -155,6 +162,19 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '> [ ] delete documents',
+      '  [ ] save document',
+    ])
+
+    await type(input, '\x1b[B')
+    expect(lastOptions(text())).toEqual([
+      '  [ ] create document',
+      '  [ ] get document',
+      '  [ ] count documents',
+      '  [ ] list documents',
+      '  [ ] list more documents',
+      '  [ ] delete document',
+      '  [ ] delete documents',
       '> [ ] save document',
     ])
 
@@ -169,6 +189,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '> [ ] save document',
     ])
   })
@@ -184,6 +205,7 @@ describe('promptDbFailures', () => {
       '  [ ] list documents',
       '  [ ] list more documents',
       '  [ ] delete document',
+      '  [ ] delete documents',
       '  [ ] save document',
     ])
 

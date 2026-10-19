@@ -41,6 +41,7 @@ describe('preload bridge', () => {
     expect(typeof api.documents.count).toBe('function')
     expect(typeof api.documents.list).toBe('function')
     expect(typeof api.documents.delete).toBe('function')
+    expect(typeof api.documents.deleteMany).toBe('function')
     expect(typeof api.documents.save).toBe('function')
     expect(typeof api.windowControls.minimize).toBe('function')
     expect(typeof api.windowControls.toggleMaximize).toBe('function')
@@ -86,6 +87,12 @@ describe('preload bridge', () => {
     mocks.invoke.mockResolvedValue(undefined)
     await expect(api.documents.delete(7)).resolves.toBeUndefined()
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:delete', 7)
+
+    await expect(api.documents.deleteMany([7, 8])).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      'wordapp:documents:delete-many',
+      [7, 8],
+    )
 
     mocks.invoke.mockResolvedValue(record)
     await expect(api.documents.save(7, { title: 'گزارش' })).resolves.toEqual(

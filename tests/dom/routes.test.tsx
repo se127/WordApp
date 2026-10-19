@@ -5,6 +5,7 @@ import {
   documentPageSize,
   documentsCountQuery,
   documentsQuery,
+  documentQuery,
 } from '@/lib/query'
 import { createAppRouter } from '@/router'
 import type {
@@ -101,6 +102,7 @@ function installBridge(
       changes: DocumentChanges,
     ) => Promise<typeof storedDocument | undefined>
     remove?: (id: number) => Promise<void>
+    removeMany?: (ids: number[]) => Promise<void>
   } = {},
 ) {
   let storedCount = 0
@@ -127,10 +129,19 @@ function installBridge(
       return storedRow
     })
   const remove = options.remove ?? vi.fn(async () => undefined)
+  const removeMany = options.removeMany ?? vi.fn(async () => undefined)
 
   window.WordApp = {
     platform: 'win32',
-    documents: { create, get, count, list, save, delete: remove },
+    documents: {
+      create,
+      get,
+      count,
+      list,
+      save,
+      delete: remove,
+      deleteMany: removeMany,
+    },
     windowControls: {
       minimize: vi.fn(async () => {}),
       toggleMaximize: vi.fn(async () => {}),
@@ -140,10 +151,13 @@ function installBridge(
     },
   } satisfies WordAppBridge
 
-  return { create, get, count, list, save, remove }
+  return { create, get, count, list, save, remove, removeMany }
 }
 
-function installDocumentsBridge(documents: Array<typeof storedDocument>) {
+function installDocumentsBridge(
+  documents: Array<typeof storedDocument>,
+  overrides: { removeMany?: (ids: number[]) => Promise<void> } = {},
+) {
   const stored = [...documents]
 
   return installBridge({
@@ -160,6 +174,16 @@ function installDocumentsBridge(documents: Array<typeof storedDocument>) {
         stored.splice(index, 1)
       }
     }),
+    removeMany:
+      overrides.removeMany ??
+      vi.fn(async (ids: number[]) => {
+        for (const id of ids) {
+          const index = stored.findIndex((document) => document.id === id)
+          if (index >= 0) {
+            stored.splice(index, 1)
+          }
+        }
+      }),
   })
 }
 
@@ -1990,6 +2014,392 @@ describe('routes', () => {
     expect(
       screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('keeps the row checkboxes hidden until the selection toggle is pressed', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    const toggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
+    expect(toggle).toHaveAttribute('data-size', 'icon')
+    expect(toggle).toHaveAttribute('data-variant', 'outline')
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(toggle.querySelector('svg')).toHaveClass('lucide-list-checks')
+    expect(toggle.querySelector('svg')).not.toHaveClass('text-sidebar-primary')
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+
+    await user.hover(toggle)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'انتخاب گروهی اسناد',
+    )
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAttribute('data-variant', 'outline')
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    expect(toggle.querySelector('svg')).toHaveClass('text-sidebar-primary')
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).not.toBeChecked()
+  })
+
+  it('adds a checkbox column before the title while selecting and clears the selection when toggled off', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    const toggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
+    const columnHeadTexts = () =>
+      screen.getAllByRole('columnheader').map((head) => head.textContent)
+    const columnWidths = () => {
+      const [headerTable, bodyTable] = screen.getAllByRole('table')
+      const headerCols = Array.from(headerTable?.querySelectorAll('col') ?? [])
+      const bodyCols = Array.from(bodyTable?.querySelectorAll('col') ?? [])
+      expect(bodyCols.map((col) => col.className)).toEqual(
+        headerCols.map((col) => col.className),
+      )
+      return headerCols.map((col) => col.className)
+    }
+
+    expect(columnHeadTexts()).toEqual(['عنوان', 'تاریخ ایجاد', ''])
+    expect(columnWidths()).toEqual(['w-[60%]', 'w-[20%]', 'w-[20%]'])
+
+    await user.click(toggle)
+
+    expect(toggle.parentElement).toHaveClass('pt-2', 'pb-1')
+    expect(columnHeadTexts()).toEqual(['', 'عنوان', 'تاریخ ایجاد', ''])
+    expect(columnWidths()).toEqual(['w-6', 'w-[60%]', 'w-[20%]', 'w-[20%]'])
+
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+    expect(columnHeadTexts()).toEqual(['عنوان', 'تاریخ ایجاد', ''])
+    expect(columnWidths()).toEqual(['w-[60%]', 'w-[20%]', 'w-[20%]'])
+
+    await user.click(toggle)
+
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).not.toBeChecked()
+  })
+
+  it('turns row titles into checkbox toggles instead of links while selecting', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    const { router } = renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'انتخاب گروهی اسناد',
+      }),
+    )
+
+    expect(
+      screen.queryByRole('link', { name: 'یادداشت' }),
+    ).not.toBeInTheDocument()
+    const title = screen.getByRole('button', { name: 'یادداشت' })
+
+    await user.click(title)
+
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    ).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/')
+
+    await user.click(title)
+
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).not.toBeChecked()
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('shows the destructive batch button beside the toggle and asks with the selected count', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+      { ...storedDocument, id: 3, title: 'پیش نویس' },
+    ]
+    const { removeMany } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    const toggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
+    await user.click(toggle)
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }))
+
+    const deleteButton = screen.getByRole('button', {
+      name: 'حذف اسناد انتخاب شده (۲)',
+    })
+    expect(deleteButton).toHaveAttribute('data-variant', 'destructive')
+    expect(deleteButton.parentElement).toBe(toggle.parentElement)
+    expect(deleteButton.querySelector('svg')).toHaveClass('lucide-trash')
+
+    await user.click(deleteButton)
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(
+      within(dialog).getByText(
+        'آیا مطمئن هستید که می خواهید ۲ سند انتخاب شده را حذف کنید؟',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('این عملیات غیر قابل بازگشت است.'),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'بله' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'انصراف' }),
+    ).toBeInTheDocument()
+    expect(removeMany).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
+
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۲)' }),
+    ).toBeInTheDocument()
+    expect(removeMany).not.toHaveBeenCalled()
+  })
+
+  it('deletes every selected document in one call and re-reads the list and the count', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+      { ...storedDocument, id: 3, title: 'پیش نویس' },
+      { ...storedDocument, id: 4, title: 'طرح' },
+    ]
+    const { list, removeMany } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    const { queryClient } = renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+    await act(() => {
+      queryClient.setQueryData(documentQuery(1).queryKey, documents[0])
+      queryClient.setQueryData(documentQuery(3).queryKey, documents[2])
+      queryClient.setQueryData(documentQuery(4).queryKey, documents[3])
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'انتخاب گروهی اسناد',
+      }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند پیش نویس' }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۲)' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(removeMany).toHaveBeenCalledExactlyOnceWith([1, 3])
+    expect(await screen.findByText('۲ سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۲)' }),
+    ).toBeInTheDocument()
+
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }),
+    ).not.toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند طرح' }),
+    ).not.toBeChecked()
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(queryClient.getQueryData(documentQuery(1).queryKey)).toBeUndefined()
+    expect(queryClient.getQueryData(documentQuery(3).queryKey)).toBeUndefined()
+    expect(queryClient.getQueryData(documentQuery(4).queryKey)).toEqual(
+      documents[3],
+    )
+  })
+
+  it('holds the batch dialog open with both buttons disabled while the delete runs', async () => {
+    const documents = [{ ...storedDocument, id: 1, title: 'یادداشت' }]
+    let finishDelete!: () => void
+    const removeMany = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDelete = resolve
+        }),
+    )
+    installDocumentsBridge(documents, { removeMany })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'انتخاب گروهی اسناد',
+      }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(removeMany).toHaveBeenCalledExactlyOnceWith([1])
+    const confirm = screen.getByRole('button', { name: 'در حال حذف...' })
+    expect(confirm).toBeDisabled()
+    expect(confirm.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+    expect(screen.getByRole('button', { name: 'انصراف' })).toBeDisabled()
+
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    await act(() => finishDelete())
+    expect(await screen.findByText('۱ سند حذف شد.')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).not.toBeChecked()
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reports a failed batch delete with an error toast and keeps the dialog open for another try', async () => {
+    const documents = [{ ...storedDocument, id: 1, title: 'یادداشت' }]
+    let attempts = 0
+    const removeMany = vi.fn((): Promise<void> => {
+      attempts += 1
+      return attempts === 1
+        ? Promise.reject(
+            new Error(
+              'The deleteDocuments operation failed (injected by --with-db-failure)',
+            ),
+          )
+        : Promise.resolve()
+    })
+    installDocumentsBridge(documents, { removeMany })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'انتخاب گروهی اسناد',
+      }),
+    )
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    expect(
+      await screen.findByText('حذف اسناد ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'The deleteDocuments operation failed (injected by --with-db-failure)',
+      ),
+    ).not.toBeInTheDocument()
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByRole('button', { name: 'انصراف' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'بله' })).toBeEnabled()
+    expect(screen.queryByText('۱ سند حذف شد.')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'انتخاب سند یادداشت',
+        hidden: true,
+      }),
+    ).toBeChecked()
+
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('۱ سند حذف شد.')).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    ).not.toBeChecked()
+    expect(removeMany).toHaveBeenCalledTimes(2)
+    expect(removeMany).toHaveBeenLastCalledWith([1])
   })
 
   it('re-reads the documents list once the created document is stored', async () => {

@@ -455,6 +455,52 @@ describe('documents', () => {
     expect(await store.getDocument(document.id)).toEqual(document)
   })
 
+  it('deletes every selected document at once and keeps the others', async () => {
+    const { database: store } = openTestDatabase()
+    const first = await store.createDocument()
+    const second = await store.createDocument()
+    const third = await store.createDocument()
+    const kept = await store.createDocument()
+
+    await store.deleteDocuments([first.id, second.id, third.id])
+
+    expect(await store.getDocument(first.id)).toBeUndefined()
+    expect(await store.getDocument(second.id)).toBeUndefined()
+    expect(await store.getDocument(third.id)).toBeUndefined()
+    expect(await store.getDocument(kept.id)).toEqual(kept)
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('deleting a batch with an empty selection removes nothing', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    await store.deleteDocuments([])
+
+    expect(await store.getDocument(document.id)).toEqual(document)
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('deleting a batch with missing ids keeps the stored documents', async () => {
+    const { database: store } = openTestDatabase()
+    const document = await store.createDocument()
+
+    await store.deleteDocuments([document.id + 1000, document.id + 2000])
+
+    expect(await store.getDocument(document.id)).toEqual(document)
+    expect(await store.countDocuments()).toBe(1)
+  })
+
+  it('deletes a batch that spans every stored document', async () => {
+    const { database: store } = openTestDatabase()
+    const first = await store.createDocument()
+    const second = await store.createDocument()
+
+    await store.deleteDocuments([first.id, second.id])
+
+    expect(await store.countDocuments()).toBe(0)
+  })
+
   it('saves a new title and returns the stored row', async () => {
     const { database: store } = openTestDatabase()
     const document = await store.createDocument()
@@ -670,6 +716,7 @@ describe('databaseOperationNames', () => {
       'listDocuments',
       'listMoreDocuments',
       'deleteDocument',
+      'deleteDocuments',
       'saveDocument',
     ])
   })
@@ -702,7 +749,7 @@ describe('parseDbFailureArgument', () => {
 
   it('lists the valid operations in the error message', () => {
     expect(() => parseDbFailureArgument('users')).toThrowError(
-      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, saveDocument',
+      'Invalid --with-db-failure operation "users": valid operations are createDocument, getDocument, countDocuments, listDocuments, listMoreDocuments, deleteDocument, deleteDocuments, saveDocument',
     )
   })
 })
@@ -719,6 +766,7 @@ describe('openDatabase operation delay', () => {
         store.countDocuments(),
         store.getDocument(1),
         store.listDocuments({ cursor: null, limit: 15 }),
+        store.deleteDocuments([1]),
       ] as const
       let settled = 0
       for (const operation of operations) {
@@ -732,7 +780,7 @@ describe('openDatabase operation delay', () => {
 
       await vi.advanceTimersByTimeAsync(1)
       const [created, count, fetched, listed] = await Promise.all(operations)
-      expect(settled).toBe(4)
+      expect(settled).toBe(5)
 
       expect(created.title).toBe(untitledDocumentTitle)
       expect(count).toBe(1)
@@ -854,6 +902,23 @@ describe('openDatabase failing operations', () => {
     expect(await store.getDocument(document.id)).toEqual(document)
   })
 
+  it('fails a selected batch delete before its query, removing nothing', async () => {
+    const { database: store } = openTestDatabase({
+      failingOperations: ['deleteDocuments'],
+    })
+
+    const first = await store.createDocument()
+    const second = await store.createDocument()
+
+    await expect(
+      store.deleteDocuments([first.id, second.id]),
+    ).rejects.toThrowError(
+      'The deleteDocuments operation failed (injected by --with-db-failure)',
+    )
+    expect(await store.getDocument(first.id)).toEqual(first)
+    expect(await store.getDocument(second.id)).toEqual(second)
+  })
+
   it('fails a selected save before its query, changing nothing', async () => {
     const { database: store } = openTestDatabase({
       failingOperations: ['saveDocument'],
@@ -889,6 +954,7 @@ describe('openDatabase failing operations', () => {
           'listDocuments',
           'listMoreDocuments',
           'deleteDocument',
+          'deleteDocuments',
           'saveDocument',
         ],
       })
@@ -902,6 +968,7 @@ describe('openDatabase failing operations', () => {
         store.listDocuments({ cursor: null, limit: 15 }),
         store.listDocuments({ cursor: { createdAt: 0, id: 0 }, limit: 15 }),
         store.deleteDocument(1),
+        store.deleteDocuments([1, 2]),
         store.saveDocument(1, { title: 'گزارش' }),
       ] as const
       for (const operation of operations) {
@@ -915,7 +982,7 @@ describe('openDatabase failing operations', () => {
       expect(settled).toBe(0)
 
       await vi.advanceTimersByTimeAsync(1)
-      expect(settled).toBe(7)
+      expect(settled).toBe(8)
       for (const error of failures) {
         expect((error as Error).message).toMatch(
           /operation failed \(injected by --with-db-failure\)/,

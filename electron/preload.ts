@@ -9,6 +9,7 @@ import {
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
+  documentsDeleteManyChannel,
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
@@ -31,6 +32,8 @@ contextBridge.exposeInMainWorld('WordApp', {
       ipcRenderer.invoke(documentsListChannel, options),
     delete: (id: number): Promise<void> =>
       ipcRenderer.invoke(documentsDeleteChannel, id),
+    deleteMany: (ids: number[]): Promise<void> =>
+      ipcRenderer.invoke(documentsDeleteManyChannel, ids),
     save: (
       id: number,
       changes: DocumentChanges,

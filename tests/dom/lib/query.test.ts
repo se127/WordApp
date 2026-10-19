@@ -31,6 +31,7 @@ function installDocuments(
         nextCursor: null,
       })),
       delete: vi.fn(async () => undefined),
+      deleteMany: vi.fn(async () => undefined),
       save: vi.fn(async () => undefined),
       ...documents,
     },
