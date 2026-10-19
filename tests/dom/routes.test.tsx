@@ -1,6 +1,12 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
+  clearHomeScrollOffset,
+  readHomeMeasurements,
+  saveHomeMeasurements,
+  saveHomeScrollOffset,
+} from '@/lib/home-scroll'
+import {
   createQueryClient,
   documentPageSize,
   documentsCountQuery,
@@ -187,6 +193,24 @@ function installDocumentsBridge(
   })
 }
 
+function measuredRowItems(count: number) {
+  let start = 0
+
+  return Array.from({ length: count }, (_, index) => {
+    const size = index % 3 === 0 ? 64 : 37
+    const item = {
+      key: index + 1,
+      index,
+      start,
+      size,
+      end: start + size,
+      lane: 0,
+    }
+    start += size
+    return item
+  })
+}
+
 function listViewport(): HTMLElement {
   const viewport = document.querySelector<HTMLElement>(
     '[data-slot="scroll-area-viewport"]',
@@ -207,8 +231,22 @@ async function scrollListTo(scrollTop: number): Promise<void> {
 
 function renderRoute(
   initialEntry: string,
-  { seedDocuments }: { seedDocuments?: Array<typeof storedDocument> } = {},
+  {
+    seedDocuments,
+    seedHomeScroll,
+  }: {
+    seedDocuments?: Array<typeof storedDocument>
+    seedHomeScroll?: {
+      offset: number
+      measurements: ReturnType<typeof measuredRowItems>
+    }
+  } = {},
 ) {
+  clearHomeScrollOffset()
+  if (seedHomeScroll) {
+    saveHomeScrollOffset(seedHomeScroll.offset)
+    saveHomeMeasurements(seedHomeScroll.measurements)
+  }
   const queryClient = createQueryClient()
   if (seedDocuments) {
     queryClient.setQueryData(
@@ -235,6 +273,7 @@ function renderRoute(
 }
 
 afterEach(() => {
+  clearHomeScrollOffset()
   toast.dismiss()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
@@ -2573,6 +2612,193 @@ describe('routes', () => {
       await within(bodyTable).findByRole('link', { name: 'گزارش تازه' }),
     ).toBeInTheDocument()
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('restores the exact list scroll position after a document is opened and the home page is revisited', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    const { get } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/', { seedDocuments: documents })
+    await screen.findByRole('link', { name: 'سند 0' })
+
+    await scrollListTo(1500)
+    await user.click(screen.getByRole('link', { name: 'سند 40' }))
+    await screen.findByRole('heading', { name: 'سند 40' })
+    expect(get).toHaveBeenCalledWith(41)
+
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await screen.findByRole('heading', { name: 'مستندات (۷۵)' })
+
+    const main = screen.getByRole('main')
+    expect(listViewport().scrollTop).toBe(1500)
+    expect(
+      within(main).getByRole('link', { name: 'سند 40' }),
+    ).toBeInTheDocument()
+    expect(
+      within(main).queryByRole('link', { name: 'سند 0' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('restores the exact measured row heights after opening a document', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+    const defaultRowRect = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: Element) {
+        const index = this.getAttribute('data-index')
+        if (index === null) {
+          return defaultRowRect.call(this)
+        }
+        return new DOMRect(0, 0, 0, Number(index) % 3 === 0 ? 64 : 37)
+      },
+    )
+
+    renderRoute('/', {
+      seedDocuments: documents,
+      seedHomeScroll: {
+        offset: 1500,
+        measurements: measuredRowItems(documents.length),
+      },
+    })
+    await screen.findAllByRole('link', { name: /^سند / })
+    await vi.waitFor(() => {
+      expect(listViewport().scrollTop).toBe(1500)
+    })
+
+    const main = screen.getByRole('main')
+    const titlesBefore = within(main)
+      .getAllByRole('link', { name: /^سند / })
+      .map((link) => link.textContent ?? '')
+    expect(titlesBefore[0]).toBe('سند 24')
+    const clickedTitle = titlesBefore[titlesBefore.length - 1]
+    await user.click(within(main).getByRole('link', { name: clickedTitle }))
+    await screen.findByRole('heading', { name: clickedTitle })
+
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await screen.findByRole('heading', { name: 'مستندات (۷۵)' })
+
+    expect(listViewport().scrollTop).toBe(1500)
+    expect(
+      within(screen.getByRole('main'))
+        .getAllByRole('link', { name: /^سند / })
+        .map((link) => link.textContent ?? ''),
+    ).toEqual(titlesBefore)
+    expect(readHomeMeasurements()).toHaveLength(documents.length)
+  })
+
+  it('saves the measured row heights when a document is opened', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+    const defaultRowRect = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: Element) {
+        const index = this.getAttribute('data-index')
+        if (index === null) {
+          return defaultRowRect.call(this)
+        }
+        return new DOMRect(0, 0, 0, Number(index) % 3 === 0 ? 64 : 37)
+      },
+    )
+
+    renderRoute('/', { seedDocuments: documents })
+    await screen.findByRole('link', { name: 'سند 0' })
+
+    await user.click(screen.getByRole('link', { name: 'سند 0' }))
+    await screen.findByRole('heading', { name: 'سند 0' })
+
+    expect(readHomeMeasurements()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 1, size: 64 })]),
+    )
+  })
+
+  it('restores the exact list scroll position after the open document is deleted', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/', { seedDocuments: documents })
+    await screen.findByRole('link', { name: 'سند 0' })
+
+    await scrollListTo(1500)
+    await user.click(screen.getByRole('link', { name: 'سند 40' }))
+    await screen.findByRole('heading', { name: 'سند 40' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۷۴)' }),
+    ).toBeInTheDocument()
+    expect(listViewport().scrollTop).toBe(1500)
+    expect(
+      within(screen.getByRole('main')).getByRole('link', { name: 'سند 41' }),
+    ).toBeInTheDocument()
+  })
+
+  it('starts the list at the top after a document is created', async () => {
+    const documents = Array.from({ length: 75 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index}`,
+    }))
+    const created = { ...storedDocument, id: 100, title: 'بدون عنوان' }
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage([created, ...documents], options),
+    )
+    installBridge({
+      create: vi.fn(async () => created),
+      get: vi.fn(async (id: number) =>
+        id === created.id ? created : documents.find((row) => row.id === id),
+      ),
+      count: vi.fn(async () => documents.length + 1),
+      list,
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/', { seedDocuments: documents })
+    await screen.findByRole('link', { name: 'سند 0' })
+
+    await scrollListTo(1500)
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await screen.findByRole('heading', { name: 'مستندات (۷۶)' })
+
+    expect(listViewport().scrollTop).toBe(0)
+    expect(
+      await within(screen.getByRole('main')).findByRole('link', {
+        name: 'بدون عنوان',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('main')).getByRole('link', { name: 'سند 0' }),
+    ).toBeInTheDocument()
   })
 
   it('mounts only the rows around the visible part of the list body', async () => {

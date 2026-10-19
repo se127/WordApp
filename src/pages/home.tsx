@@ -18,6 +18,12 @@ import {
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
 import { useCreateDocument } from '@/lib/documents'
+import {
+  readHomeMeasurements,
+  readHomeScrollOffset,
+  saveHomeMeasurements,
+  saveHomeScrollOffset,
+} from '@/lib/home-scroll'
 import { formatNumber } from '@/lib/number'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { cn } from '@/lib/utils'
@@ -26,7 +32,14 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 
 function HomePage() {
   const { createDocument, isCreating } = useCreateDocument()
@@ -82,12 +95,15 @@ function DocumentsTable() {
     new Set<number>(),
   )
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
   const fetchingNextPageRef = useRef(false)
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
-    viewportRef.current =
+    const nextViewport =
       node?.querySelector<HTMLDivElement>(
         '[data-slot="scroll-area-viewport"]',
       ) ?? null
+    viewportRef.current = nextViewport
+    setViewport(nextViewport)
   }, [])
   const documents =
     data === undefined
@@ -124,9 +140,34 @@ function DocumentsTable() {
     estimateSize: estimateTableRowSize,
     getItemKey,
     getScrollElement: () => viewportRef.current,
+    initialMeasurementsCache: readHomeMeasurements(),
+    initialOffset: readHomeScrollOffset() ?? 0,
     measureElement: measureTableRow,
     overscan: tableRowOverscan,
   })
+
+  useLayoutEffect(() => {
+    if (viewport === null) {
+      return
+    }
+
+    const savedScrollOffset = readHomeScrollOffset()
+    if (savedScrollOffset !== null) {
+      viewport.scrollTop = savedScrollOffset
+    }
+
+    const saveScrollOffset = (): void => {
+      saveHomeScrollOffset(viewport.scrollTop)
+    }
+
+    viewport.addEventListener('scroll', saveScrollOffset)
+
+    return () => {
+      saveHomeScrollOffset(viewport.scrollTop)
+      saveHomeMeasurements(rowVirtualizer.takeSnapshot())
+      viewport.removeEventListener('scroll', saveScrollOffset)
+    }
+  }, [viewport, rowVirtualizer])
 
   const virtualRows = rowVirtualizer.getVirtualItems()
   const firstVirtualRow = virtualRows[0]

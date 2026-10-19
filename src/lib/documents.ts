@@ -1,3 +1,4 @@
+import { resetHomeScrollOffset } from '@/lib/home-scroll'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -62,6 +63,7 @@ function useCreateDocument() {
         to: '/documents/$documentId',
         params: { documentId: String(document.id) },
       })
+      resetHomeScrollOffset()
     })().finally(() => {
       finishCreatingDocument()
     })
