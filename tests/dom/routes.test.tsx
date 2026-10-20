@@ -208,14 +208,6 @@ function listViewport(): HTMLElement {
   return viewport
 }
 
-function appTitleBar(): HTMLElement {
-  const bar = document.querySelector<HTMLElement>('[data-slot="title-bar"]')
-  if (!bar) {
-    throw new Error('the app is missing its title bar')
-  }
-  return bar
-}
-
 function documentsTable(): HTMLElement {
   const table = document.querySelector<HTMLElement>(
     '[data-slot="documents-table"]',
@@ -323,7 +315,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     const staleCount = await screen.findByText('(۰)')
     expect(staleCount).toHaveClass('animate-pulse')
@@ -655,16 +647,9 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
-    expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
+    const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
 
-    await user.tab()
-    await user.tab()
-    await user.tab()
-    await user.tab()
-    await user.tab()
-
-    expect(screen.getByRole('link', { name: 'خانه' })).toHaveFocus()
-
+    back.focus()
     await user.tab()
 
     expect(heading).toHaveFocus()
@@ -949,28 +934,7 @@ describe('routes', () => {
     expect(get).toHaveBeenCalledWith(1)
   })
 
-  it('creates a document from the title bar add button and opens its page', async () => {
-    const { create, get } = installBridge()
-    const user = userEvent.setup()
-
-    renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (۰)' })
-
-    const bar = appTitleBar()
-    await user.click(
-      within(bar).getByRole('button', {
-        name: 'افزودن سند',
-      }),
-    )
-
-    expect(create).toHaveBeenCalledOnce()
-    expect(
-      await screen.findByRole('heading', { name: 'بدون عنوان' }),
-    ).toBeInTheDocument()
-    expect(get).toHaveBeenCalledWith(1)
-  })
-
-  it('disables both create buttons and shows a spinner while the document is being created', async () => {
+  it('disables the create button and shows a spinner while the document is being created', async () => {
     let finishCreate!: (document: typeof storedDocument) => void
     const create = vi.fn(
       () =>
@@ -994,13 +958,6 @@ describe('routes', () => {
     expect(button).toBeDisabled()
     expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
 
-    const bar = appTitleBar()
-    expect(
-      within(bar).getByRole('button', {
-        name: 'در حال ساخت سند...',
-      }),
-    ).toBeDisabled()
-
     await act(() => finishCreate(storedDocument))
 
     expect(
@@ -1008,48 +965,19 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps the home create button busy while the title bar creates a document', async () => {
-    let finishCreate!: (document: typeof storedDocument) => void
-    const create = vi.fn(
-      () =>
-        new Promise<typeof storedDocument>((resolve) => {
-          finishCreate = resolve
-        }),
-    )
-    installBridge({ create })
-    const user = userEvent.setup()
-
-    renderRoute('/')
-    await screen.findByRole('heading', { name: 'مستندات (۰)' })
-
-    const bar = appTitleBar()
-    await user.click(
-      within(bar).getByRole('button', {
-        name: 'افزودن سند',
-      }),
-    )
-
-    const button = within(screen.getByRole('main')).getByRole('button', {
-      name: 'در حال ساخت سند...',
-    })
-    expect(button).toBeDisabled()
-    expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
-
-    await act(() => finishCreate(storedDocument))
-
-    expect(
-      await screen.findByRole('heading', { name: 'بدون عنوان' }),
-    ).toBeInTheDocument()
-  })
-
-  it('returns to the home page through the title bar home link', async () => {
+  it('returns to the home page through the document back link', async () => {
     installDocumentsBridge([storedDocument])
     const user = userEvent.setup()
 
     renderRoute('/documents/1')
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
+    expect(back).toHaveAttribute('data-variant', 'outline')
+    expect(back.querySelector('svg')).toHaveClass('lucide-arrow-right')
+    expect(back).toHaveTextContent('بازگشت به مستندات')
+
+    await user.click(back)
 
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۱)' }),
@@ -1257,7 +1185,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۰)' }),
@@ -1281,7 +1209,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۱)' }),
     ).toBeInTheDocument()
@@ -1359,7 +1287,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await act(() =>
@@ -1755,7 +1683,7 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'سند 1' }))
     await screen.findByRole('heading', { name: 'سند 1' })
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     const orderSelect = await screen.findByRole('combobox', {
       name: 'ترتیب بر اساس تاریخ ایجاد',
@@ -2035,7 +1963,7 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'گزارش سالانه' }))
     await screen.findByRole('heading', { name: 'گزارش سالانه' })
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     expect(
       await screen.findByRole('searchbox', { name: 'جستجوی عنوان' }),
@@ -2511,7 +2439,7 @@ describe('routes', () => {
     await user.click(screen.getByRole('link', { name: 'سند 16' }))
     await screen.findByRole('heading', { name: 'سند 16' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     await within(screen.getByRole('main')).findByRole('link', {
       name: 'سند 16',
@@ -2659,13 +2587,13 @@ describe('routes', () => {
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
-    renderRoute('/')
+    const { router } = renderRoute('/')
 
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(screen.getByRole('link', { name: 'سند 1' }))
     await screen.findByRole('heading', { name: 'سند 1' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
     await within(screen.getByRole('main')).findByRole('link', {
       name: 'سند 1',
     })
@@ -2681,12 +2609,11 @@ describe('routes', () => {
       expect.any(String),
     )
 
-    const documentTabs = document.querySelector<HTMLElement>(
-      '[data-slot="document-tabs"]',
-    )
-    expect(documentTabs).not.toBeNull()
-    await user.click(
-      within(documentTabs as HTMLElement).getByRole('link', { name: 'سند 1' }),
+    await act(() =>
+      router.navigate({
+        to: '/documents/$documentId',
+        params: { documentId: '1' },
+      }),
     )
     await screen.findByRole('heading', { name: 'سند 1' })
 
@@ -3214,7 +3141,7 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     await screen.findByRole('heading', { name: 'مستندات (۱)' })
     expect(
@@ -3262,7 +3189,7 @@ describe('routes', () => {
 
     await screen.findByRole('heading', { name: 'گزارش تازه' })
 
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     const bodyTable = (await screen.findAllByRole('table'))[1]
     expect(
@@ -3315,7 +3242,7 @@ describe('routes', () => {
     await user.tab()
 
     await screen.findByRole('heading', { name: 'یادداشت' })
-    await user.click(screen.getByRole('link', { name: 'خانه' }))
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     expect(
       await screen.findByText('سندی با این عنوان پیدا نشد.'),

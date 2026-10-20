@@ -1,6 +1,5 @@
 import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
-import { DocumentTabsContext } from '@/lib/document-tabs'
 import {
   documentQuery,
   documentsCountQuery,
@@ -8,9 +7,9 @@ import {
 } from '@/lib/query'
 import type { DocumentChanges } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { LoaderCircle, RefreshCw } from 'lucide-react'
-import { useContext, useEffect, useRef, useState } from 'react'
+import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
+import { ArrowRight, LoaderCircle, RefreshCw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 const documentRouteApi = getRouteApi('/documents/$documentId')
@@ -18,7 +17,6 @@ const documentRouteApi = getRouteApi('/documents/$documentId')
 function DocumentPage() {
   const { documentId } = documentRouteApi.useParams()
   const navigate = useNavigate()
-  const { openDocumentTab } = useContext(DocumentTabsContext)
   const {
     data: document,
     isError,
@@ -26,18 +24,16 @@ function DocumentPage() {
     refetch,
   } = useQuery(documentQuery(Number(documentId)))
 
-  useEffect(() => {
-    if (!document) {
-      return
-    }
-
-    openDocumentTab({ id: document.id, title: document.title })
-  }, [document, openDocumentTab])
-
   return (
     <div className="flex h-full flex-col gap-4 overflow-auto p-6">
-      {document !== undefined && isFetching ? (
-        <div className="flex items-center">
+      <div className="flex items-center">
+        <Button variant="outline" asChild>
+          <Link to="/">
+            <ArrowRight />
+            بازگشت به مستندات
+          </Link>
+        </Button>
+        {document !== undefined && isFetching ? (
           <span
             role="status"
             aria-label="در حال به روز رسانی سند"
@@ -46,8 +42,8 @@ function DocumentPage() {
             <LoaderCircle className="size-4 animate-spin" />
             در حال به روز رسانی سند...
           </span>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {document ? (
         <div className="flex items-center gap-3">
