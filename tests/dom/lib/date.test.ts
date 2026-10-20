@@ -17,23 +17,26 @@ describe('formatRelativeTime', () => {
   it('counts whole minutes and hours', () => {
     const now = 10_000_000
 
-    expect(formatRelativeTime(now - minuteMs, now)).toBe('1 دقیقه ی پیش')
+    expect(formatRelativeTime(now - minuteMs, now)).toBe('۱ دقیقه ی پیش')
     expect(formatRelativeTime(now - (5 * minuteMs + 59_000), now)).toBe(
-      '5 دقیقه ی پیش',
+      '۵ دقیقه ی پیش',
     )
-    expect(formatRelativeTime(now - hourMs, now)).toBe('1 ساعت پیش')
-    expect(formatRelativeTime(now - 23 * hourMs, now)).toBe('23 ساعت پیش')
+    expect(formatRelativeTime(now - hourMs, now)).toBe('۱ ساعت پیش')
+    expect(formatRelativeTime(now - 23 * hourMs, now)).toBe('۲۳ ساعت پیش')
   })
 
   it('counts days, months, and years', () => {
     const now = 10_000_000
 
-    expect(formatRelativeTime(now - dayMs, now)).toBe('1 روز پیش')
-    expect(formatRelativeTime(now - 29 * dayMs, now)).toBe('29 روز پیش')
-    expect(formatRelativeTime(now - 30 * dayMs, now)).toBe('1 ماه پیش')
-    expect(formatRelativeTime(now - 364 * dayMs, now)).toBe('12 ماه پیش')
-    expect(formatRelativeTime(now - 365 * dayMs, now)).toBe('1 سال پیش')
-    expect(formatRelativeTime(now - 800 * dayMs, now)).toBe('2 سال پیش')
+    expect(formatRelativeTime(now - dayMs, now)).toBe('۱ روز پیش')
+    expect(formatRelativeTime(now - 29 * dayMs, now)).toBe('۲۹ روز پیش')
+    expect(formatRelativeTime(now - 30 * dayMs, now)).toBe('۱ ماه پیش')
+    expect(formatRelativeTime(now - 364 * dayMs, now)).toBe('۱۲ ماه پیش')
+    expect(formatRelativeTime(now - 365 * dayMs, now)).toBe('۱ سال پیش')
+    expect(formatRelativeTime(now - 800 * dayMs, now)).toBe('۲ سال پیش')
+    expect(formatRelativeTime(now - 1000 * 365 * dayMs, now)).toBe(
+      '۱۰۰۰ سال پیش',
+    )
   })
 })
 

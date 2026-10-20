@@ -1428,10 +1428,10 @@ describe('routes', () => {
         .map((link) => link.textContent),
     ).toEqual(['گزارش سالانه', 'پیش نویس'])
 
-    expect(screen.getByRole('cell', { name: '5 دقیقه ی پیش' })).toHaveClass(
+    expect(screen.getByRole('cell', { name: '۵ دقیقه ی پیش' })).toHaveClass(
       'text-center',
     )
-    expect(screen.getByRole('cell', { name: '1 روز پیش' })).toHaveClass(
+    expect(screen.getByRole('cell', { name: '۱ روز پیش' })).toHaveClass(
       'text-center',
     )
 
@@ -1490,11 +1490,11 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('link', { name: 'امروز' })
 
-    expect(screen.getByText('5 دقیقه ی پیش')).toBeInTheDocument()
-    expect(screen.getByText('1 روز پیش')).toBeInTheDocument()
+    expect(screen.getByText('۵ دقیقه ی پیش')).toBeInTheDocument()
+    expect(screen.getByText('۱ روز پیش')).toBeInTheDocument()
     expect(screen.getByText('همین الان')).toBeInTheDocument()
 
-    await user.hover(screen.getByText('5 دقیقه ی پیش'))
+    await user.hover(screen.getByText('۵ دقیقه ی پیش'))
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'چهارشنبه 17 تیر ماه 1405 ، 14:55',
     )
@@ -1523,7 +1523,7 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('link', { name: 'گزارش' })
 
-    const editedLine = screen.getByText('ویرایش شده: 5 دقیقه ی پیش')
+    const editedLine = screen.getByText('ویرایش شده: ۵ دقیقه ی پیش')
     expect(editedLine).toHaveClass('text-xs', 'text-muted-foreground')
     expect(editedLine.previousElementSibling).toBe(
       screen.getByRole('link', { name: 'گزارش' }),

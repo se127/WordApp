@@ -187,18 +187,37 @@ treat every skip as a bug:
   while it re-reads (the table and the count in `src/pages/home.tsx`). The spinner
   tests in `tests/dom/routes.test.tsx` pin `size-4` together with `animate-spin`.
 
-## Numbers — group thousands with `formatNumber`
+## Numbers — format every visible number with `formatNumber`
 
-- Any number shown in the UI that reads as a count or amount and can plausibly pass 999
-  must be rendered through `formatNumber` (`src/lib/number.ts`), so 3000 shows as `۳٬۰۰۰`.
-  The document count in the «مستندات» heading (`DocumentCount`, `src/pages/home.tsx`) is
-  the shape to follow.
-- Never hand-roll the grouping — no bare `toLocaleString()` (it follows the OS locale),
-  no regex rewrites, no `Intl.NumberFormat` built at each call site. `formatNumber` pins
-  `fa-IR`, so the output is Persian digits with the `٬` thousands separator in every
-  runtime.
-- Do not group numbers where separators are wrong: date and clock parts (a Persian year
-  must stay `1405`, never `1,405`) and relative-time units (`5 دقیقه ی پیش`).
+- Every number the app itself renders as text must go through `formatNumber`
+  (`src/lib/number.ts`), except the date and clock parts covered below. Do not limit
+  this to counts and amounts that can plausibly pass 999: it applies to headings, table
+  cells, pagination, buttons, menus, dialog titles and descriptions, toasts, tooltips,
+  placeholders, empty/loading/status messages, and `aria-label`/`title`/`alt`
+  attributes. `3`, `12`, and `3000` show as `۳`, `۱۲`, and `۳٬۰۰۰`.
+- Format the value where the copy is assembled, including numbers inside a sentence:
+  `` `${formatNumber(count)} سند حذف شد.` ``. A raw `{count}`, `String(value)`, or
+  template interpolation in user-facing text is a bug even below 1000, because it leaks
+  Latin digits.
+- Default `formatNumber` groups thousands and is for counts and amounts. Pass
+  `{ group: false }` wherever a separator would be wrong — relative-time units
+  (`۵ دقیقه ی پیش`) and other numeric identifiers. `formatRelativeTime`
+  (`src/lib/date.ts`) is the shape to follow.
+- Never hand-roll digits or grouping — no bare `toLocaleString()` (it follows the OS
+  locale), no regex or digit replacement, no `Intl.NumberFormat` built at a call site,
+  no manual `۰۱۲...` mapping. `formatNumber` pins `fa-IR`, so the output is Persian
+  digits with the `٬` thousands separator in every runtime.
+- Date and clock parts are the one exception: `formatAbsoluteDate` (`src/lib/date.ts`)
+  formats them with `Intl.DateTimeFormat`, keeps their current Latin digits, and never
+  groups them, so a Persian year stays `1405`, never `1,405`. Do not pass date or clock
+  parts through `formatNumber`.
+- User-authored content is data, not UI copy: document titles, bodies, and search terms
+  may contain any digits and must be rendered exactly as stored. Never run them through
+  `formatNumber` or rewrite their digits, including when they are interpolated into tab
+  labels, checkbox labels, or delete-dialog titles. IDs used only in routes, query keys,
+  or IPC are not visible text.
+- Every new visible number needs a test that pins the rendered text, so Latin digits or
+  a raw value cannot slip back in.
 
 ## Tests — always in step with the code
 

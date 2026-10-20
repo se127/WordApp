@@ -1,3 +1,5 @@
+import { formatNumber } from '@/lib/number'
+
 const minuteMs = 60_000
 const hourMs = 60 * minuteMs
 const dayMs = 24 * hourMs
@@ -21,22 +23,22 @@ export function formatRelativeTime(
   }
 
   if (elapsed < hourMs) {
-    return `${Math.floor(elapsed / minuteMs)} دقیقه ی پیش`
+    return `${formatNumber(Math.floor(elapsed / minuteMs), { group: false })} دقیقه ی پیش`
   }
 
   if (elapsed < dayMs) {
-    return `${Math.floor(elapsed / hourMs)} ساعت پیش`
+    return `${formatNumber(Math.floor(elapsed / hourMs), { group: false })} ساعت پیش`
   }
 
   if (elapsed < monthMs) {
-    return `${Math.floor(elapsed / dayMs)} روز پیش`
+    return `${formatNumber(Math.floor(elapsed / dayMs), { group: false })} روز پیش`
   }
 
   if (elapsed < yearMs) {
-    return `${Math.floor(elapsed / monthMs)} ماه پیش`
+    return `${formatNumber(Math.floor(elapsed / monthMs), { group: false })} ماه پیش`
   }
 
-  return `${Math.floor(elapsed / yearMs)} سال پیش`
+  return `${formatNumber(Math.floor(elapsed / yearMs), { group: false })} سال پیش`
 }
 
 const persianDate = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {

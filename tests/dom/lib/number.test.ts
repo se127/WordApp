@@ -14,4 +14,10 @@ describe('formatNumber', () => {
     expect(formatNumber(12)).toBe('۱۲')
     expect(formatNumber(999)).toBe('۹۹۹')
   })
+
+  it('can leave thousands ungrouped for numbers that are not amounts', () => {
+    expect(formatNumber(1000, { group: false })).toBe('۱۰۰۰')
+    expect(formatNumber(1405, { group: false })).toBe('۱۴۰۵')
+    expect(formatNumber(12, { group: false })).toBe('۱۲')
+  })
 })
