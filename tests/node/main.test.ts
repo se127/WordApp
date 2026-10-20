@@ -16,21 +16,12 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
-  windowCloseChannel,
-  windowIsMaximizedChannel,
-  windowMaximizedChangedChannel,
-  windowMinimizeChannel,
-  windowToggleMaximizeChannel,
 } from '../../electron/ipc.ts'
 
 const mocks = vi.hoisted(() => {
   const win = {
     isDestroyed: vi.fn(() => false),
     maximize: vi.fn(),
-    minimize: vi.fn(),
-    unmaximize: vi.fn(),
-    close: vi.fn(),
-    isMaximized: vi.fn(() => false),
     show: vi.fn(),
     loadURL: vi.fn(async () => {}),
     loadFile: vi.fn(async () => {}),
@@ -79,7 +70,6 @@ const mocks = vi.hoisted(() => {
     }),
     {
       getAllWindows: vi.fn(() => created),
-      fromWebContents: vi.fn((): unknown => win),
     },
   )
 
@@ -136,7 +126,6 @@ type WindowOptions = {
   frame?: boolean
   show?: boolean
   autoHideMenuBar?: boolean
-  titleBarStyle?: string
   webPreferences?: { devTools?: boolean; preload?: string }
 }
 
@@ -201,7 +190,6 @@ beforeEach(() => {
   mocks.state.isPackaged = false
   mocks.state.options = undefined
   mocks.win.isDestroyed.mockReturnValue(false)
-  mocks.BrowserWindow.fromWebContents.mockReturnValue(mocks.win)
 })
 
 afterEach(() => {
@@ -227,9 +215,9 @@ describe('packaged app', () => {
 
     const options = windowOptions()
     expect(options.frame).toBeUndefined()
+    expect(options).not.toHaveProperty('titleBarStyle')
     expect(options.show).toBe(false)
     expect(options.autoHideMenuBar).toBe(true)
-    expect(options.titleBarStyle).toBe('hidden')
     expect(options.webPreferences?.devTools).toBe(false)
     expect(options.webPreferences?.preload).toBe(
       path.join('C:/fake/wordapp', 'dist-electron', 'preload.cjs'),
@@ -292,83 +280,6 @@ describe('window reveal', () => {
 
     expect(mocks.win.show).not.toHaveBeenCalled()
     expect(mocks.win.maximize).not.toHaveBeenCalled()
-  })
-})
-
-describe('window controls', () => {
-  it('hides the native title bar so the app can draw its own', async () => {
-    await importMain()
-
-    expect(windowOptions().titleBarStyle).toBe('hidden')
-  })
-
-  it('minimizes, toggles maximize, and closes through the calling window', async () => {
-    await importMain()
-
-    handlerFor('handle', windowMinimizeChannel)({ sender: {} })
-    expect(mocks.win.minimize).toHaveBeenCalledOnce()
-
-    mocks.win.isMaximized.mockReturnValueOnce(false)
-    handlerFor('handle', windowToggleMaximizeChannel)({ sender: {} })
-    expect(mocks.win.maximize).toHaveBeenCalledOnce()
-    expect(mocks.win.unmaximize).not.toHaveBeenCalled()
-
-    mocks.win.isMaximized.mockReturnValueOnce(true)
-    handlerFor('handle', windowToggleMaximizeChannel)({ sender: {} })
-    expect(mocks.win.unmaximize).toHaveBeenCalledOnce()
-
-    handlerFor('handle', windowCloseChannel)({ sender: {} })
-    expect(mocks.win.close).toHaveBeenCalledOnce()
-  })
-
-  it('answers the maximize state over IPC', async () => {
-    await importMain()
-
-    mocks.win.isMaximized.mockReturnValueOnce(true)
-    expect(handlerFor('handle', windowIsMaximizedChannel)({})).toBe(true)
-
-    mocks.win.isMaximized.mockReturnValueOnce(false)
-    expect(handlerFor('handle', windowIsMaximizedChannel)({})).toBe(false)
-  })
-
-  it('ignores window calls when the window is already gone', async () => {
-    await importMain()
-    mocks.BrowserWindow.fromWebContents.mockReturnValue(null)
-
-    handlerFor('handle', windowMinimizeChannel)({})
-    handlerFor('handle', windowToggleMaximizeChannel)({})
-    handlerFor('handle', windowCloseChannel)({})
-
-    expect(mocks.win.minimize).not.toHaveBeenCalled()
-    expect(mocks.win.maximize).not.toHaveBeenCalled()
-    expect(mocks.win.unmaximize).not.toHaveBeenCalled()
-    expect(mocks.win.close).not.toHaveBeenCalled()
-    expect(handlerFor('handle', windowIsMaximizedChannel)({})).toBe(false)
-  })
-
-  it('pushes maximize and restore changes to the renderer', async () => {
-    await importMain()
-
-    listenerOn(mocks.win, 'maximize')()
-    expect(mocks.win.webContents.send).toHaveBeenCalledWith(
-      windowMaximizedChangedChannel,
-      true,
-    )
-
-    listenerOn(mocks.win, 'unmaximize')()
-    expect(mocks.win.webContents.send).toHaveBeenCalledWith(
-      windowMaximizedChangedChannel,
-      false,
-    )
-  })
-
-  it('does not push state changes to a destroyed window', async () => {
-    await importMain()
-    mocks.win.isDestroyed.mockReturnValue(true)
-
-    listenerOn(mocks.win, 'maximize')()
-
-    expect(mocks.win.webContents.send).not.toHaveBeenCalled()
   })
 })
 

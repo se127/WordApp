@@ -76,13 +76,6 @@ function installBridge(
       delete: remove,
       deleteMany: removeMany,
     },
-    windowControls: {
-      minimize: vi.fn(async () => {}),
-      toggleMaximize: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-      isMaximized: vi.fn(async () => false),
-      onMaximizedChange: vi.fn(() => () => {}),
-    },
   } satisfies Window['WordApp']
 
   return { rows, create, get, count, list, save, remove, removeMany }
@@ -225,7 +218,7 @@ describe('document tabs', () => {
     )
   })
 
-  it('splits the WordApp name from the tabs with a separator once a tab is open', async () => {
+  it('splits the theme picker from the tabs with a separator once a tab is open', async () => {
     installBridge([storedDocument(1, 'یادداشت')])
     const user = userEvent.setup()
 

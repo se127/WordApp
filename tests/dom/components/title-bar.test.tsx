@@ -13,8 +13,6 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-type WindowControls = Window['WordApp']['windowControls']
-
 const storedDocument = {
   id: 1,
   title: 'بدون عنوان',
@@ -23,19 +21,9 @@ const storedDocument = {
   updatedAt: 0,
 }
 
-function installControls(
-  overrides: Partial<WindowControls> = {},
+function installBridge(
   documentOverrides: Partial<Window['WordApp']['documents']> = {},
 ) {
-  const controls: WindowControls = {
-    minimize: vi.fn(async () => {}),
-    toggleMaximize: vi.fn(async () => {}),
-    close: vi.fn(async () => {}),
-    isMaximized: vi.fn(async () => false),
-    onMaximizedChange: vi.fn(() => () => {}),
-    ...overrides,
-  }
-
   window.WordApp = {
     platform: 'win32',
     documents: {
@@ -48,10 +36,7 @@ function installControls(
       save: vi.fn(async () => storedDocument),
       ...documentOverrides,
     },
-    windowControls: controls,
   } satisfies Window['WordApp']
-
-  return controls
 }
 
 async function renderTitleBar() {
@@ -74,9 +59,17 @@ async function renderTitleBar() {
     </TooltipProvider>,
   )
 
-  await screen.findByText('WordApp')
+  await screen.findByRole('button', { name: 'تغییر پوسته' })
 
   return { router, ...result }
+}
+
+function titleBar(): HTMLElement {
+  const bar = document.querySelector<HTMLElement>('[data-slot="title-bar"]')
+  if (!bar) {
+    throw new Error('the title bar is missing')
+  }
+  return bar
 }
 
 afterEach(() => {
@@ -85,34 +78,25 @@ afterEach(() => {
 })
 
 describe('TitleBar', () => {
-  it('writes the app name in the left group right after the theme picker', async () => {
-    installControls()
+  it('leaves the app title to the native title bar', async () => {
+    installBridge()
 
     await renderTitleBar()
 
-    const name = screen.getByText('WordApp')
-    const bar = name.closest('div[dir="ltr"]')
-    expect(bar).toHaveClass('flex', 'h-16', 'items-center')
-    expect(name).toHaveClass(
-      'text-sm',
-      'font-medium',
-      'text-black',
-      'dark:text-white',
+    expect(titleBar()).toHaveClass(
+      'flex',
+      'h-16',
+      'items-center',
+      'select-none',
     )
-    expect(name).not.toHaveClass('absolute')
-
-    const picker = screen.getByRole('button', { name: 'تغییر پوسته' })
-    expect(name.previousElementSibling).toBe(picker)
-    expect(name.parentElement).toBe(bar?.firstElementChild)
-    expect(name.parentElement).toHaveClass('no-drag-region', 'ps-4')
+    expect(screen.queryByText('WordApp')).toBeNull()
   })
 
-  it('holds the document tabs between the app name and the home link, scrolling without a scrollbar', async () => {
-    installControls()
+  it('holds the document tabs between the theme picker and the home link, scrolling without a scrollbar', async () => {
+    installBridge()
 
     await renderTitleBar()
 
-    const name = screen.getByText('WordApp')
     const home = screen.getByRole('link', { name: 'خانه' })
     const strip = document.querySelector<HTMLElement>(
       '[data-slot="document-tabs"]',
@@ -122,10 +106,10 @@ describe('TitleBar', () => {
     }
 
     const tabsArea = strip.parentElement
-    expect(tabsArea).toHaveClass('min-w-0', 'flex-1', 'no-drag-region')
-    expect(tabsArea?.previousElementSibling).toBe(name.parentElement)
+    expect(tabsArea).toHaveClass('min-w-0', 'flex-1')
+    expect(tabsArea?.previousElementSibling).toBe(titleBar().firstElementChild)
     expect(tabsArea?.nextElementSibling).toBe(home.parentElement)
-    expect(name.parentElement).toHaveClass('shrink-0')
+    expect(tabsArea?.previousElementSibling).toHaveClass('shrink-0')
     expect(home.parentElement).toHaveClass('shrink-0')
 
     expect(strip).toHaveAttribute('dir', 'rtl')
@@ -138,35 +122,31 @@ describe('TitleBar', () => {
   })
 
   it('hosts the theme picker at the left edge, inset like the content box', async () => {
-    installControls()
+    installBridge()
 
     await renderTitleBar()
 
-    const bar = screen.getByText('WordApp').closest('div[dir="ltr"]')
-    const picker = within(bar as HTMLElement).getByRole('button', {
+    const bar = titleBar()
+    const picker = within(bar).getByRole('button', {
       name: 'تغییر پوسته',
     })
 
     expect(picker.parentElement).toBe(bar?.firstElementChild)
-    expect(picker.parentElement).toHaveClass('no-drag-region', 'ps-4')
+    expect(picker.parentElement).toHaveClass('ps-4')
   })
 
-  it('sizes every window button to the full bar height with the normal cursor', async () => {
-    installControls()
+  it('leaves the window controls to the native title bar', async () => {
+    installBridge()
 
     await renderTitleBar()
 
     for (const label of ['کوچک کردن', 'تمام صفحه', 'بستن']) {
-      expect(screen.getByRole('button', { name: label })).toHaveClass(
-        'h-full',
-        'w-12',
-        'cursor-default',
-      )
+      expect(screen.queryByRole('button', { name: label })).toBeNull()
     }
   })
 
-  it('offers an outline icon home link before the window controls, spaced and with a tooltip', async () => {
-    installControls()
+  it('offers an outline icon home link, spaced and with a tooltip', async () => {
+    installBridge()
     const user = userEvent.setup()
 
     await renderTitleBar()
@@ -174,19 +154,15 @@ describe('TitleBar', () => {
     const home = screen.getByRole('link', { name: 'خانه' })
     expect(home).toHaveAttribute('data-variant', 'outline')
     expect(home).toHaveAttribute('data-size', 'icon')
-    expect(home).toHaveClass('no-drag-region', 'me-3')
     expect(home.querySelector('svg')).toHaveClass('lucide-house')
-
-    const minimize = screen.getByRole('button', { name: 'کوچک کردن' })
-    expect(home.nextElementSibling).toBe(minimize)
-    expect(home.parentElement).toBe(minimize.parentElement)
+    expect(home.parentElement).toHaveClass('justify-end', 'pe-4')
 
     await user.hover(home)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('خانه')
   })
 
   it('offers an add icon button for a new document right after the tabs area, with a tooltip', async () => {
-    installControls()
+    installBridge()
     const user = userEvent.setup()
 
     await renderTitleBar()
@@ -195,7 +171,7 @@ describe('TitleBar', () => {
     const add = screen.getByRole('button', { name: 'افزودن سند' })
     expect(add).toHaveAttribute('data-variant', 'outline')
     expect(add).toHaveAttribute('data-size', 'icon')
-    expect(add).toHaveClass('no-drag-region', 'me-3')
+    expect(add).toHaveClass('me-3')
     expect(add.querySelector('svg')).toHaveClass('lucide-plus')
     expect(add.parentElement).toBe(strip?.parentElement?.nextElementSibling)
     expect(add.parentElement?.firstElementChild).toBe(add)
@@ -207,7 +183,7 @@ describe('TitleBar', () => {
   })
 
   it('holds a vertical separator between the add button and the home link', async () => {
-    installControls()
+    installBridge()
 
     await renderTitleBar()
 
@@ -229,7 +205,7 @@ describe('TitleBar', () => {
           finishCreate = resolve
         }),
     )
-    installControls({}, { create })
+    installBridge({ create })
     const user = userEvent.setup()
 
     const { router } = await renderTitleBar()
@@ -253,90 +229,10 @@ describe('TitleBar', () => {
     expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
   })
 
-  it('starts from the bridge maximize state and flips to restore', async () => {
-    installControls({ isMaximized: vi.fn(async () => true) })
-
+  it('still renders without the preload bridge', async () => {
     await renderTitleBar()
 
-    expect(
-      await screen.findByRole('button', { name: 'بازگرداندن' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'تمام صفحه' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('flips between maximize and restore on the bridge change events', async () => {
-    let emitMaximizedChange: ((isMaximized: boolean) => void) | undefined
-    installControls({
-      onMaximizedChange: vi.fn((callback: (isMaximized: boolean) => void) => {
-        emitMaximizedChange = callback
-        return () => {}
-      }),
-    })
-
-    await renderTitleBar()
-    const maximize = await screen.findByRole('button', { name: 'تمام صفحه' })
-    expect(maximize.querySelector('svg')).toHaveClass('lucide-square')
-
-    act(() => emitMaximizedChange?.(true))
-    expect(
-      screen.getByRole('button', { name: 'بازگرداندن' }).querySelector('svg'),
-    ).toHaveClass('lucide-copy', 'rotate-90')
-
-    act(() => emitMaximizedChange?.(false))
-    expect(
-      screen.getByRole('button', { name: 'تمام صفحه' }),
-    ).toBeInTheDocument()
-  })
-
-  it('runs minimize, maximize, and close through the bridge on click', async () => {
-    const controls = installControls()
-    const user = userEvent.setup()
-
-    await renderTitleBar()
-
-    await user.click(screen.getByRole('button', { name: 'کوچک کردن' }))
-    expect(controls.minimize).toHaveBeenCalledOnce()
-
-    await user.click(screen.getByRole('button', { name: 'تمام صفحه' }))
-    expect(controls.toggleMaximize).toHaveBeenCalledOnce()
-
-    await user.click(screen.getByRole('button', { name: 'بستن' }))
-    expect(controls.close).toHaveBeenCalledOnce()
-  })
-
-  it('explains its buttons with tooltips', async () => {
-    installControls()
-    const user = userEvent.setup()
-
-    await renderTitleBar()
-
-    await user.hover(screen.getByRole('button', { name: 'کوچک کردن' }))
-    expect(await screen.findByRole('tooltip')).toHaveTextContent('کوچک کردن')
-  })
-
-  it('stops listening for maximize changes once unmounted', async () => {
-    const unsubscribe = vi.fn()
-    installControls({
-      onMaximizedChange: vi.fn(() => unsubscribe),
-    })
-
-    const { unmount } = await renderTitleBar()
-    unmount()
-
-    expect(unsubscribe).toHaveBeenCalledOnce()
-  })
-
-  it('still renders and answers clicks without the preload bridge', async () => {
-    const user = userEvent.setup()
-
-    await renderTitleBar()
-
-    await user.click(screen.getByRole('button', { name: 'کوچک کردن' }))
-    await user.click(screen.getByRole('button', { name: 'تمام صفحه' }))
-    await user.click(screen.getByRole('button', { name: 'بستن' }))
-
-    expect(screen.getByText('WordApp')).toBeInTheDocument()
+    expect(titleBar()).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'افزودن سند' })).toBeEnabled()
   })
 })

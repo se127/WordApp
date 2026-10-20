@@ -107,13 +107,6 @@ function installBridge(
       delete: remove,
       deleteMany: removeMany,
     },
-    windowControls: {
-      minimize: vi.fn(async () => {}),
-      toggleMaximize: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-      isMaximized: vi.fn(async () => false),
-      onMaximizedChange: vi.fn(() => () => {}),
-    },
   } satisfies WordAppBridge
 
   return { create, get, count, list, save, remove, removeMany }
@@ -193,6 +186,14 @@ function listViewport(): HTMLElement {
     throw new Error('the list body is missing its scroll area viewport')
   }
   return viewport
+}
+
+function appTitleBar(): HTMLElement {
+  const bar = document.querySelector<HTMLElement>('[data-slot="title-bar"]')
+  if (!bar) {
+    throw new Error('the app is missing its title bar')
+  }
+  return bar
 }
 
 function documentsTable(): HTMLElement {
@@ -636,12 +637,9 @@ describe('routes', () => {
     await user.tab()
     await user.tab()
     await user.tab()
-    await user.tab()
-    await user.tab()
 
-    expect(screen.getByRole('button', { name: 'تمام صفحه' })).toHaveFocus()
+    expect(screen.getByRole('link', { name: 'خانه' })).toHaveFocus()
 
-    await user.tab()
     await user.tab()
 
     expect(heading).toHaveFocus()
@@ -933,9 +931,9 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
-    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    const bar = appTitleBar()
     await user.click(
-      within(titleBar as HTMLElement).getByRole('button', {
+      within(bar).getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -971,9 +969,9 @@ describe('routes', () => {
     expect(button).toBeDisabled()
     expect(button.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
 
-    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    const bar = appTitleBar()
     expect(
-      within(titleBar as HTMLElement).getByRole('button', {
+      within(bar).getByRole('button', {
         name: 'در حال ساخت سند...',
       }),
     ).toBeDisabled()
@@ -999,9 +997,9 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
-    const titleBar = screen.getByText('WordApp').closest('div[dir="ltr"]')
+    const bar = appTitleBar()
     await user.click(
-      within(titleBar as HTMLElement).getByRole('button', {
+      within(bar).getByRole('button', {
         name: 'افزودن سند',
       }),
     )

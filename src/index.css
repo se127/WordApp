@@ -6,14 +6,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@utility drag-region {
-  -webkit-app-region: drag;
-}
-
-@utility no-drag-region {
-  -webkit-app-region: no-drag;
-}
-
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: vazirmatn, 'Inter Variable', sans-serif;
