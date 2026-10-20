@@ -17,6 +17,7 @@ export type DocumentListOptions = {
   offset: number
   limit: number
   order?: DocumentListOrder
+  search?: string
 }
 
 declare global {
@@ -26,8 +27,15 @@ declare global {
       documents: {
         create: () => Promise<DocumentRecord>
         get: (id: number) => Promise<DocumentRecord | undefined>
-        count: () => Promise<number>
-        list: (options: DocumentListOptions) => Promise<DocumentRecord[]>
+        count: (
+          search: string | undefined,
+          requestId: string,
+        ) => Promise<number>
+        list: (
+          options: DocumentListOptions,
+          requestId: string,
+        ) => Promise<DocumentRecord[]>
+        cancel: (requestId: string) => void
         delete: (id: number) => Promise<void>
         deleteMany: (ids: number[]) => Promise<void>
         save: (

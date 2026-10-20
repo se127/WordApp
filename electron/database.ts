@@ -21,6 +21,7 @@ export type DocumentListOptions = {
   offset: number
   limit: number
   order?: DocumentListOrder
+  search?: string
 }
 
 type DocumentRow = {
@@ -34,8 +35,11 @@ type DocumentRow = {
 export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
-  countDocuments: () => Promise<number>
-  listDocuments: (options: DocumentListOptions) => Promise<DocumentRecord[]>
+  countDocuments: (search?: string, signal?: AbortSignal) => Promise<number>
+  listDocuments: (
+    options: DocumentListOptions,
+    signal?: AbortSignal,
+  ) => Promise<DocumentRecord[]>
   deleteDocument: (id: number) => Promise<void>
   deleteDocuments: (ids: readonly number[]) => Promise<void>
   saveDocument: (
@@ -59,6 +63,16 @@ export const databaseOperationNames = [
 export type DatabaseOperationName = (typeof databaseOperationNames)[number]
 
 export const untitledDocumentTitle = 'بدون عنوان'
+
+function titleSearchPattern(search: string): string {
+  return `%${search.replace(/[!%_]/g, '!$&')}%`
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason
+  }
+}
 
 const migrations: string[] = [
   `
@@ -137,12 +151,32 @@ export function openDatabase(
 ): WordAppDatabase {
   const database = openDatabaseHandle(databasePath)
 
-  const waitBeforeQuery = async (): Promise<void> => {
+  const waitBeforeQuery = async (signal?: AbortSignal): Promise<void> => {
     if (operationDelayMs > 0) {
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, operationDelayMs)
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(signal.reason)
+          return
+        }
+
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const onAbort = (): void => {
+          if (timer !== undefined) {
+            clearTimeout(timer)
+          }
+          reject(signal?.reason)
+        }
+
+        timer = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        }, operationDelayMs)
+
+        signal?.addEventListener('abort', onAbort, { once: true })
       })
     }
+
+    throwIfAborted(signal)
   }
 
   const failing = new Set(failingOperations)
@@ -166,15 +200,33 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
+  const selectDocumentCountByTitle = database.prepare(
+    `SELECT COUNT(*) AS count FROM documents
+     WHERE title LIKE ? ESCAPE '!'`,
+  )
   const selectDocumentPage = database.prepare(
     `SELECT id, title, body, created_at, updated_at
      FROM documents
      ORDER BY created_at DESC, id DESC
      LIMIT ? OFFSET ?`,
   )
+  const selectDocumentPageByTitle = database.prepare(
+    `SELECT id, title, body, created_at, updated_at
+     FROM documents
+     WHERE title LIKE ? ESCAPE '!'
+     ORDER BY created_at DESC, id DESC
+     LIMIT ? OFFSET ?`,
+  )
   const selectOldestDocumentPage = database.prepare(
     `SELECT id, title, body, created_at, updated_at
      FROM documents
+     ORDER BY created_at ASC, id ASC
+     LIMIT ? OFFSET ?`,
+  )
+  const selectOldestDocumentPageByTitle = database.prepare(
+    `SELECT id, title, body, created_at, updated_at
+     FROM documents
+     WHERE title LIKE ? ESCAPE '!'
      ORDER BY created_at ASC, id ASC
      LIMIT ? OFFSET ?`,
   )
@@ -228,23 +280,49 @@ export function openDatabase(
       return row === undefined ? undefined : toRecord(row)
     },
 
-    async countDocuments() {
-      await waitBeforeQuery()
+    async countDocuments(search = '', signal?: AbortSignal) {
+      await waitBeforeQuery(signal)
       failInjectedOperation('countDocuments')
 
-      const row = selectDocumentCount.get() as { count: number }
+      const term = search.trim()
+      const row = (
+        term === ''
+          ? selectDocumentCount.get()
+          : selectDocumentCountByTitle.get(titleSearchPattern(term))
+      ) as { count: number }
+      throwIfAborted(signal)
       return row.count
     },
 
-    async listDocuments({ offset, limit, order = 'newest' }) {
-      await waitBeforeQuery()
+    async listDocuments(
+      { offset, limit, order = 'newest', search = '' },
+      signal?: AbortSignal,
+    ) {
+      await waitBeforeQuery(signal)
       failInjectedOperation(
         offset === 0 ? 'listDocuments' : 'listMoreDocuments',
       )
 
-      const page =
-        order === 'oldest' ? selectOldestDocumentPage : selectDocumentPage
-      const rows = page.all(limit, offset) as DocumentRow[]
+      const term = search.trim()
+      let rows: DocumentRow[]
+
+      if (term === '') {
+        const page =
+          order === 'oldest' ? selectOldestDocumentPage : selectDocumentPage
+        rows = page.all(limit, offset) as DocumentRow[]
+      } else {
+        const page =
+          order === 'oldest'
+            ? selectOldestDocumentPageByTitle
+            : selectDocumentPageByTitle
+        rows = page.all(
+          titleSearchPattern(term),
+          limit,
+          offset,
+        ) as DocumentRow[]
+      }
+
+      throwIfAborted(signal)
       return rows.map(toRecord)
     },
 

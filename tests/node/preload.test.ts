@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   expose: vi.fn(),
   invoke: vi.fn(),
+  send: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: mocks.expose },
   ipcRenderer: {
     invoke: mocks.invoke,
+    send: mocks.send,
   },
 }))
 
@@ -36,6 +38,7 @@ describe('preload bridge', () => {
     expect(typeof api.documents.get).toBe('function')
     expect(typeof api.documents.count).toBe('function')
     expect(typeof api.documents.list).toBe('function')
+    expect(typeof api.documents.cancel).toBe('function')
     expect(typeof api.documents.delete).toBe('function')
     expect(typeof api.documents.deleteMany).toBe('function')
     expect(typeof api.documents.save).toBe('function')
@@ -59,18 +62,51 @@ describe('preload bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:get', 7)
 
     mocks.invoke.mockResolvedValue(5)
-    await expect(api.documents.count()).resolves.toBe(5)
-    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:count')
+    await expect(api.documents.count(undefined, 'count-1')).resolves.toBe(5)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:count', {
+      requestId: 'count-1',
+      payload: undefined,
+    })
+
+    await expect(api.documents.count('گزارش', 'count-2')).resolves.toBe(5)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('wordapp:documents:count', {
+      requestId: 'count-2',
+      payload: 'گزارش',
+    })
 
     const page = [record]
     mocks.invoke.mockResolvedValue(page)
     await expect(
-      api.documents.list({ offset: 15, limit: 15, order: 'oldest' }),
+      api.documents.list({ offset: 15, limit: 15, order: 'oldest' }, 'list-1'),
     ).resolves.toEqual(page)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:list', {
-      offset: 15,
-      limit: 15,
-      order: 'oldest',
+      requestId: 'list-1',
+      payload: {
+        offset: 15,
+        limit: 15,
+        order: 'oldest',
+      },
+    })
+
+    await expect(
+      api.documents.list(
+        {
+          offset: 0,
+          limit: 15,
+          order: 'newest',
+          search: 'گزارش',
+        },
+        'list-2',
+      ),
+    ).resolves.toEqual(page)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('wordapp:documents:list', {
+      requestId: 'list-2',
+      payload: {
+        offset: 0,
+        limit: 15,
+        order: 'newest',
+        search: 'گزارش',
+      },
     })
 
     mocks.invoke.mockResolvedValue(undefined)
@@ -90,5 +126,16 @@ describe('preload bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:save', 7, {
       title: 'گزارش',
     })
+  })
+
+  it('forwards request cancellation over the cancellation channel', async () => {
+    const api = await importPreload()
+
+    api.documents.cancel('list-1')
+
+    expect(mocks.send).toHaveBeenCalledWith(
+      'wordapp:documents:cancel',
+      'list-1',
+    )
   })
 })

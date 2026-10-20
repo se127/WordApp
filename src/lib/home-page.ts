@@ -7,6 +7,7 @@ export type HomeScrollPosition = {
 
 let homePage = 1
 let homeOrder: DocumentListOrder = 'newest'
+let homeSearch = ''
 let homeScrollPosition: HomeScrollPosition | null = null
 
 export function readHomePage(): number {
@@ -35,4 +36,12 @@ export function readHomeOrder(): DocumentListOrder {
 
 export function saveHomeOrder(order: DocumentListOrder): void {
   homeOrder = order
+}
+
+export function readHomeSearch(): string {
+  return homeSearch
+}
+
+export function saveHomeSearch(search: string): void {
+  homeSearch = search
 }

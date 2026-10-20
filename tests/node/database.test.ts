@@ -284,6 +284,103 @@ describe('documents', () => {
     expect(await store.countDocuments()).toBe(2)
   })
 
+  it('searches titles with a trimmed partial match and counts only those rows', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+
+      vi.setSystemTime(1_000_000)
+      const annual = await store.createDocument()
+      await store.saveDocument(annual.id, { title: 'گزارش سالانه' })
+
+      vi.setSystemTime(1_001_000)
+      const monthly = await store.createDocument()
+      await store.saveDocument(monthly.id, { title: 'گزارش ماهانه' })
+
+      vi.setSystemTime(1_002_000)
+      const note = await store.createDocument()
+      await store.saveDocument(note.id, {
+        title: 'یادداشت',
+        body: 'گزارش',
+      })
+
+      const titles = async (search: string): Promise<string[]> =>
+        (
+          await store.listDocuments({
+            offset: 0,
+            limit: 15,
+            search,
+          })
+        ).map((document) => document.title)
+
+      expect(await store.countDocuments('  گزارش  ')).toBe(2)
+      expect(await titles(' گزارش ')).toEqual(['گزارش ماهانه', 'گزارش سالانه'])
+      expect(await titles('گزارش سالانه')).toEqual(['گزارش سالانه'])
+      expect(await titles('یادداشت')).toEqual(['یادداشت'])
+      expect(await titles('گزارش')).not.toContain('یادداشت')
+
+      expect(
+        await store.listDocuments({
+          offset: 1,
+          limit: 1,
+          search: 'گزارش',
+        }),
+      ).toHaveLength(1)
+      expect(
+        (
+          await store.listDocuments({
+            offset: 1,
+            limit: 1,
+            order: 'oldest',
+            search: 'گزارش',
+          })
+        ).map((document) => document.title),
+      ).toEqual(['گزارش ماهانه'])
+      expect(
+        await store.listDocuments({
+          offset: 2,
+          limit: 15,
+          search: 'گزارش',
+        }),
+      ).toEqual([])
+      expect(await store.countDocuments('')).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats LIKE wildcard and escape characters literally in title searches', async () => {
+    const { database: store } = openTestDatabase()
+    const percent = await store.createDocument()
+    const underscore = await store.createDocument()
+    const plain = await store.createDocument()
+    const bang = await store.createDocument()
+    const report = await store.createDocument()
+
+    await store.saveDocument(percent.id, { title: '۱۰۰%' })
+    await store.saveDocument(underscore.id, { title: 'a_b' })
+    await store.saveDocument(plain.id, { title: 'ab' })
+    await store.saveDocument(bang.id, { title: 'خبر!' })
+    await store.saveDocument(report.id, { title: 'Report' })
+
+    const titles = async (search: string): Promise<string[]> =>
+      (
+        await store.listDocuments({
+          offset: 0,
+          limit: 15,
+          search,
+        })
+      ).map((document) => document.title)
+
+    expect(await titles('%')).toEqual(['۱۰۰%'])
+    expect(await titles('_')).toEqual(['a_b'])
+    expect(await titles('!')).toEqual(['خبر!'])
+    expect(await titles('a_b')).toEqual(['a_b'])
+    expect(await titles('ab')).toEqual(['ab'])
+    expect(await titles('report')).toEqual(['Report'])
+  })
+
   it('lists nothing before the first document', async () => {
     const { database: store } = openTestDatabase()
 
@@ -805,6 +902,43 @@ describe('openDatabase operation delay', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('openDatabase request cancellation', () => {
+  it('stops delayed count and list reads as soon as their signal aborts', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase({ operationDelayMs: 2000 })
+      const controller = new AbortController()
+      const count = store.countDocuments('', controller.signal)
+      const list = store.listDocuments(
+        { offset: 0, limit: 15 },
+        controller.signal,
+      )
+
+      controller.abort()
+
+      await expect(count).rejects.toMatchObject({ name: 'AbortError' })
+      await expect(list).rejects.toMatchObject({ name: 'AbortError' })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not run count or list reads whose signal is already aborted', async () => {
+    const { database: store } = openTestDatabase()
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      store.countDocuments('', controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(
+      store.listDocuments({ offset: 0, limit: 15 }, controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' })
   })
 })
 

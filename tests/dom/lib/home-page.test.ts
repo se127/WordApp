@@ -3,15 +3,18 @@ import {
   readHomeOrder,
   readHomePage,
   readHomeScrollPosition,
+  readHomeSearch,
   saveHomeOrder,
   saveHomePage,
   saveHomeScrollPosition,
+  saveHomeSearch,
 } from '@/lib/home-page'
 import { afterEach, describe, expect, it } from 'vitest'
 
 afterEach(() => {
   saveHomePage(1)
   saveHomeOrder('newest')
+  saveHomeSearch('')
   clearHomeScrollPosition()
 })
 
@@ -46,6 +49,18 @@ describe('home page memory', () => {
 
     saveHomeOrder('newest')
     expect(readHomeOrder()).toBe('newest')
+  })
+
+  it('starts without a title search', () => {
+    expect(readHomeSearch()).toBe('')
+  })
+
+  it('saves the title search and reads it back', () => {
+    saveHomeSearch('گزارش')
+    expect(readHomeSearch()).toBe('گزارش')
+
+    saveHomeSearch('')
+    expect(readHomeSearch()).toBe('')
   })
 
   it('starts without a saved scroll position', () => {

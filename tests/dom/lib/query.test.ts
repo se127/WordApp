@@ -1,6 +1,7 @@
 import {
   createQueryClient,
   documentsCountQuery,
+  documentsCountQueryFor,
   documentsQuery,
   documentPageSize,
   documentQuery,
@@ -29,6 +30,7 @@ function installDocuments(
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 1),
       list: vi.fn(async () => [storedDocument]),
+      cancel: vi.fn(),
       delete: vi.fn(async () => undefined),
       deleteMany: vi.fn(async () => undefined),
       save: vi.fn(async () => undefined),
@@ -80,6 +82,22 @@ describe('query layer', () => {
       7,
     )
     expect(count).toHaveBeenCalledOnce()
+    expect(count).toHaveBeenCalledWith(undefined, expect.any(String))
+  })
+
+  it('reads a filtered count through the preload bridge', async () => {
+    const count = vi.fn(async () => 2)
+    installDocuments({ count })
+
+    await expect(
+      createQueryClient().query(documentsCountQueryFor('  گزارش  ')),
+    ).resolves.toBe(2)
+    expect(count).toHaveBeenCalledOnce()
+    expect(count).toHaveBeenCalledWith('گزارش', expect.any(String))
+    expect(documentsCountQueryFor('')).toBe(documentsCountQuery)
+    expect(documentsCountQueryFor('گزارش').placeholderData).toBe(
+      keepPreviousData,
+    )
   })
 
   it('reads a page of documents through the preload bridge', async () => {
@@ -90,11 +108,37 @@ describe('query layer', () => {
       [storedDocument],
     )
     expect(list).toHaveBeenCalledOnce()
-    expect(list).toHaveBeenCalledWith({
-      offset: documentPageSize,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
+  })
+
+  it('reads a filtered page through the preload bridge', async () => {
+    const list = vi.fn(async () => [storedDocument])
+    installDocuments({ list })
+
+    await expect(
+      createQueryClient().query(documentsQuery(2, 'oldest', '  گزارش  ')),
+    ).resolves.toEqual([storedDocument])
+    expect(list).toHaveBeenCalledOnce()
+    expect(list).toHaveBeenCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'oldest',
+        search: 'گزارش',
+      },
+      expect.any(String),
+    )
+    expect(documentsQuery(2, 'oldest', '  گزارش  ').queryKey).toEqual([
+      ...documentsQuery(2, 'oldest').queryKey,
+      'گزارش',
+    ])
   })
 
   it('reads the oldest documents first when asked', async () => {
@@ -104,11 +148,14 @@ describe('query layer', () => {
     await expect(
       createQueryClient().query(documentsQuery(1, 'oldest')),
     ).resolves.toEqual([storedDocument])
-    expect(list).toHaveBeenCalledWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'oldest',
-    })
+    expect(list).toHaveBeenCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'oldest',
+      },
+      expect.any(String),
+    )
   })
 
   it('keeps the previous page on screen while the next page loads', () => {
@@ -141,6 +188,34 @@ describe('query layer', () => {
 
     await client.query(documentsQuery(3))
     expect(list).toHaveBeenCalledTimes(4)
+  })
+
+  it('cancels the preload read when its query is canceled', async () => {
+    let requestId: string | undefined
+    let rejectRead: ((reason?: unknown) => void) | undefined
+    const list: WordAppBridge['documents']['list'] = (_options, id) => {
+      requestId = id
+      return new Promise((_resolve, reject) => {
+        rejectRead = reject
+      })
+    }
+    const cancel = vi.fn((id: string) => {
+      if (id === requestId) {
+        rejectRead?.(new DOMException('The read was aborted', 'AbortError'))
+      }
+    })
+    installDocuments({ list, cancel })
+    const client = createQueryClient()
+    const request = client.fetchQuery(documentsQuery(1)).catch(() => undefined)
+
+    await vi.waitFor(() => expect(requestId).toBeDefined())
+    await client.cancelQueries({ queryKey: documentsQuery(1).queryKey })
+
+    expect(cancel).toHaveBeenCalledWith(requestId)
+    await request
+    expect(client.getQueryState(documentsQuery(1).queryKey)?.fetchStatus).toBe(
+      'idle',
+    )
   })
 
   it('resolves a missing preload bridge to null instead of throwing', async () => {

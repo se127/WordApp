@@ -13,6 +13,7 @@ import type {
   DocumentListOptions,
 } from './database.ts'
 import {
+  documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
@@ -134,10 +135,11 @@ function isDocumentListOptions(value: unknown): value is DocumentListOptions {
     return false
   }
 
-  const { offset, limit, order } = value as {
+  const { offset, limit, order, search } = value as {
     offset?: unknown
     limit?: unknown
     order?: unknown
+    search?: unknown
   }
   return (
     typeof offset === 'number' &&
@@ -146,8 +148,27 @@ function isDocumentListOptions(value: unknown): value is DocumentListOptions {
     typeof limit === 'number' &&
     Number.isSafeInteger(limit) &&
     limit > 0 &&
-    (order === undefined || order === 'newest' || order === 'oldest')
+    (order === undefined || order === 'newest' || order === 'oldest') &&
+    (search === undefined || typeof search === 'string')
   )
+}
+
+function isDocumentRequestId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128
+}
+
+type DocumentRequest = {
+  requestId: string
+  payload: unknown
+}
+
+function isDocumentRequest(value: unknown): value is DocumentRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { requestId } = value as { requestId?: unknown }
+  return isDocumentRequestId(requestId)
 }
 
 void app.whenReady().then(async () => {
@@ -217,18 +238,87 @@ void app.whenReady().then(async () => {
     failingOperations,
   })
 
+  const activeDocumentRequests = new Map<string, AbortController>()
+  const canceledDocumentRequests = new Set<string>()
+
+  const rememberCanceledDocumentRequest = (requestId: string): void => {
+    if (canceledDocumentRequests.size >= 64) {
+      const oldestRequestId = canceledDocumentRequests.values().next().value
+      if (oldestRequestId !== undefined) {
+        canceledDocumentRequests.delete(oldestRequestId)
+      }
+    }
+
+    canceledDocumentRequests.add(requestId)
+  }
+
+  const runDocumentRequest = async <T>(
+    requestId: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T | undefined> => {
+    if (canceledDocumentRequests.delete(requestId)) {
+      return undefined
+    }
+
+    const controller = new AbortController()
+    activeDocumentRequests.set(requestId, controller)
+
+    try {
+      return await operation(controller.signal)
+    } finally {
+      activeDocumentRequests.delete(requestId)
+    }
+  }
+
+  ipcMain.on(documentsCancelChannel, (_event, requestId: unknown) => {
+    if (!isDocumentRequestId(requestId)) {
+      return
+    }
+
+    const controller = activeDocumentRequests.get(requestId)
+    if (controller === undefined) {
+      rememberCanceledDocumentRequest(requestId)
+      return
+    }
+
+    controller.abort()
+  })
+
   ipcMain.handle(documentsCreateChannel, () => database.createDocument())
   ipcMain.handle(documentsGetChannel, (_event, id: unknown) =>
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.getDocument(id)
       : undefined,
   )
-  ipcMain.handle(documentsCountChannel, () => database.countDocuments())
-  ipcMain.handle(documentsListChannel, (_event, options: unknown) =>
-    isDocumentListOptions(options)
-      ? database.listDocuments(options)
-      : undefined,
-  )
+  ipcMain.handle(documentsCountChannel, (_event, value: unknown) => {
+    if (!isDocumentRequest(value)) {
+      return undefined
+    }
+
+    const { requestId, payload } = value
+    if (payload !== undefined && typeof payload !== 'string') {
+      return undefined
+    }
+
+    const search = payload
+    return runDocumentRequest(requestId, (signal) =>
+      database.countDocuments(search, signal),
+    )
+  })
+  ipcMain.handle(documentsListChannel, (_event, value: unknown) => {
+    if (!isDocumentRequest(value)) {
+      return undefined
+    }
+
+    const { requestId, payload } = value
+    if (!isDocumentListOptions(payload)) {
+      return undefined
+    }
+
+    return runDocumentRequest(requestId, (signal) =>
+      database.listDocuments(payload, signal),
+    )
+  })
   ipcMain.handle(documentsDeleteChannel, (_event, id: unknown) =>
     typeof id === 'number' && Number.isSafeInteger(id)
       ? database.deleteDocument(id)

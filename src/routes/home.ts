@@ -1,5 +1,5 @@
-import { readHomeOrder, readHomePage } from '@/lib/home-page'
-import { documentsCountQuery, documentsQuery } from '@/lib/query'
+import { readHomeOrder, readHomePage, readHomeSearch } from '@/lib/home-page'
+import { documentsCountQueryFor, documentsQuery } from '@/lib/query'
 import { HomePage } from '@/pages/home'
 import { rootRoute } from '@/routes/root'
 import { createRoute } from '@tanstack/react-router'
@@ -9,9 +9,12 @@ export const homeRoute = createRoute({
   path: '/',
   component: HomePage,
   loader: ({ context }) => {
-    void context.queryClient.query(documentsCountQuery).catch(() => {})
+    const search = readHomeSearch()
     void context.queryClient
-      .query(documentsQuery(readHomePage(), readHomeOrder()))
+      .query(documentsCountQueryFor(search))
+      .catch(() => {})
+    void context.queryClient
+      .query(documentsQuery(readHomePage(), readHomeOrder(), search))
       .catch(() => {})
   },
 })

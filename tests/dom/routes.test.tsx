@@ -4,6 +4,7 @@ import {
   clearHomeScrollPosition,
   saveHomeOrder,
   saveHomePage,
+  saveHomeSearch,
 } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
@@ -50,9 +51,16 @@ const storedDocument = {
 
 function documentListPage(
   documents: Array<typeof storedDocument>,
-  { offset, limit, order = 'newest' }: DocumentListOptions,
+  { offset, limit, order = 'newest', search }: DocumentListOptions,
 ): Array<typeof storedDocument> {
-  const ordered = order === 'oldest' ? [...documents].reverse() : documents
+  const term = search?.trim().toLowerCase() ?? ''
+  const matching =
+    term === ''
+      ? documents
+      : documents.filter((document) =>
+          document.title.toLowerCase().includes(term),
+        )
+  const ordered = order === 'oldest' ? [...matching].reverse() : matching
   return ordered.slice(offset, offset + limit)
 }
 
@@ -60,10 +68,12 @@ function installBridge(
   options: {
     create?: () => Promise<typeof storedDocument>
     get?: (id: number) => Promise<typeof storedDocument | undefined>
-    count?: () => Promise<number>
+    count?: (search: string | undefined, requestId: string) => Promise<number>
     list?: (
       options: DocumentListOptions,
+      requestId: string,
     ) => Promise<Array<typeof storedDocument>>
+    cancel?: (requestId: string) => void
     save?: (
       id: number,
       changes: DocumentChanges,
@@ -83,6 +93,7 @@ function installBridge(
   const get = options.get ?? vi.fn(async () => storedRow)
   const count = options.count ?? vi.fn(async () => storedCount)
   const list = options.list ?? vi.fn(async () => [])
+  const cancel = options.cancel ?? vi.fn()
   const save =
     options.save ??
     vi.fn(async (_id: number, changes: DocumentChanges) => {
@@ -103,13 +114,14 @@ function installBridge(
       get,
       count,
       list,
+      cancel,
       save,
       delete: remove,
       deleteMany: removeMany,
     },
   } satisfies WordAppBridge
 
-  return { create, get, count, list, save, remove, removeMany }
+  return { create, get, count, list, cancel, save, remove, removeMany }
 }
 
 function installDocumentsBridge(
@@ -125,7 +137,14 @@ function installDocumentsBridge(
     get: vi.fn(async (id: number) =>
       stored.find((document) => document.id === id),
     ),
-    count: vi.fn(async () => stored.length),
+    count: vi.fn(async (search?: string) => {
+      const term = search?.trim().toLowerCase() ?? ''
+      return term === ''
+        ? stored.length
+        : stored.filter((document) =>
+            document.title.toLowerCase().includes(term),
+          ).length
+    }),
     remove: vi.fn(async (id: number) => {
       const index = stored.findIndex((document) => document.id === id)
       if (index >= 0) {
@@ -148,6 +167,7 @@ function installDocumentsBridge(
 function renderRoute(initialEntry: string) {
   saveHomePage(1)
   saveHomeOrder('newest')
+  saveHomeSearch('')
   clearHomeScrollPosition()
   const queryClient = createQueryClient()
   const router = createAppRouter(
@@ -206,9 +226,14 @@ function documentsTable(): HTMLElement {
   return table
 }
 
+function searchInput(): HTMLElement {
+  return screen.getByRole('searchbox', { name: 'جستجوی عنوان' })
+}
+
 afterEach(() => {
   saveHomePage(1)
   saveHomeOrder('newest')
+  saveHomeSearch('')
   clearHomeScrollPosition()
   toast.dismiss()
   vi.restoreAllMocks()
@@ -1552,11 +1577,14 @@ describe('routes', () => {
       }),
     ).toBeEnabled()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(list).toHaveBeenCalledExactlyOnceWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenCalledExactlyOnceWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
 
     await act(() => finishList([{ ...storedDocument, title: 'یادداشت' }]))
 
@@ -1623,11 +1651,14 @@ describe('routes', () => {
         .getAllByRole('link', { name: /^سند / })
         .map((link) => link.textContent),
     ).toEqual(['سند 3', 'سند 2', 'سند 1'])
-    expect(list).toHaveBeenLastCalledWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
 
     await user.click(screen.getByText('ترتیب بر اساس تاریخ ایجاد'))
     await user.click(
@@ -1640,11 +1671,14 @@ describe('routes', () => {
         .getAllByRole('link', { name: /^سند / })
         .map((link) => link.textContent),
     ).toEqual(['سند 1', 'سند 2', 'سند 3'])
-    expect(list).toHaveBeenLastCalledWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'oldest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'oldest',
+      },
+      expect.any(String),
+    )
   })
 
   it('returns to the first page when the order changes', async () => {
@@ -1671,11 +1705,14 @@ describe('routes', () => {
 
     expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
     await screen.findByRole('link', { name: 'سند 40' })
-    expect(list).toHaveBeenLastCalledWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'oldest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'oldest',
+      },
+      expect.any(String),
+    )
   })
 
   it('keeps the chosen order after opening a document and returning home', async () => {
@@ -1724,11 +1761,299 @@ describe('routes', () => {
       name: 'ترتیب بر اساس تاریخ ایجاد',
     })
     expect(orderSelect).toHaveTextContent('قدیم به جدید')
-    expect(list).toHaveBeenLastCalledWith({
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'oldest',
+      },
+      expect.any(String),
+    )
+  })
+
+  it('places the title search before the created-at order select', async () => {
+    const documents = [{ ...storedDocument, title: 'گزارش' }]
+    installDocumentsBridge(documents)
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+
+    const search = searchInput()
+    const order = screen.getByRole('combobox', {
+      name: 'ترتیب بر اساس تاریخ ایجاد',
+    })
+
+    expect(screen.getByText('جستجوی عنوان')).toHaveClass('text-sm')
+    expect(
+      search.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(search).toHaveClass('h-8', 'text-sm')
+    expect(search).toHaveAttribute('placeholder', 'عنوان سند')
+    expect(search).not.toHaveClass('text-muted-foreground')
+  })
+
+  it('filters titles after the debounce and restores every row when cleared', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'گزارش سالانه' },
+      { ...storedDocument, id: 2, title: 'یادداشت' },
+      { ...storedDocument, id: 3, title: 'گزارش ماهانه' },
+    ]
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.type(searchInput(), 'گزارش')
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۲)' }),
+    ).toBeInTheDocument()
+    await screen.findByRole('link', { name: 'گزارش ماهانه' })
+    expect(
+      screen.queryByRole('link', { name: 'یادداشت' }),
+    ).not.toBeInTheDocument()
+
+    const searchCalls = vi
+      .mocked(list)
+      .mock.calls.filter(([options]) => options.search !== undefined)
+    expect(searchCalls).toHaveLength(1)
+    expect(searchCalls[0]?.[0]).toEqual({
       offset: 0,
       limit: documentPageSize,
-      order: 'oldest',
+      order: 'newest',
+      search: 'گزارش',
     })
+
+    await user.click(screen.getByRole('button', { name: 'پاک کردن جستجو' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۳)' }),
+    ).toBeInTheDocument()
+    await screen.findByRole('link', { name: 'یادداشت' })
+    expect(searchInput()).toHaveValue('')
+  })
+
+  it('shows a no-results message for an unmatched title and clears it', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'گزارش' },
+      { ...storedDocument, id: 2, title: 'یادداشت' },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+
+    await user.type(searchInput(), 'ناموجود')
+
+    const message = await screen.findByText('سندی با این عنوان پیدا نشد.')
+    expect(message.parentElement).toHaveClass(
+      'items-center',
+      'justify-center',
+      'flex-col',
+    )
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'نمایش همه ی سندها' }))
+
+    await screen.findByRole('link', { name: 'گزارش' })
+    expect(
+      screen.queryByText('سندی با این عنوان پیدا نشد.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the rows visible and pulses them while a filtered read is in flight', async () => {
+    const matching = { ...storedDocument, id: 1, title: 'گزارش' }
+    const other = { ...storedDocument, id: 2, title: 'یادداشت' }
+    let finishSearch!: (documents: Array<typeof storedDocument>) => void
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+        if (options.search === 'گزارش') {
+          return new Promise<Array<typeof storedDocument>>((resolve) => {
+            finishSearch = resolve
+          })
+        }
+        return Promise.resolve(documentListPage([matching, other], options))
+      },
+    )
+    installBridge({
+      list,
+      count: vi.fn(async (search?: string) => (search === 'گزارش' ? 1 : 2)),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.type(searchInput(), 'گزارش')
+
+    await vi.waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'گزارش' }),
+        expect.any(String),
+      ),
+    )
+
+    const pending = screen.getByRole('status', {
+      name: 'در حال جستجوی عنوان',
+    })
+    expect(pending).toHaveClass('size-4', 'animate-spin')
+    expect(documentsTable()).toHaveClass('animate-pulse', 'pointer-events-none')
+    expect(documentsTable()).toHaveAttribute('inert')
+    expect(screen.getByRole('link', { name: 'یادداشت' })).toBeInTheDocument()
+
+    await act(() => finishSearch([matching]))
+
+    await screen.findByRole('heading', { name: 'مستندات (۱)' })
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('status', { name: 'در حال جستجوی عنوان' }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(documentsTable()).not.toHaveClass('animate-pulse')
+    expect(documentsTable()).not.toHaveAttribute('inert')
+  })
+
+  it('cancels the in-flight search request as soon as another title is typed', async () => {
+    const other = { ...storedDocument, id: 2, title: 'یادداشت' }
+    const matching = { ...storedDocument, id: 1, title: 'گزارش سالانه' }
+    const stale = { ...storedDocument, id: 3, title: 'گزارش قدیمی' }
+    let searchRequestId: string | undefined
+    let finishStaleSearch:
+      ((documents: Array<typeof storedDocument>) => void) | undefined
+    let rejectStaleSearch: ((reason?: unknown) => void) | undefined
+    const list = vi.fn(
+      (
+        options: DocumentListOptions,
+        requestId: string,
+      ): Promise<Array<typeof storedDocument>> => {
+        if (options.search === 'گ') {
+          searchRequestId = requestId
+          return new Promise<Array<typeof storedDocument>>(
+            (resolve, reject) => {
+              finishStaleSearch = resolve
+              rejectStaleSearch = reject
+            },
+          )
+        }
+        if (options.search === 'گزارش') {
+          return Promise.resolve([matching])
+        }
+        return Promise.resolve([other])
+      },
+    )
+    const cancel = vi.fn((requestId: string) => {
+      if (requestId === searchRequestId) {
+        rejectStaleSearch?.(
+          new DOMException('The search was canceled', 'AbortError'),
+        )
+      }
+    })
+    installBridge({
+      list,
+      cancel,
+      count: vi.fn(async (search?: string) => (search === undefined ? 2 : 1)),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    const input = searchInput()
+    await user.type(input, 'گ')
+    await vi.waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'گ' }),
+        expect.any(String),
+      ),
+    )
+
+    await user.type(input, 'زارش')
+
+    expect(cancel).toHaveBeenCalledWith(searchRequestId)
+    await screen.findByRole('link', { name: 'گزارش سالانه' })
+
+    await act(() => finishStaleSearch?.([stale]))
+
+    expect(
+      screen.queryByRole('link', { name: 'گزارش قدیمی' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'گزارش سالانه' }),
+    ).toBeInTheDocument()
+  })
+
+  it('returns to the first page when the title search changes', async () => {
+    const documents = Array.from({ length: 40 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'سند 1' })
+    await user.click(paginationPageLink(2))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    await user.type(searchInput(), 'سند')
+
+    await vi.waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        {
+          offset: 0,
+          limit: documentPageSize,
+          order: 'newest',
+          search: 'سند',
+        },
+        expect.any(String),
+      ),
+    )
+    expect(
+      await screen.findByRole('link', { name: 'سند 1' }),
+    ).toBeInTheDocument()
+    expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('keeps the title search after opening a document and returning home', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'گزارش سالانه' },
+      { ...storedDocument, id: 2, title: 'یادداشت' },
+    ]
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+    await user.type(searchInput(), 'گزارش')
+    await screen.findByRole('link', { name: 'گزارش سالانه' })
+
+    await user.click(screen.getByRole('link', { name: 'گزارش سالانه' }))
+    await screen.findByRole('heading', { name: 'گزارش سالانه' })
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+
+    expect(
+      await screen.findByRole('searchbox', { name: 'جستجوی عنوان' }),
+    ).toHaveValue('گزارش')
+    const main = screen.getByRole('main')
+    await within(main).findByRole('link', { name: 'گزارش سالانه' })
+    expect(
+      within(main).queryByRole('link', { name: 'یادداشت' }),
+    ).not.toBeInTheDocument()
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+        search: 'گزارش',
+      },
+      expect.any(String),
+    )
   })
 
   it('keeps the stale rows and pulses the table while the list re-reads', async () => {
@@ -1986,11 +2311,14 @@ describe('routes', () => {
     expect(
       screen.queryByRole('link', { name: 'سند 16' }),
     ).not.toBeInTheDocument()
-    expect(list).toHaveBeenCalledExactlyOnceWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenCalledExactlyOnceWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
     expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
     expect(
       within(documentsPagination()).getByRole('link', {
@@ -2005,11 +2333,14 @@ describe('routes', () => {
     expect(
       screen.queryByRole('link', { name: 'سند 1' }),
     ).not.toBeInTheDocument()
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
     expect(paginationPageLink(2)).toHaveAttribute('aria-current', 'page')
     expect(
       within(documentsPagination()).getByRole('link', {
@@ -2028,11 +2359,14 @@ describe('routes', () => {
     expect(
       screen.queryByRole('link', { name: 'سند 41' }),
     ).not.toBeInTheDocument()
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize * 2,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize * 2,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
     expect(paginationPageLink(3)).toHaveAttribute('aria-current', 'page')
     expect(
       within(documentsPagination()).getByRole('link', {
@@ -2076,11 +2410,14 @@ describe('routes', () => {
     expect(
       screen.queryByRole('link', { name: 'سند 16' }),
     ).not.toBeInTheDocument()
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
     expect(documentsTable()).toHaveClass('animate-pulse', 'pointer-events-none')
     expect(documentsTable()).toHaveAttribute('inert')
 
@@ -2142,11 +2479,14 @@ describe('routes', () => {
       await screen.findByRole('link', { name: 'سند 16' }),
     ).toBeInTheDocument()
     expect(pageTwoAttempts).toBe(2)
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
   })
 
   it('remembers the page and scroll position after opening a document and returning to it', async () => {
@@ -2181,11 +2521,14 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
     expect(paginationPageLink(2)).toHaveAttribute('aria-current', 'page')
     expect(listViewport().scrollTop).toBe(400)
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
   })
 
   it('starts a newly selected page at the top of the list', async () => {
@@ -2240,11 +2583,14 @@ describe('routes', () => {
       name: 'سند 1',
     })
     expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
-    expect(list).toHaveBeenLastCalledWith({
-      offset: 0,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
   })
 
   it('invalidates the current and following pages after a document is deleted', async () => {
@@ -2261,11 +2607,14 @@ describe('routes', () => {
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(3))
     await screen.findByRole('link', { name: 'سند 31' })
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize * 2,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize * 2,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
 
     await user.click(paginationPageLink(2))
     await screen.findByRole('link', { name: 'سند 16' })
@@ -2323,11 +2672,14 @@ describe('routes', () => {
 
     await user.click(paginationPageLink(3))
     await screen.findByRole('link', { name: 'سند 31' })
-    expect(list).toHaveBeenLastCalledWith({
-      offset: documentPageSize * 2,
-      limit: documentPageSize,
-      order: 'newest',
-    })
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: documentPageSize * 2,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
 
     const documentTabs = document.querySelector<HTMLElement>(
       '[data-slot="document-tabs"]',
@@ -2917,5 +3269,60 @@ describe('routes', () => {
       await within(bodyTable).findByRole('link', { name: 'گزارش تازه' }),
     ).toBeInTheDocument()
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-reads the filtered count after a title save changes the match', async () => {
+    const stored = [{ ...storedDocument, title: 'گزارش' }]
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(stored, options),
+    )
+    const count = vi.fn(async (search?: string) => {
+      const term = search?.trim().toLowerCase() ?? ''
+      return term === ''
+        ? stored.length
+        : stored.filter((row) => row.title.toLowerCase().includes(term)).length
+    })
+    const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
+    const save = vi.fn(async (id: number, changes: DocumentChanges) => {
+      const index = stored.findIndex((row) => row.id === id)
+      if (index < 0) {
+        return undefined
+      }
+      stored[index] = {
+        ...stored[index],
+        ...changes,
+        updatedAt: stored[index].updatedAt + 1,
+      }
+      return stored[index]
+    })
+    installBridge({ get, save, list, count })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+    await user.type(searchInput(), 'گزارش')
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'گزارش' }))
+    const heading = await screen.findByRole('heading', { name: 'گزارش' })
+    await user.click(heading)
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'یادداشت')
+    await user.tab()
+
+    await screen.findByRole('heading', { name: 'یادداشت' })
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+
+    expect(
+      await screen.findByText('سندی با این عنوان پیدا نشد.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+    expect(count).toHaveBeenLastCalledWith('گزارش', expect.any(String))
   })
 })

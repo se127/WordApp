@@ -72,6 +72,7 @@ function installBridge(
       get,
       count,
       list,
+      cancel: vi.fn(),
       save,
       delete: remove,
       deleteMany: removeMany,

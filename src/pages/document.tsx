@@ -1,7 +1,11 @@
 import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
 import { DocumentTabsContext } from '@/lib/document-tabs'
-import { documentQuery, documentsQueryKey } from '@/lib/query'
+import {
+  documentQuery,
+  documentsCountQuery,
+  documentsQueryKey,
+} from '@/lib/query'
 import type { DocumentChanges } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
@@ -192,6 +196,9 @@ function useDocumentSave(documentId: number) {
     queryClient.setQueryData(documentQuery(documentId).queryKey, saved)
     void queryClient.invalidateQueries({
       queryKey: documentQuery(documentId).queryKey,
+    })
+    void queryClient.invalidateQueries({
+      queryKey: documentsCountQuery.queryKey,
     })
     void queryClient.invalidateQueries({
       queryKey: documentsQueryKey,

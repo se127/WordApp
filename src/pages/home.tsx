@@ -1,5 +1,6 @@
 import { DocumentOptions } from '@/components/document-options'
 import { DocumentsPagination } from '@/components/documents-pagination'
+import { DocumentsSearch } from '@/components/documents-search'
 import { DocumentsSelectionToolbar } from '@/components/documents-selection'
 import { DocumentsSort } from '@/components/documents-sort'
 import { Button } from '@/components/ui/button'
@@ -25,19 +26,24 @@ import {
   readHomeOrder,
   readHomePage,
   readHomeScrollPosition,
+  readHomeSearch,
   saveHomeOrder,
   saveHomePage,
   saveHomeScrollPosition,
+  saveHomeSearch,
 } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
   documentPageSize,
   documentsCountQuery,
+  documentsCountQueryFor,
   documentsQuery,
+  documentsQueryKey,
 } from '@/lib/query'
+import { useDebouncedValue } from '@/lib/use-debounced-value'
 import { cn } from '@/lib/utils'
 import type { DocumentListOrder, DocumentRecord } from '@/types/global'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import {
@@ -49,14 +55,22 @@ import {
   useState,
 } from 'react'
 
+const documentsSearchDebounceMs = 300
+
 function HomePage() {
   const { createDocument, isCreating } = useCreateDocument()
+  const [search, setSearch] = useState(readHomeSearch)
+  const debouncedSearch = useDebouncedValue(search, documentsSearchDebounceMs)
+  const changeSearch = useCallback((nextSearch: string): void => {
+    saveHomeSearch(nextSearch)
+    setSearch(nextSearch)
+  }, [])
 
   return (
     <div className="flex h-full flex-col items-start gap-3 p-6">
       <h1 className="flex h-8 items-center gap-1.5 text-2xl font-semibold">
         {'مستندات '}
-        <DocumentCount />
+        <DocumentCount search={debouncedSearch} />
       </h1>
       <Button disabled={isCreating} onClick={createDocument}>
         {isCreating ? (
@@ -71,12 +85,24 @@ function HomePage() {
           </>
         )}
       </Button>
-      <DocumentsTable />
+      <DocumentsTable
+        search={search}
+        debouncedSearch={debouncedSearch}
+        onSearchChange={changeSearch}
+      />
     </div>
   )
 }
 
-function DocumentsTable() {
+function DocumentsTable({
+  search,
+  debouncedSearch,
+  onSearchChange,
+}: {
+  search: string
+  debouncedSearch: string
+  onSearchChange: (search: string) => void
+}) {
   const [page, setPage] = useState(readHomePage)
   const [order, setOrder] = useState(readHomeOrder)
   const [isSelecting, setIsSelecting] = useState(false)
@@ -84,7 +110,10 @@ function DocumentsTable() {
     new Set<number>(),
   )
   const scrollViewportRef = useRef<HTMLDivElement | null>(null)
-  const { data: documentCount } = useQuery(documentsCountQuery)
+  const queryClient = useQueryClient()
+  const { data: documentCount } = useQuery(
+    documentsCountQueryFor(debouncedSearch),
+  )
   const totalPages =
     documentCount === undefined || documentCount === null
       ? undefined
@@ -99,7 +128,7 @@ function DocumentsTable() {
     isFetching,
     isRefetching,
     refetch,
-  } = useQuery(documentsQuery(currentPage, order))
+  } = useQuery(documentsQuery(currentPage, order, debouncedSearch))
 
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
     scrollViewportRef.current =
@@ -136,6 +165,24 @@ function DocumentsTable() {
     setOrder(nextOrder)
     setPage(1)
   }, [])
+
+  const changeSearch = useCallback(
+    (nextSearch: string): void => {
+      void queryClient.cancelQueries({ queryKey: documentsQueryKey })
+      void queryClient.cancelQueries({
+        queryKey: documentsCountQuery.queryKey,
+      })
+      onSearchChange(nextSearch)
+      saveHomePage(1)
+      clearHomeScrollPosition()
+      const viewport = scrollViewportRef.current
+      if (viewport !== null) {
+        viewport.scrollTop = 0
+      }
+      setPage(1)
+    },
+    [onSearchChange, queryClient],
+  )
 
   useEffect(() => {
     saveHomePage(currentPage)
@@ -194,14 +241,42 @@ function DocumentsTable() {
     setSelectedIds(new Set<number>())
   }, [])
 
+  const isSearchPending =
+    search !== debouncedSearch || (debouncedSearch.trim() !== '' && isFetching)
+  const controls = (
+    <div className="flex w-full flex-wrap items-start gap-4">
+      <DocumentsSearch
+        value={search}
+        onValueChange={changeSearch}
+        isPending={isSearchPending}
+      />
+      <DocumentsSort
+        order={order}
+        onOrderChange={changeOrder}
+        isDisabled={isFetching}
+      />
+    </div>
+  )
+
   if (isError) {
     return (
-      <DocumentsRetry isRetrying={isFetching} onRetry={() => void refetch()} />
+      <div className="flex min-h-0 w-full flex-1 flex-col">
+        {controls}
+        <DocumentsRetry
+          isRetrying={isFetching}
+          onRetry={() => void refetch()}
+        />
+      </div>
     )
   }
 
   if (documents === undefined) {
-    return <DocumentsPending />
+    return (
+      <div className="flex min-h-0 w-full flex-1 flex-col">
+        {controls}
+        <DocumentsPending />
+      </div>
+    )
   }
 
   if (documents === null) {
@@ -210,23 +285,36 @@ function DocumentsTable() {
 
   if (documents.length === 0) {
     if (currentPage > 1) {
-      return <DocumentsPending />
+      return (
+        <div className="flex min-h-0 w-full flex-1 flex-col">
+          {controls}
+          <DocumentsPending />
+        </div>
+      )
     }
 
     return (
-      <div className="flex min-h-32 w-full flex-1 items-center justify-center">
-        <p className="text-sm">هنوز سندی ثبت نشده است.</p>
+      <div className="flex min-h-0 w-full flex-1 flex-col">
+        {controls}
+        <div className="flex min-h-32 w-full flex-1 flex-col items-center justify-center gap-3">
+          <p className="text-sm">
+            {debouncedSearch.trim() === ''
+              ? 'هنوز سندی ثبت نشده است.'
+              : 'سندی با این عنوان پیدا نشد.'}
+          </p>
+          {search === '' ? null : (
+            <Button variant="outline" onClick={() => changeSearch('')}>
+              نمایش همه ی سندها
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
-      <DocumentsSort
-        order={order}
-        onOrderChange={changeOrder}
-        isDisabled={isFetching}
-      />
+      {controls}
       <DocumentsSelectionToolbar
         isSelecting={isSelecting}
         selectedIds={selectedIds}
@@ -434,13 +522,13 @@ function DocumentsRetry({
   )
 }
 
-function DocumentCount() {
+function DocumentCount({ search }: { search: string }) {
   const {
     data: documentCount,
     isFetching,
     isError,
     refetch,
-  } = useQuery(documentsCountQuery)
+  } = useQuery(documentsCountQueryFor(search))
 
   if (isError) {
     return <CountRetry isRetrying={isFetching} onRetry={() => void refetch()} />

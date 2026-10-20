@@ -5,6 +5,7 @@ import type {
   DocumentRecord,
 } from './database.ts'
 import {
+  documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
@@ -21,9 +22,22 @@ contextBridge.exposeInMainWorld('WordApp', {
       ipcRenderer.invoke(documentsCreateChannel),
     get: (id: number): Promise<DocumentRecord | undefined> =>
       ipcRenderer.invoke(documentsGetChannel, id),
-    count: (): Promise<number> => ipcRenderer.invoke(documentsCountChannel),
-    list: (options: DocumentListOptions): Promise<DocumentRecord[]> =>
-      ipcRenderer.invoke(documentsListChannel, options),
+    count: (search: string | undefined, requestId: string): Promise<number> =>
+      ipcRenderer.invoke(documentsCountChannel, {
+        requestId,
+        payload: search,
+      }),
+    list: (
+      options: DocumentListOptions,
+      requestId: string,
+    ): Promise<DocumentRecord[]> =>
+      ipcRenderer.invoke(documentsListChannel, {
+        requestId,
+        payload: options,
+      }),
+    cancel: (requestId: string): void => {
+      ipcRenderer.send(documentsCancelChannel, requestId)
+    },
     delete: (id: number): Promise<void> =>
       ipcRenderer.invoke(documentsDeleteChannel, id),
     deleteMany: (ids: number[]): Promise<void> =>

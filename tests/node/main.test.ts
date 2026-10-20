@@ -9,6 +9,7 @@ import {
   type Mock,
 } from 'vitest'
 import {
+  documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
   documentsDeleteChannel,
@@ -330,11 +331,31 @@ describe('documents database', () => {
     expect(mocks.database.getDocument).not.toHaveBeenCalled()
   })
 
-  it('counts documents over IPC', async () => {
+  it('counts documents over IPC, optionally for a title search', async () => {
     await importMain()
     mocks.database.countDocuments.mockReturnValue(3)
+    const count = handlerFor('handle', documentsCountChannel)
 
-    expect(handlerFor('handle', documentsCountChannel)({})).toBe(3)
+    await expect(count({}, { requestId: 'count-1' })).resolves.toBe(3)
+    expect(mocks.database.countDocuments).toHaveBeenLastCalledWith(
+      undefined,
+      expect.any(AbortSignal),
+    )
+
+    await expect(
+      count({}, { requestId: 'count-2', payload: '  گزارش  ' }),
+    ).resolves.toBe(3)
+    expect(mocks.database.countDocuments).toHaveBeenLastCalledWith(
+      '  گزارش  ',
+      expect.any(AbortSignal),
+    )
+    expect(count({}, { requestId: 'count-3', payload: 1 })).toBeUndefined()
+    expect(count({}, { requestId: 'count-4', payload: null })).toBeUndefined()
+    expect(count({}, { payload: 'گزارش' })).toBeUndefined()
+    expect(count({}, { requestId: '', payload: 'گزارش' })).toBeUndefined()
+    expect(count({}, { requestId: 1, payload: 'گزارش' })).toBeUndefined()
+    expect(count({}, null)).toBeUndefined()
+    expect(mocks.database.countDocuments).toHaveBeenCalledTimes(2)
   })
 
   it('lists a page of documents over IPC', async () => {
@@ -351,45 +372,165 @@ describe('documents database', () => {
     mocks.database.listDocuments.mockReturnValue(page)
     const list = handlerFor('handle', documentsListChannel)
 
-    expect(list({}, { offset: 0, limit: 15, order: 'oldest' })).toEqual(page)
-    expect(mocks.database.listDocuments).toHaveBeenCalledWith({
+    const oldest = { offset: 0, limit: 15, order: 'oldest' }
+    await expect(
+      list({}, { requestId: 'list-1', payload: oldest }),
+    ).resolves.toEqual(page)
+    expect(mocks.database.listDocuments).toHaveBeenCalledWith(
+      oldest,
+      expect.any(AbortSignal),
+    )
+
+    const newest = { offset: 30, limit: 15, order: 'newest' }
+    await expect(
+      list({}, { requestId: 'list-2', payload: newest }),
+    ).resolves.toEqual(page)
+    expect(mocks.database.listDocuments).toHaveBeenLastCalledWith(
+      newest,
+      expect.any(AbortSignal),
+    )
+
+    const filtered = {
       offset: 0,
       limit: 15,
-      order: 'oldest',
-    })
-
-    expect(list({}, { offset: 30, limit: 15, order: 'newest' })).toEqual(page)
-    expect(mocks.database.listDocuments).toHaveBeenLastCalledWith({
-      offset: 30,
-      limit: 15,
       order: 'newest',
-    })
+      search: 'گزارش',
+    }
+    await expect(
+      list({}, { requestId: 'list-3', payload: filtered }),
+    ).resolves.toEqual(page)
+    expect(mocks.database.listDocuments).toHaveBeenLastCalledWith(
+      filtered,
+      expect.any(AbortSignal),
+    )
   })
 
   it('ignores list calls without usable options', async () => {
     await importMain()
     const list = handlerFor('handle', documentsListChannel)
+    const payload = { offset: 0, limit: 15 }
 
     expect(list({})).toBeUndefined()
     expect(list({}, undefined)).toBeUndefined()
     expect(list({}, null)).toBeUndefined()
     expect(list({}, 'list')).toBeUndefined()
-    expect(list({}, { offset: 0 })).toBeUndefined()
-    expect(list({}, { limit: 15 })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: 0 })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: -1 })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: 1.5 })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: Number.NaN })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: '15' })).toBeUndefined()
-    expect(list({}, { offset: -1, limit: 15 })).toBeUndefined()
-    expect(list({}, { offset: 1.5, limit: 15 })).toBeUndefined()
-    expect(list({}, { offset: Number.NaN, limit: 15 })).toBeUndefined()
-    expect(list({}, { offset: '0', limit: 15 })).toBeUndefined()
+    expect(list({}, { requestId: 'list' })).toBeUndefined()
+    expect(list({}, { payload })).toBeUndefined()
+    expect(list({}, { requestId: '', payload })).toBeUndefined()
+    expect(list({}, { requestId: 1, payload })).toBeUndefined()
     expect(
-      list({}, { offset: 0, limit: 15, order: 'sideways' }),
+      list({}, { requestId: 'list', payload: { offset: 0 } }),
     ).toBeUndefined()
-    expect(list({}, { offset: 0, limit: 15, order: 1 })).toBeUndefined()
-    expect(list({}, { offset: 0, limit: 15, order: null })).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { limit: 15 } }),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: 0, limit: 0 } }),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: 0, limit: -1 } }),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: 0, limit: 1.5 } }),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: 0, limit: Number.NaN } },
+      ),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: 0, limit: '15' } }),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: -1, limit: 15 } }),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: 1.5, limit: 15 } }),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: Number.NaN, limit: 15 } },
+      ),
+    ).toBeUndefined()
+    expect(
+      list({}, { requestId: 'list', payload: { offset: '0', limit: 15 } }),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        {
+          requestId: 'list',
+          payload: { offset: 0, limit: 15, order: 'sideways' },
+        },
+      ),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: 0, limit: 15, order: 1 } },
+      ),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: 0, limit: 15, order: null } },
+      ),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: 0, limit: 15, search: 1 } },
+      ),
+    ).toBeUndefined()
+    expect(
+      list(
+        {},
+        { requestId: 'list', payload: { offset: 0, limit: 15, search: null } },
+      ),
+    ).toBeUndefined()
+    expect(mocks.database.listDocuments).not.toHaveBeenCalled()
+  })
+
+  it('aborts an in-flight document request when it is canceled', async () => {
+    await importMain()
+    let receivedSignal: AbortSignal | undefined
+    mocks.database.listDocuments.mockImplementation(
+      (_options: unknown, signal: AbortSignal) => {
+        receivedSignal = signal
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason))
+        })
+      },
+    )
+    const list = handlerFor('handle', documentsListChannel)
+    const request = list(
+      {},
+      { requestId: 'list-cancel', payload: { offset: 0, limit: 15 } },
+    )
+
+    expect(receivedSignal?.aborted).toBe(false)
+    handlerFor('on', documentsCancelChannel)({}, 'list-cancel')
+    expect(receivedSignal?.aborted).toBe(true)
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('does not start a document request that was canceled before it ran', async () => {
+    await importMain()
+    handlerFor('on', documentsCancelChannel)({}, 'early-list-cancel')
+
+    const list = handlerFor('handle', documentsListChannel)
+
+    await expect(
+      list(
+        {},
+        {
+          requestId: 'early-list-cancel',
+          payload: { offset: 0, limit: 15 },
+        },
+      ),
+    ).resolves.toBeUndefined()
     expect(mocks.database.listDocuments).not.toHaveBeenCalled()
   })
 

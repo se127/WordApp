@@ -22,6 +22,7 @@ function installBridge() {
       get: vi.fn(async () => undefined),
       count: vi.fn(async () => 0),
       list: vi.fn(async () => []),
+      cancel: vi.fn(),
       delete: vi.fn(async () => undefined),
       deleteMany: vi.fn(async () => undefined),
       save: vi.fn(async () => undefined),
