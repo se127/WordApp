@@ -20,6 +20,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -176,13 +177,15 @@ function renderRoute(initialEntry: string) {
   )
 
   render(
-    <DirectionProvider dir="rtl">
-      <TooltipProvider>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </TooltipProvider>
-    </DirectionProvider>,
+    <StrictMode>
+      <DirectionProvider dir="rtl">
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </TooltipProvider>
+      </DirectionProvider>
+    </StrictMode>,
   )
 
   return { router, queryClient }
@@ -1505,7 +1508,7 @@ describe('routes', () => {
       }),
     ).toBeEnabled()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(list).toHaveBeenCalledExactlyOnceWith(
+    expect(list).toHaveBeenCalledWith(
       {
         offset: 0,
         limit: documentPageSize,
@@ -3249,6 +3252,58 @@ describe('routes', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+    expect(count).toHaveBeenLastCalledWith('گزارش', expect.any(String))
+  })
+
+  it('re-reads the filtered count after deleting the matching document from its page', async () => {
+    const stored = [
+      { ...storedDocument, id: 1, title: 'گزارش' },
+      { ...storedDocument, id: 2, title: 'یادداشت' },
+    ]
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      documentListPage(stored, options),
+    )
+    const count = vi.fn(async (search?: string) => {
+      const term = search?.trim().toLowerCase() ?? ''
+      return term === ''
+        ? stored.length
+        : stored.filter((row) => row.title.toLowerCase().includes(term)).length
+    })
+    const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
+    const remove = vi.fn(async (id: number) => {
+      const index = stored.findIndex((row) => row.id === id)
+      if (index >= 0) {
+        stored.splice(index, 1)
+      }
+    })
+    installBridge({ get, remove, list, count })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+    await user.type(searchInput(), 'گزارش')
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'گزارش' }))
+    await screen.findByRole('heading', { name: 'گزارش' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(await screen.findByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'جستجوی عنوان' })).toHaveValue(
+      'گزارش',
+    )
+    expect(
+      await screen.findByText('سندی با این عنوان پیدا نشد.'),
     ).toBeInTheDocument()
     expect(count).toHaveBeenLastCalledWith('گزارش', expect.any(String))
   })

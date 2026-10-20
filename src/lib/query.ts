@@ -60,6 +60,7 @@ export const documentsCountQuery = queryOptions({
         (await window.WordApp?.documents.count(undefined, requestId)) ?? null,
     ),
   placeholderData: keepPreviousData,
+  refetchOnMount: true,
   staleTime: Infinity,
 })
 
@@ -78,6 +79,7 @@ export function documentsCountQueryFor(search: string) {
           (await window.WordApp?.documents.count(term, requestId)) ?? null,
       ),
     placeholderData: keepPreviousData,
+    refetchOnMount: true,
     staleTime: Infinity,
   })
 }
