@@ -1750,7 +1750,11 @@ describe('routes', () => {
     const orderSelect = screen.getByRole('combobox', {
       name: 'ترتیب بر اساس تاریخ ایجاد',
     })
+    const selectionToggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
     expect(orderSelect).toBeEnabled()
+    expect(selectionToggle).toBeEnabled()
     expect(documentsTable()).not.toHaveClass('animate-pulse')
 
     await act(async () => {
@@ -1765,6 +1769,7 @@ describe('routes', () => {
     expect(documentsTable()).toHaveClass('pointer-events-none')
     expect(documentsTable()).toHaveAttribute('inert')
     expect(orderSelect).toBeDisabled()
+    expect(selectionToggle).toBeDisabled()
     await user.click(screen.getByText('ترتیب بر اساس تاریخ ایجاد'))
     expect(screen.queryByRole('option')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
@@ -1780,6 +1785,7 @@ describe('routes', () => {
     )
     expect(documentsTable()).not.toHaveAttribute('inert')
     await vi.waitFor(() => expect(orderSelect).toBeEnabled())
+    await vi.waitFor(() => expect(selectionToggle).toBeEnabled())
   })
 
   it('reports a failed list read with an error and a retry button, and recovers the table when pressed', async () => {

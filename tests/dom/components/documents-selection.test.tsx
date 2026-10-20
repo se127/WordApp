@@ -19,9 +19,11 @@ const storedDocument = {
 function renderToolbar({
   isSelecting,
   selectedCount,
+  isDisabled = false,
 }: {
   isSelecting: boolean
   selectedCount: number
+  isDisabled?: boolean
 }) {
   const selectedIds = new Set(
     Array.from({ length: selectedCount }, (_, index) => index + 1),
@@ -59,6 +61,7 @@ function renderToolbar({
             selectedIds={selectedIds}
             onToggleSelecting={onToggleSelecting}
             onDocumentsDeleted={onDocumentsDeleted}
+            isDisabled={isDisabled}
           />
           <Toaster position="bottom-left" duration={8000} expand />
         </QueryClientProvider>
@@ -127,5 +130,23 @@ describe('DocumentsSelectionToolbar', () => {
 
     expect(onToggleSelecting).toHaveBeenCalledTimes(1)
     expect(onDocumentsDeleted).not.toHaveBeenCalled()
+  })
+
+  it('disables the selection toggle while the table is loading', async () => {
+    const { onToggleSelecting } = renderToolbar({
+      isSelecting: false,
+      selectedCount: 0,
+      isDisabled: true,
+    })
+    const user = userEvent.setup()
+
+    const toggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
+    expect(toggle).toBeDisabled()
+
+    await user.click(toggle)
+
+    expect(onToggleSelecting).not.toHaveBeenCalled()
   })
 })

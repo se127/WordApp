@@ -34,11 +34,13 @@ function DocumentsSelectionToolbar({
   selectedIds,
   onToggleSelecting,
   onDocumentsDeleted,
+  isDisabled,
 }: {
   isSelecting: boolean
   selectedIds: ReadonlySet<number>
   onToggleSelecting: () => void
   onDocumentsDeleted: () => void
+  isDisabled: boolean
 }) {
   const queryClient = useQueryClient()
   const { closeDocumentTab } = useContext(DocumentTabsContext)
@@ -90,6 +92,7 @@ function DocumentsSelectionToolbar({
               size="icon"
               aria-label={toggleSelectionLabel}
               aria-pressed={isSelecting}
+              disabled={isDisabled}
               onClick={onToggleSelecting}
             >
               <ListChecks

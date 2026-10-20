@@ -175,6 +175,7 @@ function DocumentsTable() {
         selectedIds={selectedIds}
         onToggleSelecting={toggleSelecting}
         onDocumentsDeleted={clearSelectedDocuments}
+        isDisabled={isFetching}
       />
       <div
         aria-busy={isRefetching}
