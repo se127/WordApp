@@ -20,7 +20,6 @@ function DocumentPage() {
   const {
     data: document,
     isError,
-    isFetching,
     refetch,
   } = useQuery(documentQuery(Number(documentId)))
 
@@ -33,16 +32,6 @@ function DocumentPage() {
             بازگشت به مستندات
           </Link>
         </Button>
-        {document !== undefined && isFetching ? (
-          <span
-            role="status"
-            aria-label="در حال به روز رسانی سند"
-            className="ms-auto flex items-center gap-2 text-sm"
-          >
-            <LoaderCircle className="size-4 animate-spin" />
-            در حال به روز رسانی سند...
-          </span>
-        ) : null}
       </div>
 
       {document ? (
@@ -190,9 +179,6 @@ function useDocumentSave(documentId: number) {
     }
 
     queryClient.setQueryData(documentQuery(documentId).queryKey, saved)
-    void queryClient.invalidateQueries({
-      queryKey: documentQuery(documentId).queryKey,
-    })
     void queryClient.invalidateQueries({
       queryKey: documentsCountQuery.queryKey,
     })

@@ -732,7 +732,7 @@ describe('routes', () => {
     expect(screen.getByRole('button', { name: 'گزینه ها' })).toHaveFocus()
   })
 
-  it('saves the changed title on blur through the document save action and re-reads the row', async () => {
+  it('saves the changed title on blur and updates the row without re-reading it', async () => {
     const { get, save } = installBridge()
     const user = userEvent.setup()
 
@@ -753,8 +753,10 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'گزارش سالانه' }),
     ).toBeInTheDocument()
-
-    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(get).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole('status', { name: 'در حال به روز رسانی سند' }),
+    ).not.toBeInTheDocument()
   })
 
   it('does not save when the title is blurred unchanged', async () => {
@@ -820,52 +822,6 @@ describe('routes', () => {
       await screen.findByRole('heading', { name: 'پیگیری' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-  })
-
-  it('keeps the saved title and the updating loader on screen while the row re-reads', async () => {
-    let reads = 0
-    let finishReread!: (document: typeof storedDocument) => void
-    const get = vi.fn((): Promise<typeof storedDocument> => {
-      reads += 1
-      if (reads === 1) {
-        return Promise.resolve(storedDocument)
-      }
-      return new Promise<typeof storedDocument>((resolve) => {
-        finishReread = resolve
-      })
-    })
-    installBridge({ get })
-    const user = userEvent.setup()
-
-    renderRoute('/documents/1')
-    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
-    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
-    await user.clear(input)
-    await user.type(input, 'گزارش')
-    await user.tab()
-
-    expect(
-      await screen.findByRole('heading', { name: 'گزارش' }),
-    ).toBeInTheDocument()
-
-    const updating = await screen.findByRole('status', {
-      name: 'در حال به روز رسانی سند',
-    })
-    expect(updating).toHaveClass('ms-auto')
-    expect(updating).toHaveTextContent('در حال به روز رسانی سند...')
-    expect(updating.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
-
-    await vi.waitFor(() => expect(finishReread).toBeTypeOf('function'))
-    await act(() =>
-      finishReread({ ...storedDocument, title: 'گزارش', updatedAt: 1_001 }),
-    )
-
-    expect(
-      await screen.findByRole('heading', { name: 'گزارش' }),
-    ).toBeInTheDocument()
-    await vi.waitFor(() =>
-      expect(screen.queryByRole('status')).not.toBeInTheDocument(),
-    )
   })
 
   it('reports a failed save with an error toast and keeps the edited text for another try', async () => {
