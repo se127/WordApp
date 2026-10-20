@@ -246,6 +246,22 @@ Before any commit, run all five and fix whatever they report:
 If any check fails, you are not allowed to commit. Fix the problems first, then re-run
 all five checks, and repeat until everything passes.
 
+## Commit messages — always detailed
+
+- Every commit is a short subject line followed by a body that explains the change.
+  Never commit with a one-line message, not even for a small fix or a documentation
+  update.
+- Write the message in English. Keep the subject as one summary line, then one blank
+  line, then the body wrapped at 72 characters.
+- The body answers what changed, why it changed, and how: the behavior added or
+  removed, the edge cases now covered, the tests that pin it, and the reasoning
+  behind any choice the diff alone cannot show. Describe only what actually landed;
+  re-read the staged diff before writing.
+- When the commit covers several concerns, open with one sentence and list the parts
+  as `-` bullets, one per concern.
+- Write for the person reading `git log` a year from now: explain intent, not a
+  restatement of file names.
+
 ## Never commit without permission
 
 - Always ask the user for explicit permission before running `git commit`, even when all
