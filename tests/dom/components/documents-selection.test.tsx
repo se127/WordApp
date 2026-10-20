@@ -103,6 +103,28 @@ describe('DocumentsSelectionToolbar', () => {
     expect(await screen.findByText('۱٬۰۰۰ سند حذف شد.')).toBeInTheDocument()
   })
 
+  it('shows the group selection tooltip while selection is inactive', async () => {
+    renderToolbar({ isSelecting: false, selectedCount: 0 })
+    const user = userEvent.setup()
+
+    await user.hover(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'انتخاب گروهی اسناد',
+    )
+  })
+
+  it('shows the cancel selection tooltip while selection is active', async () => {
+    renderToolbar({ isSelecting: true, selectedCount: 0 })
+    const user = userEvent.setup()
+
+    await user.hover(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'لغو انتخاب گروهی',
+    )
+  })
+
   it('hides the destructive button and reports the toggle press while nothing is selected', async () => {
     const { onToggleSelecting, onDocumentsDeleted } = renderToolbar({
       isSelecting: false,

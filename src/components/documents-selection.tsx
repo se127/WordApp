@@ -27,6 +27,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 const toggleSelectionLabel = 'انتخاب گروهی اسناد'
+const cancelSelectionLabel = 'لغو انتخاب گروهی'
 
 function DocumentsSelectionToolbar({
   isSelecting,
@@ -97,7 +98,9 @@ function DocumentsSelectionToolbar({
               />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{toggleSelectionLabel}</TooltipContent>
+          <TooltipContent>
+            {isSelecting ? cancelSelectionLabel : toggleSelectionLabel}
+          </TooltipContent>
         </Tooltip>
 
         {selectedCount > 0 ? (
