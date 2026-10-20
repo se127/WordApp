@@ -21,10 +21,13 @@ import {
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
 import { useCreateDocument } from '@/lib/documents'
 import {
+  clearHomeScrollPosition,
   readHomeOrder,
   readHomePage,
+  readHomeScrollPosition,
   saveHomeOrder,
   saveHomePage,
+  saveHomeScrollPosition,
 } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
@@ -37,7 +40,14 @@ import type { DocumentListOrder, DocumentRecord } from '@/types/global'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 
 function HomePage() {
   const { createDocument, isCreating } = useCreateDocument()
@@ -81,6 +91,8 @@ function DocumentsTable() {
       : Math.max(1, Math.ceil(documentCount / documentPageSize))
   const currentPage =
     totalPages === undefined ? page : Math.min(page, totalPages)
+  const previousPageRef = useRef(currentPage)
+  const hasRestoredScrollRef = useRef(false)
   const {
     data: documents,
     isError,
@@ -96,6 +108,18 @@ function DocumentsTable() {
       ) ?? null
   }, [])
 
+  const rememberScrollPosition = useCallback((): void => {
+    const viewport = scrollViewportRef.current
+    if (viewport === null) {
+      return
+    }
+
+    saveHomeScrollPosition({
+      page: currentPage,
+      scrollTop: viewport.scrollTop,
+    })
+  }, [currentPage])
+
   const changePage = useCallback((nextPage: number): void => {
     saveHomePage(nextPage)
     setPage(nextPage)
@@ -104,17 +128,50 @@ function DocumentsTable() {
   const changeOrder = useCallback((nextOrder: DocumentListOrder): void => {
     saveHomeOrder(nextOrder)
     saveHomePage(1)
+    clearHomeScrollPosition()
+    const viewport = scrollViewportRef.current
+    if (viewport !== null) {
+      viewport.scrollTop = 0
+    }
     setOrder(nextOrder)
     setPage(1)
   }, [])
 
   useEffect(() => {
     saveHomePage(currentPage)
+    if (previousPageRef.current === currentPage) {
+      return
+    }
+
+    previousPageRef.current = currentPage
+    clearHomeScrollPosition()
     const viewport = scrollViewportRef.current
     if (viewport !== null) {
       viewport.scrollTop = 0
     }
   }, [currentPage])
+
+  useLayoutEffect(() => {
+    if (
+      hasRestoredScrollRef.current ||
+      documents === undefined ||
+      documents === null
+    ) {
+      return
+    }
+
+    const viewport = scrollViewportRef.current
+    if (viewport === null) {
+      return
+    }
+
+    hasRestoredScrollRef.current = true
+    const scrollPosition = readHomeScrollPosition()
+    if (scrollPosition !== null && scrollPosition.page === currentPage) {
+      viewport.scrollTop = scrollPosition.scrollTop
+    }
+    clearHomeScrollPosition()
+  }, [currentPage, documents])
 
   const toggleSelecting = useCallback((): void => {
     setIsSelecting((selecting) => !selecting)
@@ -212,6 +269,7 @@ function DocumentsTable() {
                   isSelecting={isSelecting}
                   isSelected={selectedIds.has(document.id)}
                   onToggleSelected={toggleSelectedDocument}
+                  onDocumentOpen={rememberScrollPosition}
                 />
               ))}
             </TableBody>
@@ -247,12 +305,14 @@ const DocumentTableRow = memo(function DocumentTableRow({
   isSelecting,
   isSelected,
   onToggleSelected,
+  onDocumentOpen,
 }: {
   document: DocumentRecord
   deletedPage: number
   isSelecting: boolean
   isSelected: boolean
   onToggleSelected: (id: number) => void
+  onDocumentOpen: () => void
 }) {
   return (
     <TableRow data-state={isSelected ? 'selected' : undefined}>
@@ -279,6 +339,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
             to="/documents/$documentId"
             params={{ documentId: String(document.id) }}
             className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={onDocumentOpen}
           >
             {document.title}
           </Link>

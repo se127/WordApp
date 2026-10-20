@@ -1,6 +1,10 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { saveHomeOrder, saveHomePage } from '@/lib/home-page'
+import {
+  clearHomeScrollPosition,
+  saveHomeOrder,
+  saveHomePage,
+} from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
   createQueryClient,
@@ -151,6 +155,7 @@ function installDocumentsBridge(
 function renderRoute(initialEntry: string) {
   saveHomePage(1)
   saveHomeOrder('newest')
+  clearHomeScrollPosition()
   const queryClient = createQueryClient()
   const router = createAppRouter(
     createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -203,6 +208,7 @@ function documentsTable(): HTMLElement {
 afterEach(() => {
   saveHomePage(1)
   saveHomeOrder('newest')
+  clearHomeScrollPosition()
   toast.dismiss()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
@@ -2145,7 +2151,7 @@ describe('routes', () => {
     })
   })
 
-  it('remembers the page after opening a document and returns to it at the top', async () => {
+  it('remembers the page and scroll position after opening a document and returning to it', async () => {
     const documents = Array.from({ length: 40 }, (_, index) => ({
       ...storedDocument,
       id: index + 1,
@@ -2176,12 +2182,34 @@ describe('routes', () => {
       screen.queryByRole('link', { name: 'سند 1' }),
     ).not.toBeInTheDocument()
     expect(paginationPageLink(2)).toHaveAttribute('aria-current', 'page')
-    expect(listViewport().scrollTop).toBe(0)
+    expect(listViewport().scrollTop).toBe(400)
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
       order: 'newest',
     })
+  })
+
+  it('starts a newly selected page at the top of the list', async () => {
+    const documents = Array.from({ length: 40 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 1' })
+    await act(() => {
+      listViewport().scrollTop = 400
+    })
+
+    await user.click(paginationPageLink(2))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    expect(listViewport().scrollTop).toBe(0)
   })
 
   it('starts again from the first page after a new document is created', async () => {
