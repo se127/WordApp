@@ -3,6 +3,7 @@ import {
   queryOptions,
   QueryClient,
 } from '@tanstack/react-query'
+import type { DocumentListOrder } from '@/types/global'
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -30,13 +31,17 @@ export const documentPageSize = 15
 
 export const documentsQueryKey = ['documents', 'list'] as const
 
-export const documentsQuery = (page: number) =>
+export const documentsQuery = (
+  page: number,
+  order: DocumentListOrder = 'newest',
+) =>
   queryOptions({
-    queryKey: [...documentsQueryKey, page],
+    queryKey: [...documentsQueryKey, page, order],
     queryFn: async () =>
       (await window.WordApp?.documents.list({
         offset: (page - 1) * documentPageSize,
         limit: documentPageSize,
+        order,
       })) ?? null,
     placeholderData: keepPreviousData,
     refetchOnMount: true,

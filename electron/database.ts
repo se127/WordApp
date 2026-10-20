@@ -15,9 +15,12 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type DocumentListOrder = 'newest' | 'oldest'
+
 export type DocumentListOptions = {
   offset: number
   limit: number
+  order?: DocumentListOrder
 }
 
 type DocumentRow = {
@@ -169,6 +172,12 @@ export function openDatabase(
      ORDER BY created_at DESC, id DESC
      LIMIT ? OFFSET ?`,
   )
+  const selectOldestDocumentPage = database.prepare(
+    `SELECT id, title, body, created_at, updated_at
+     FROM documents
+     ORDER BY created_at ASC, id ASC
+     LIMIT ? OFFSET ?`,
+  )
 
   const deleteDocumentById = database.prepare(
     'DELETE FROM documents WHERE id = ?',
@@ -227,13 +236,15 @@ export function openDatabase(
       return row.count
     },
 
-    async listDocuments({ offset, limit }) {
+    async listDocuments({ offset, limit, order = 'newest' }) {
       await waitBeforeQuery()
       failInjectedOperation(
         offset === 0 ? 'listDocuments' : 'listMoreDocuments',
       )
 
-      const rows = selectDocumentPage.all(limit, offset) as DocumentRow[]
+      const page =
+        order === 'oldest' ? selectOldestDocumentPage : selectDocumentPage
+      const rows = page.all(limit, offset) as DocumentRow[]
       return rows.map(toRecord)
     },
 

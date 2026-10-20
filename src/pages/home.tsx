@@ -1,6 +1,7 @@
 import { DocumentOptions } from '@/components/document-options'
 import { DocumentsPagination } from '@/components/documents-pagination'
 import { DocumentsSelectionToolbar } from '@/components/documents-selection'
+import { DocumentsSort } from '@/components/documents-sort'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -19,7 +20,12 @@ import {
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
 import { useCreateDocument } from '@/lib/documents'
-import { readHomePage, saveHomePage } from '@/lib/home-page'
+import {
+  readHomeOrder,
+  readHomePage,
+  saveHomeOrder,
+  saveHomePage,
+} from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
   documentPageSize,
@@ -27,7 +33,7 @@ import {
   documentsQuery,
 } from '@/lib/query'
 import { cn } from '@/lib/utils'
-import type { DocumentRecord } from '@/types/global'
+import type { DocumentListOrder, DocumentRecord } from '@/types/global'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
@@ -62,6 +68,7 @@ function HomePage() {
 
 function DocumentsTable() {
   const [page, setPage] = useState(readHomePage)
+  const [order, setOrder] = useState(readHomeOrder)
   const [isSelecting, setIsSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(
     new Set<number>(),
@@ -80,7 +87,7 @@ function DocumentsTable() {
     isFetching,
     isRefetching,
     refetch,
-  } = useQuery(documentsQuery(currentPage))
+  } = useQuery(documentsQuery(currentPage, order))
 
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
     scrollViewportRef.current =
@@ -92,6 +99,13 @@ function DocumentsTable() {
   const changePage = useCallback((nextPage: number): void => {
     saveHomePage(nextPage)
     setPage(nextPage)
+  }, [])
+
+  const changeOrder = useCallback((nextOrder: DocumentListOrder): void => {
+    saveHomeOrder(nextOrder)
+    saveHomePage(1)
+    setOrder(nextOrder)
+    setPage(1)
   }, [])
 
   useEffect(() => {
@@ -151,6 +165,11 @@ function DocumentsTable() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
+      <DocumentsSort
+        order={order}
+        onOrderChange={changeOrder}
+        isDisabled={isFetching}
+      />
       <DocumentsSelectionToolbar
         isSelecting={isSelecting}
         selectedIds={selectedIds}

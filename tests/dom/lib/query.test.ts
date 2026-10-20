@@ -100,6 +100,21 @@ describe('query layer', () => {
     expect(list).toHaveBeenCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
+      order: 'newest',
+    })
+  })
+
+  it('reads the oldest documents first when asked', async () => {
+    const list = vi.fn(async () => [storedDocument])
+    installDocuments({ list })
+
+    await expect(
+      createQueryClient().query(documentsQuery(1, 'oldest')),
+    ).resolves.toEqual([storedDocument])
+    expect(list).toHaveBeenCalledWith({
+      offset: 0,
+      limit: documentPageSize,
+      order: 'oldest',
     })
   })
 

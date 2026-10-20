@@ -1,6 +1,6 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { saveHomePage } from '@/lib/home-page'
+import { saveHomeOrder, saveHomePage } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
 import {
   createQueryClient,
@@ -46,9 +46,10 @@ const storedDocument = {
 
 function documentListPage(
   documents: Array<typeof storedDocument>,
-  { offset, limit }: DocumentListOptions,
+  { offset, limit, order = 'newest' }: DocumentListOptions,
 ): Array<typeof storedDocument> {
-  return documents.slice(offset, offset + limit)
+  const ordered = order === 'oldest' ? [...documents].reverse() : documents
+  return ordered.slice(offset, offset + limit)
 }
 
 function installBridge(
@@ -149,6 +150,7 @@ function installDocumentsBridge(
 
 function renderRoute(initialEntry: string) {
   saveHomePage(1)
+  saveHomeOrder('newest')
   const queryClient = createQueryClient()
   const router = createAppRouter(
     createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -200,6 +202,7 @@ function documentsTable(): HTMLElement {
 
 afterEach(() => {
   saveHomePage(1)
+  saveHomeOrder('newest')
   toast.dismiss()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
@@ -1548,6 +1551,7 @@ describe('routes', () => {
     expect(list).toHaveBeenCalledExactlyOnceWith({
       offset: 0,
       limit: documentPageSize,
+      order: 'newest',
     })
 
     await act(() => finishList([{ ...storedDocument, title: 'یادداشت' }]))
@@ -1556,6 +1560,171 @@ describe('routes', () => {
       await screen.findByRole('link', { name: 'یادداشت' }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('sorts the list newest first by default and oldest first from the order select', async () => {
+    const documents = [
+      {
+        ...storedDocument,
+        id: 3,
+        title: 'سند 3',
+        createdAt: 3_000,
+        updatedAt: 3_000,
+      },
+      {
+        ...storedDocument,
+        id: 2,
+        title: 'سند 2',
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+      {
+        ...storedDocument,
+        id: 1,
+        title: 'سند 1',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 3' })
+    const orderSelect = screen.getByRole('combobox', {
+      name: 'ترتیب بر اساس تاریخ ایجاد',
+    })
+    expect(orderSelect).toBeEnabled()
+    const addButton = within(screen.getByRole('main')).getByRole('button', {
+      name: 'افزودن سند',
+    })
+    const selectionToggle = screen.getByRole('button', {
+      name: 'انتخاب گروهی اسناد',
+    })
+    expect(
+      addButton.compareDocumentPosition(orderSelect) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      orderSelect.compareDocumentPosition(selectionToggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.getByText('ترتیب بر اساس تاریخ ایجاد')).toHaveClass('text-sm')
+    expect(orderSelect).toHaveClass('text-sm')
+    expect(orderSelect).not.toHaveClass('text-muted-foreground')
+    expect(orderSelect).toHaveTextContent('جدید به قدیم')
+    expect(
+      screen
+        .getAllByRole('link', { name: /^سند / })
+        .map((link) => link.textContent),
+    ).toEqual(['سند 3', 'سند 2', 'سند 1'])
+    expect(list).toHaveBeenLastCalledWith({
+      offset: 0,
+      limit: documentPageSize,
+      order: 'newest',
+    })
+
+    await user.click(screen.getByText('ترتیب بر اساس تاریخ ایجاد'))
+    await user.click(
+      await screen.findByRole('option', { name: 'قدیم به جدید' }),
+    )
+
+    expect(orderSelect).toHaveTextContent('قدیم به جدید')
+    expect(
+      screen
+        .getAllByRole('link', { name: /^سند / })
+        .map((link) => link.textContent),
+    ).toEqual(['سند 1', 'سند 2', 'سند 3'])
+    expect(list).toHaveBeenLastCalledWith({
+      offset: 0,
+      limit: documentPageSize,
+      order: 'oldest',
+    })
+  })
+
+  it('returns to the first page when the order changes', async () => {
+    const documents = Array.from({ length: 40 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 1' })
+    await user.click(paginationPageLink(2))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'قدیم به جدید' }),
+    )
+
+    expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
+    await screen.findByRole('link', { name: 'سند 40' })
+    expect(list).toHaveBeenLastCalledWith({
+      offset: 0,
+      limit: documentPageSize,
+      order: 'oldest',
+    })
+  })
+
+  it('keeps the chosen order after opening a document and returning home', async () => {
+    const documents = [
+      {
+        ...storedDocument,
+        id: 3,
+        title: 'سند 3',
+        createdAt: 3_000,
+        updatedAt: 3_000,
+      },
+      {
+        ...storedDocument,
+        id: 2,
+        title: 'سند 2',
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+      {
+        ...storedDocument,
+        id: 1,
+        title: 'سند 1',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 3' })
+    await user.click(
+      screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'قدیم به جدید' }),
+    )
+    await screen.findByRole('link', { name: 'سند 1' })
+
+    await user.click(screen.getByRole('link', { name: 'سند 1' }))
+    await screen.findByRole('heading', { name: 'سند 1' })
+    await user.click(screen.getByRole('link', { name: 'خانه' }))
+
+    const orderSelect = await screen.findByRole('combobox', {
+      name: 'ترتیب بر اساس تاریخ ایجاد',
+    })
+    expect(orderSelect).toHaveTextContent('قدیم به جدید')
+    expect(list).toHaveBeenLastCalledWith({
+      offset: 0,
+      limit: documentPageSize,
+      order: 'oldest',
+    })
   })
 
   it('keeps the stale rows and pulses the table while the list re-reads', async () => {
@@ -1573,10 +1742,15 @@ describe('routes', () => {
       },
     )
     installBridge({ list })
+    const user = userEvent.setup()
 
     const { queryClient } = renderRoute('/')
     await screen.findByRole('link', { name: 'بدون عنوان' })
 
+    const orderSelect = screen.getByRole('combobox', {
+      name: 'ترتیب بر اساس تاریخ ایجاد',
+    })
+    expect(orderSelect).toBeEnabled()
     expect(documentsTable()).not.toHaveClass('animate-pulse')
 
     await act(async () => {
@@ -1590,6 +1764,9 @@ describe('routes', () => {
     )
     expect(documentsTable()).toHaveClass('pointer-events-none')
     expect(documentsTable()).toHaveAttribute('inert')
+    expect(orderSelect).toBeDisabled()
+    await user.click(screen.getByText('ترتیب بر اساس تاریخ ایجاد'))
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'بدون عنوان' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
@@ -1602,6 +1779,7 @@ describe('routes', () => {
       expect(documentsTable()).not.toHaveClass('animate-pulse'),
     )
     expect(documentsTable()).not.toHaveAttribute('inert')
+    await vi.waitFor(() => expect(orderSelect).toBeEnabled())
   })
 
   it('reports a failed list read with an error and a retry button, and recovers the table when pressed', async () => {
@@ -1801,6 +1979,7 @@ describe('routes', () => {
     expect(list).toHaveBeenCalledExactlyOnceWith({
       offset: 0,
       limit: documentPageSize,
+      order: 'newest',
     })
     expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
     expect(
@@ -1819,6 +1998,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
+      order: 'newest',
     })
     expect(paginationPageLink(2)).toHaveAttribute('aria-current', 'page')
     expect(
@@ -1841,6 +2021,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize * 2,
       limit: documentPageSize,
+      order: 'newest',
     })
     expect(paginationPageLink(3)).toHaveAttribute('aria-current', 'page')
     expect(
@@ -1888,6 +2069,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
+      order: 'newest',
     })
     expect(documentsTable()).toHaveClass('animate-pulse', 'pointer-events-none')
     expect(documentsTable()).toHaveAttribute('inert')
@@ -1953,6 +2135,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
+      order: 'newest',
     })
   })
 
@@ -1991,6 +2174,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize,
       limit: documentPageSize,
+      order: 'newest',
     })
   })
 
@@ -2027,6 +2211,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: 0,
       limit: documentPageSize,
+      order: 'newest',
     })
   })
 
@@ -2047,6 +2232,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize * 2,
       limit: documentPageSize,
+      order: 'newest',
     })
 
     await user.click(paginationPageLink(2))
@@ -2108,6 +2294,7 @@ describe('routes', () => {
     expect(list).toHaveBeenLastCalledWith({
       offset: documentPageSize * 2,
       limit: documentPageSize,
+      order: 'newest',
     })
 
     const documentTabs = document.querySelector<HTMLElement>(

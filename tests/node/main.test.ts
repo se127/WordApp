@@ -440,16 +440,18 @@ describe('documents database', () => {
     mocks.database.listDocuments.mockReturnValue(page)
     const list = handlerFor('handle', documentsListChannel)
 
-    expect(list({}, { offset: 0, limit: 15 })).toEqual(page)
+    expect(list({}, { offset: 0, limit: 15, order: 'oldest' })).toEqual(page)
     expect(mocks.database.listDocuments).toHaveBeenCalledWith({
       offset: 0,
       limit: 15,
+      order: 'oldest',
     })
 
-    expect(list({}, { offset: 30, limit: 15 })).toEqual(page)
+    expect(list({}, { offset: 30, limit: 15, order: 'newest' })).toEqual(page)
     expect(mocks.database.listDocuments).toHaveBeenLastCalledWith({
       offset: 30,
       limit: 15,
+      order: 'newest',
     })
   })
 
@@ -472,6 +474,11 @@ describe('documents database', () => {
     expect(list({}, { offset: 1.5, limit: 15 })).toBeUndefined()
     expect(list({}, { offset: Number.NaN, limit: 15 })).toBeUndefined()
     expect(list({}, { offset: '0', limit: 15 })).toBeUndefined()
+    expect(
+      list({}, { offset: 0, limit: 15, order: 'sideways' }),
+    ).toBeUndefined()
+    expect(list({}, { offset: 0, limit: 15, order: 1 })).toBeUndefined()
+    expect(list({}, { offset: 0, limit: 15, order: null })).toBeUndefined()
     expect(mocks.database.listDocuments).not.toHaveBeenCalled()
   })
 

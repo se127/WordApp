@@ -11,9 +11,12 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type DocumentListOrder = 'newest' | 'oldest'
+
 export type DocumentListOptions = {
   offset: number
   limit: number
+  order?: DocumentListOrder
 }
 
 export type WindowControls = {

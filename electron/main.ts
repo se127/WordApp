@@ -151,14 +151,19 @@ function isDocumentListOptions(value: unknown): value is DocumentListOptions {
     return false
   }
 
-  const { offset, limit } = value as { offset?: unknown; limit?: unknown }
+  const { offset, limit, order } = value as {
+    offset?: unknown
+    limit?: unknown
+    order?: unknown
+  }
   return (
     typeof offset === 'number' &&
     Number.isSafeInteger(offset) &&
     offset >= 0 &&
     typeof limit === 'number' &&
     Number.isSafeInteger(limit) &&
-    limit > 0
+    limit > 0 &&
+    (order === undefined || order === 'newest' || order === 'oldest')
   )
 }
 

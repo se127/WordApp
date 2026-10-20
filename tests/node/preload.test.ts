@@ -74,11 +74,12 @@ describe('preload bridge', () => {
     const page = [record]
     mocks.invoke.mockResolvedValue(page)
     await expect(
-      api.documents.list({ offset: 15, limit: 15 }),
+      api.documents.list({ offset: 15, limit: 15, order: 'oldest' }),
     ).resolves.toEqual(page)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:list', {
       offset: 15,
       limit: 15,
+      order: 'oldest',
     })
 
     mocks.invoke.mockResolvedValue(undefined)

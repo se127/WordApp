@@ -1,8 +1,14 @@
-import { readHomePage, saveHomePage } from '@/lib/home-page'
+import {
+  readHomeOrder,
+  readHomePage,
+  saveHomeOrder,
+  saveHomePage,
+} from '@/lib/home-page'
 import { afterEach, describe, expect, it } from 'vitest'
 
 afterEach(() => {
   saveHomePage(1)
+  saveHomeOrder('newest')
 })
 
 describe('home page memory', () => {
@@ -24,5 +30,17 @@ describe('home page memory', () => {
     saveHomePage(1)
 
     expect(readHomePage()).toBe(1)
+  })
+
+  it('starts with the newest documents first', () => {
+    expect(readHomeOrder()).toBe('newest')
+  })
+
+  it('saves the chosen order and reads it back', () => {
+    saveHomeOrder('oldest')
+    expect(readHomeOrder()).toBe('oldest')
+
+    saveHomeOrder('newest')
+    expect(readHomeOrder()).toBe('newest')
   })
 })

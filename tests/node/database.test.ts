@@ -141,6 +141,32 @@ describe('openDatabase', () => {
     }
   })
 
+  it('serves the oldest-first first page from the created_at and id index', () => {
+    const { databasePath } = openTestDatabase()
+    const raw = new DatabaseSync(databasePath)
+
+    try {
+      const details = (
+        raw
+          .prepare(
+            `EXPLAIN QUERY PLAN
+             SELECT id, title, body, created_at, updated_at
+             FROM documents
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?`,
+          )
+          .all() as Array<{ detail: string }>
+      )
+        .map((step) => step.detail)
+        .join('\n')
+
+      expect(details).toContain('documents_created_at_id_idx')
+      expect(details).not.toContain('TEMP B-TREE')
+    } finally {
+      raw.close()
+    }
+  })
+
   it('migrates an existing version 1 file and keeps its documents', async () => {
     const databasePath = temporaryDatabasePath()
     const legacy = new DatabaseSync(databasePath)
@@ -344,6 +370,32 @@ describe('documents', () => {
 
       const secondPage = await store.listDocuments({ offset: 2, limit: 2 })
       expect(secondPage).toEqual([first])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lists the oldest documents first and breaks ties by the oldest id', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { database: store } = openTestDatabase()
+
+      vi.setSystemTime(2_500_000)
+      const first = await store.createDocument()
+      vi.setSystemTime(2_501_000)
+      const second = await store.createDocument()
+      const third = await store.createDocument()
+
+      expect(second.createdAt).toBe(third.createdAt)
+
+      expect(
+        await store.listDocuments({
+          offset: 0,
+          limit: 15,
+          order: 'oldest',
+        }),
+      ).toEqual([first, second, third])
     } finally {
       vi.useRealTimers()
     }
