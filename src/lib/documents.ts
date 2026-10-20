@@ -1,5 +1,5 @@
-import { resetHomeScrollOffset } from '@/lib/home-scroll'
-import { documentsCountQuery, documentsQuery } from '@/lib/query'
+import { saveHomePage } from '@/lib/home-page'
+import { documentsCountQuery, documentsQueryKey } from '@/lib/query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useSyncExternalStore } from 'react'
@@ -57,13 +57,12 @@ function useCreateDocument() {
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,
       })
-      void queryClient.invalidateQueries({ queryKey: documentsQuery.queryKey })
-
+      void queryClient.invalidateQueries({ queryKey: documentsQueryKey })
       await navigate({
         to: '/documents/$documentId',
         params: { documentId: String(document.id) },
       })
-      resetHomeScrollOffset()
+      saveHomePage(1)
     })().finally(() => {
       finishCreatingDocument()
     })

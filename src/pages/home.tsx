@@ -1,4 +1,5 @@
 import { DocumentOptions } from '@/components/document-options'
+import { DocumentsPagination } from '@/components/documents-pagination'
 import { DocumentsSelectionToolbar } from '@/components/documents-selection'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -18,28 +19,19 @@ import {
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
 import { useCreateDocument } from '@/lib/documents'
-import {
-  readHomeMeasurements,
-  readHomeScrollOffset,
-  saveHomeMeasurements,
-  saveHomeScrollOffset,
-} from '@/lib/home-scroll'
+import { readHomePage, saveHomePage } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
-import { documentsCountQuery, documentsQuery } from '@/lib/query'
+import {
+  documentPageSize,
+  documentsCountQuery,
+  documentsQuery,
+} from '@/lib/query'
 import { cn } from '@/lib/utils'
 import type { DocumentRecord } from '@/types/global'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { LoaderCircle, Plus, RefreshCw } from 'lucide-react'
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 function HomePage() {
   const { createDocument, isCreating } = useCreateDocument()
@@ -68,57 +60,53 @@ function HomePage() {
   )
 }
 
-const estimatedTableRowHeight = 37
-const tableRowOverscan = 8
-
-const estimateTableRowSize = () => estimatedTableRowHeight
-
-const measureTableRow = (row: HTMLTableRowElement) => {
-  const measured = row.getBoundingClientRect().height
-  return measured > 0 ? measured : estimatedTableRowHeight
-}
-
 function DocumentsTable() {
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isError,
-    isFetchNextPageError,
-    isFetching,
-    isFetchingNextPage,
-    isRefetching,
-    refetch,
-  } = useInfiniteQuery(documentsQuery)
+  const [page, setPage] = useState(readHomePage)
   const [isSelecting, setIsSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(
     new Set<number>(),
   )
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
-  const fetchingNextPageRef = useRef(false)
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null)
+  const { data: documentCount } = useQuery(documentsCountQuery)
+  const totalPages =
+    documentCount === undefined || documentCount === null
+      ? undefined
+      : Math.max(1, Math.ceil(documentCount / documentPageSize))
+  const currentPage =
+    totalPages === undefined ? page : Math.min(page, totalPages)
+  const {
+    data: documents,
+    isError,
+    isFetching,
+    isRefetching,
+    refetch,
+  } = useQuery(documentsQuery(currentPage))
+
   const attachScrollArea = useCallback((node: HTMLDivElement | null) => {
-    const nextViewport =
+    scrollViewportRef.current =
       node?.querySelector<HTMLDivElement>(
         '[data-slot="scroll-area-viewport"]',
       ) ?? null
-    viewportRef.current = nextViewport
-    setViewport(nextViewport)
   }, [])
-  const documents =
-    data === undefined
-      ? undefined
-      : data.pages.some((page) => page === null)
-        ? null
-        : data.pages.flatMap((page) => page?.documents ?? [])
-  const getItemKey = useCallback(
-    (index: number) => documents?.[index]?.id ?? index,
-    [documents],
-  )
+
+  const changePage = useCallback((nextPage: number): void => {
+    saveHomePage(nextPage)
+    setPage(nextPage)
+  }, [])
+
+  useEffect(() => {
+    saveHomePage(currentPage)
+    const viewport = scrollViewportRef.current
+    if (viewport !== null) {
+      viewport.scrollTop = 0
+    }
+  }, [currentPage])
+
   const toggleSelecting = useCallback((): void => {
     setIsSelecting((selecting) => !selecting)
     setSelectedIds(new Set<number>())
   }, [])
+
   const toggleSelectedDocument = useCallback((id: number): void => {
     setSelectedIds((ids) => {
       const next = new Set(ids)
@@ -130,77 +118,12 @@ function DocumentsTable() {
       return next
     })
   }, [])
+
   const clearSelectedDocuments = useCallback((): void => {
     setSelectedIds(new Set<number>())
   }, [])
 
-  // oxlint-disable-next-line react/incompatible-library
-  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
-    count: documents?.length ?? 0,
-    estimateSize: estimateTableRowSize,
-    getItemKey,
-    getScrollElement: () => viewportRef.current,
-    initialMeasurementsCache: readHomeMeasurements(),
-    initialOffset: readHomeScrollOffset() ?? 0,
-    measureElement: measureTableRow,
-    overscan: tableRowOverscan,
-  })
-
-  useLayoutEffect(() => {
-    if (viewport === null) {
-      return
-    }
-
-    const savedScrollOffset = readHomeScrollOffset()
-    if (savedScrollOffset !== null) {
-      viewport.scrollTop = savedScrollOffset
-    }
-
-    const saveScrollOffset = (): void => {
-      saveHomeScrollOffset(viewport.scrollTop)
-    }
-
-    viewport.addEventListener('scroll', saveScrollOffset)
-
-    return () => {
-      saveHomeScrollOffset(viewport.scrollTop)
-      saveHomeMeasurements(rowVirtualizer.takeSnapshot())
-      viewport.removeEventListener('scroll', saveScrollOffset)
-    }
-  }, [viewport, rowVirtualizer])
-
-  const virtualRows = rowVirtualizer.getVirtualItems()
-  const firstVirtualRow = virtualRows[0]
-  const lastVirtualRow = virtualRows[virtualRows.length - 1]
-  const lastVirtualRowIndex = lastVirtualRow?.index
-  const documentsLength = documents?.length ?? 0
-
-  useEffect(() => {
-    if (
-      lastVirtualRowIndex === undefined ||
-      lastVirtualRowIndex < documentsLength - 1 ||
-      !hasNextPage ||
-      isFetching ||
-      isError ||
-      fetchingNextPageRef.current
-    ) {
-      return
-    }
-
-    fetchingNextPageRef.current = true
-    void fetchNextPage({ cancelRefetch: false }).finally(() => {
-      fetchingNextPageRef.current = false
-    })
-  }, [
-    documentsLength,
-    fetchNextPage,
-    hasNextPage,
-    isError,
-    isFetching,
-    lastVirtualRowIndex,
-  ])
-
-  if (isError && !isFetchNextPageError) {
+  if (isError) {
     return (
       <DocumentsRetry isRetrying={isFetching} onRetry={() => void refetch()} />
     )
@@ -215,6 +138,10 @@ function DocumentsTable() {
   }
 
   if (documents.length === 0) {
+    if (currentPage > 1) {
+      return <DocumentsPending />
+    }
+
     return (
       <div className="flex min-h-32 w-full flex-1 items-center justify-center">
         <p className="text-sm">هنوز سندی ثبت نشده است.</p>
@@ -230,55 +157,55 @@ function DocumentsTable() {
         onToggleSelecting={toggleSelecting}
         onDocumentsDeleted={clearSelectedDocuments}
       />
-      <Table className="table-fixed">
-        <DocumentTableColumns isSelecting={isSelecting} />
-        <TableHeader>
-          <TableRow>
-            {isSelecting ? <TableHead /> : null}
-            <TableHead>عنوان</TableHead>
-            <TableHead className="text-center">تاریخ ایجاد</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-      </Table>
-      <ScrollArea
-        ref={attachScrollArea}
-        className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible"
+      <div
+        aria-busy={isRefetching}
+        inert={isRefetching ? true : undefined}
+        data-slot="documents-table"
+        className={cn(
+          'flex min-h-0 w-full flex-1 flex-col',
+          isRefetching && 'pointer-events-none animate-pulse',
+        )}
       >
-        <Table className={cn('table-fixed', isRefetching && 'animate-pulse')}>
+        <Table className="table-fixed">
           <DocumentTableColumns isSelecting={isSelecting} />
-          <TableBody>
-            <TableRowSpacer
-              height={firstVirtualRow?.start ?? 0}
-              columns={isSelecting ? 4 : 3}
-            />
-            {virtualRows.map((virtualRow) => (
-              <DocumentTableRow
-                key={virtualRow.key}
-                document={documents[virtualRow.index]}
-                index={virtualRow.index}
-                measureElement={rowVirtualizer.measureElement}
-                isSelecting={isSelecting}
-                isSelected={selectedIds.has(documents[virtualRow.index].id)}
-                onToggleSelected={toggleSelectedDocument}
-              />
-            ))}
-            <TableRowSpacer
-              height={
-                lastVirtualRow
-                  ? rowVirtualizer.getTotalSize() - lastVirtualRow.end
-                  : 0
-              }
-              columns={isSelecting ? 4 : 3}
-            />
-          </TableBody>
+          <TableHeader>
+            <TableRow>
+              {isSelecting ? <TableHead /> : null}
+              <TableHead>عنوان</TableHead>
+              <TableHead className="text-center">تاریخ ایجاد</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
         </Table>
-        <DocumentsListFooter
-          isError={isError}
-          isFetchingNextPage={isFetchingNextPage}
-          onRetry={() => void fetchNextPage()}
+        <ScrollArea
+          ref={attachScrollArea}
+          className="min-h-0 w-full flex-1 [&_[data-slot=table-container]]:overflow-visible"
+        >
+          <Table className="table-fixed">
+            <DocumentTableColumns isSelecting={isSelecting} />
+            <TableBody>
+              {documents.map((document) => (
+                <DocumentTableRow
+                  key={document.id}
+                  document={document}
+                  deletedPage={currentPage}
+                  isSelecting={isSelecting}
+                  isSelected={selectedIds.has(document.id)}
+                  onToggleSelected={toggleSelectedDocument}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </ScrollArea>
+      </div>
+      {totalPages !== undefined && totalPages > 1 ? (
+        <DocumentsPagination
+          page={currentPage}
+          totalPages={totalPages}
+          isDisabled={isFetching}
+          onPageChange={changePage}
         />
-      </ScrollArea>
+      ) : null}
     </div>
   )
 }
@@ -294,79 +221,21 @@ function DocumentTableColumns({ isSelecting }: { isSelecting: boolean }) {
   )
 }
 
-function DocumentsListFooter({
-  isError,
-  isFetchingNextPage,
-  onRetry,
-}: {
-  isError: boolean
-  isFetchingNextPage: boolean
-  onRetry: () => void
-}) {
-  if (isFetchingNextPage) {
-    return (
-      <div
-        role="status"
-        className="flex w-full items-center justify-center gap-2 p-4 text-sm"
-      >
-        <LoaderCircle className="size-4 animate-spin" />
-        در حال بارگذاری بیشتر...
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div className="flex w-full flex-col items-center justify-center gap-3 p-4">
-        <p className="text-sm text-destructive">
-          بارگذاری سندهای بیشتر ناموفق بود. دوباره تلاش کنید.
-        </p>
-        <Button variant="outline" onClick={onRetry}>
-          <RefreshCw className="size-4 text-destructive" />
-          تلاش دوباره
-        </Button>
-      </div>
-    )
-  }
-
-  return null
-}
-
-function TableRowSpacer({
-  height,
-  columns,
-}: {
-  height: number
-  columns: number
-}) {
-  return (
-    <tr data-slot="table-row-spacer" aria-hidden="true" style={{ height }}>
-      <td colSpan={columns} style={{ padding: 0 }} />
-    </tr>
-  )
-}
-
 const DocumentTableRow = memo(function DocumentTableRow({
   document,
-  index,
-  measureElement,
+  deletedPage,
   isSelecting,
   isSelected,
   onToggleSelected,
 }: {
   document: DocumentRecord
-  index: number
-  measureElement: (node: HTMLTableRowElement | null) => void
+  deletedPage: number
   isSelecting: boolean
   isSelected: boolean
   onToggleSelected: (id: number) => void
 }) {
   return (
-    <TableRow
-      data-index={index}
-      data-state={isSelected ? 'selected' : undefined}
-      ref={measureElement}
-    >
+    <TableRow data-state={isSelected ? 'selected' : undefined}>
       {isSelecting ? (
         <TableCell>
           <Checkbox
@@ -406,6 +275,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
           <DocumentOptions
             documentId={document.id}
             documentTitle={document.title}
+            deletedPage={deletedPage}
           />
         </div>
       </TableCell>

@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   DocumentChanges,
   DocumentListOptions,
-  DocumentListPage,
   DocumentRecord,
 } from './database.ts'
 import {
@@ -28,7 +27,7 @@ contextBridge.exposeInMainWorld('WordApp', {
     get: (id: number): Promise<DocumentRecord | undefined> =>
       ipcRenderer.invoke(documentsGetChannel, id),
     count: (): Promise<number> => ipcRenderer.invoke(documentsCountChannel),
-    list: (options: DocumentListOptions): Promise<DocumentListPage> =>
+    list: (options: DocumentListOptions): Promise<DocumentRecord[]> =>
       ipcRenderer.invoke(documentsListChannel, options),
     delete: (id: number): Promise<void> =>
       ipcRenderer.invoke(documentsDeleteChannel, id),

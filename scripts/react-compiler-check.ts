@@ -67,14 +67,7 @@ export type AcceptedSkip = {
   reason: string
 }
 
-export const acceptedCompilerSkips: AcceptedSkip[] = [
-  {
-    file: 'src/pages/home.tsx',
-    problem: 'Use of incompatible library [IncompatibleLibrary]',
-    reason:
-      'TanStack Virtual returns functions that cannot be memoized safely, so React Compiler always skips the component that calls useVirtualizer() (DocumentsTable).',
-  },
-]
+export const acceptedCompilerSkips: AcceptedSkip[] = []
 
 function readCompilerOptions(): Record<string, unknown> {
   const preset = reactCompiler.preset

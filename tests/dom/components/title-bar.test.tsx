@@ -42,7 +42,7 @@ function installControls(
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 0),
-      list: vi.fn(async () => ({ documents: [], nextCursor: null })),
+      list: vi.fn(async () => []),
       delete: vi.fn(async () => undefined),
       deleteMany: vi.fn(async () => undefined),
       save: vi.fn(async () => storedDocument),

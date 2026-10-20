@@ -10,7 +10,6 @@ import {
 import type {
   DatabaseOperationName,
   DocumentChanges,
-  DocumentListCursor,
   DocumentListOptions,
 } from './database.ts'
 import {
@@ -147,28 +146,16 @@ function isDocumentIds(value: unknown): value is number[] {
   )
 }
 
-function isDocumentListCursor(value: unknown): value is DocumentListCursor {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-
-  const { createdAt, id } = value as { createdAt?: unknown; id?: unknown }
-  return (
-    typeof createdAt === 'number' &&
-    Number.isSafeInteger(createdAt) &&
-    typeof id === 'number' &&
-    Number.isSafeInteger(id)
-  )
-}
-
 function isDocumentListOptions(value: unknown): value is DocumentListOptions {
   if (typeof value !== 'object' || value === null) {
     return false
   }
 
-  const { cursor, limit } = value as { cursor?: unknown; limit?: unknown }
+  const { offset, limit } = value as { offset?: unknown; limit?: unknown }
   return (
-    (cursor === null || cursor === undefined || isDocumentListCursor(cursor)) &&
+    typeof offset === 'number' &&
+    Number.isSafeInteger(offset) &&
+    offset >= 0 &&
     typeof limit === 'number' &&
     Number.isSafeInteger(limit) &&
     limit > 0

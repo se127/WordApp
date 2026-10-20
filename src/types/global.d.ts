@@ -11,19 +11,9 @@ export type DocumentChanges = {
   body?: string
 }
 
-export type DocumentListCursor = {
-  createdAt: number
-  id: number
-}
-
 export type DocumentListOptions = {
-  cursor: DocumentListCursor | null
+  offset: number
   limit: number
-}
-
-export type DocumentListPage = {
-  documents: DocumentRecord[]
-  nextCursor: DocumentListCursor | null
 }
 
 export type WindowControls = {
@@ -42,7 +32,7 @@ declare global {
         create: () => Promise<DocumentRecord>
         get: (id: number) => Promise<DocumentRecord | undefined>
         count: () => Promise<number>
-        list: (options: DocumentListOptions) => Promise<DocumentListPage>
+        list: (options: DocumentListOptions) => Promise<DocumentRecord[]>
         delete: (id: number) => Promise<void>
         deleteMany: (ids: number[]) => Promise<void>
         save: (

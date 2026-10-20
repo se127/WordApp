@@ -1,3 +1,4 @@
+import { readHomePage } from '@/lib/home-page'
 import { documentsCountQuery, documentsQuery } from '@/lib/query'
 import { HomePage } from '@/pages/home'
 import { rootRoute } from '@/routes/root'
@@ -9,6 +10,8 @@ export const homeRoute = createRoute({
   component: HomePage,
   loader: ({ context }) => {
     void context.queryClient.query(documentsCountQuery).catch(() => {})
-    void context.queryClient.infiniteQuery(documentsQuery).catch(() => {})
+    void context.queryClient
+      .query(documentsQuery(readHomePage()))
+      .catch(() => {})
   },
 })

@@ -158,7 +158,7 @@ describe('renderer sources', () => {
     expect(documentOptions.status).toBe('compiled')
 
     const home = checkFile('src/pages/home.tsx')
-    expect(home.status).toBe('accepted')
+    expect(home.status).toBe('compiled')
     expect(home.compiledFunctions.length).toBeGreaterThan(0)
   })
 })

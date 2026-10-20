@@ -21,7 +21,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { DocumentTabsContext } from '@/lib/document-tabs'
-import { documentQuery, documentsCountQuery, documentsQuery } from '@/lib/query'
+import {
+  documentQuery,
+  documentsCountQuery,
+  invalidateDocumentPagesFrom,
+} from '@/lib/query'
 import { useQueryClient } from '@tanstack/react-query'
 import { Ellipsis, LoaderCircle, Trash } from 'lucide-react'
 import { useContext, useState } from 'react'
@@ -30,10 +34,12 @@ import { toast } from 'sonner'
 function DocumentOptions({
   documentId,
   documentTitle,
+  deletedPage = 1,
   onDocumentDeleted,
 }: {
   documentId: number
   documentTitle?: string
+  deletedPage?: number
   onDocumentDeleted?: () => Promise<void> | void
 }) {
   const queryClient = useQueryClient()
@@ -62,9 +68,7 @@ function DocumentOptions({
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,
       })
-      void queryClient.invalidateQueries({
-        queryKey: documentsQuery.queryKey,
-      })
+      invalidateDocumentPagesFrom(queryClient, deletedPage)
 
       await onDocumentDeleted?.()
 

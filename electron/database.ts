@@ -15,19 +15,9 @@ export type DocumentChanges = {
   body?: string
 }
 
-export type DocumentListCursor = {
-  createdAt: number
-  id: number
-}
-
 export type DocumentListOptions = {
-  cursor: DocumentListCursor | null
+  offset: number
   limit: number
-}
-
-export type DocumentListPage = {
-  documents: DocumentRecord[]
-  nextCursor: DocumentListCursor | null
 }
 
 type DocumentRow = {
@@ -42,7 +32,7 @@ export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
   countDocuments: () => Promise<number>
-  listDocuments: (options: DocumentListOptions) => Promise<DocumentListPage>
+  listDocuments: (options: DocumentListOptions) => Promise<DocumentRecord[]>
   deleteDocument: (id: number) => Promise<void>
   deleteDocuments: (ids: readonly number[]) => Promise<void>
   saveDocument: (
@@ -173,18 +163,11 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
-  const selectFirstDocumentPage = database.prepare(
+  const selectDocumentPage = database.prepare(
     `SELECT id, title, body, created_at, updated_at
      FROM documents
      ORDER BY created_at DESC, id DESC
-     LIMIT ?`,
-  )
-  const selectDocumentPageAfter = database.prepare(
-    `SELECT id, title, body, created_at, updated_at
-     FROM documents
-     WHERE (created_at, id) < (?, ?)
-     ORDER BY created_at DESC, id DESC
-     LIMIT ?`,
+     LIMIT ? OFFSET ?`,
   )
 
   const deleteDocumentById = database.prepare(
@@ -244,28 +227,14 @@ export function openDatabase(
       return row.count
     },
 
-    async listDocuments({ cursor, limit }) {
+    async listDocuments({ offset, limit }) {
       await waitBeforeQuery()
       failInjectedOperation(
-        cursor === null ? 'listDocuments' : 'listMoreDocuments',
+        offset === 0 ? 'listDocuments' : 'listMoreDocuments',
       )
 
-      const rows = (
-        cursor === null
-          ? selectFirstDocumentPage.all(limit + 1)
-          : selectDocumentPageAfter.all(cursor.createdAt, cursor.id, limit + 1)
-      ) as DocumentRow[]
-
-      const pageRows = rows.slice(0, limit)
-      const lastRow = pageRows.at(-1)
-
-      return {
-        documents: pageRows.map(toRecord),
-        nextCursor:
-          rows.length > limit && lastRow !== undefined
-            ? { createdAt: lastRow.created_at, id: lastRow.id }
-            : null,
-      }
+      const rows = selectDocumentPage.all(limit, offset) as DocumentRow[]
+      return rows.map(toRecord)
     },
 
     async deleteDocument(id) {

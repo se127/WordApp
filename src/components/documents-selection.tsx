@@ -16,7 +16,11 @@ import {
 } from '@/components/ui/tooltip'
 import { DocumentTabsContext } from '@/lib/document-tabs'
 import { formatNumber } from '@/lib/number'
-import { documentQuery, documentsCountQuery, documentsQuery } from '@/lib/query'
+import {
+  documentQuery,
+  documentsCountQuery,
+  invalidateDocumentPagesFrom,
+} from '@/lib/query'
 import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { ListChecks, LoaderCircle, Trash } from 'lucide-react'
@@ -63,9 +67,7 @@ function DocumentsSelectionToolbar({
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,
       })
-      void queryClient.invalidateQueries({
-        queryKey: documentsQuery.queryKey,
-      })
+      invalidateDocumentPagesFrom(queryClient, 1)
 
       onDocumentsDeleted()
 

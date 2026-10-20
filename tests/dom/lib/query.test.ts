@@ -4,7 +4,9 @@ import {
   documentsQuery,
   documentPageSize,
   documentQuery,
+  invalidateDocumentPagesFrom,
 } from '@/lib/query'
+import { keepPreviousData } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 type WordAppBridge = Window['WordApp']
@@ -26,10 +28,7 @@ function installDocuments(
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => storedDocument),
       count: vi.fn(async () => 1),
-      list: vi.fn(async () => ({
-        documents: [storedDocument],
-        nextCursor: null,
-      })),
+      list: vi.fn(async () => [storedDocument]),
       delete: vi.fn(async () => undefined),
       deleteMany: vi.fn(async () => undefined),
       save: vi.fn(async () => undefined),
@@ -64,7 +63,7 @@ describe('query layer', () => {
 
   it('keeps each query fresh until a write invalidates it', async () => {
     expect(documentsCountQuery.staleTime).toBe(Infinity)
-    expect(documentsQuery.staleTime).toBe(Infinity)
+    expect(documentsQuery(1).staleTime).toBe(Infinity)
     expect(documentQuery(1).staleTime).toBe(Infinity)
 
     const get = vi.fn(async () => storedDocument)
@@ -90,19 +89,50 @@ describe('query layer', () => {
     expect(count).toHaveBeenCalledOnce()
   })
 
-  it('reads the documents list through the preload bridge', async () => {
-    const page = { documents: [storedDocument], nextCursor: null }
-    const list = vi.fn(async () => page)
+  it('reads a page of documents through the preload bridge', async () => {
+    const list = vi.fn(async () => [storedDocument])
     installDocuments({ list })
 
-    await expect(
-      createQueryClient().infiniteQuery(documentsQuery),
-    ).resolves.toEqual({ pages: [page], pageParams: [null] })
+    await expect(createQueryClient().query(documentsQuery(2))).resolves.toEqual(
+      [storedDocument],
+    )
     expect(list).toHaveBeenCalledOnce()
     expect(list).toHaveBeenCalledWith({
-      cursor: null,
+      offset: documentPageSize,
       limit: documentPageSize,
     })
+  })
+
+  it('keeps the previous page on screen while the next page loads', () => {
+    expect(documentsQuery(1).placeholderData).toBe(keepPreviousData)
+    expect(documentsQuery(1).refetchOnMount).toBe(true)
+    expect(documentPageSize).toBe(15)
+  })
+
+  it('invalidates the cached pages from the given page onward', async () => {
+    const list = vi.fn(async () => [storedDocument])
+    installDocuments({ list })
+    const client = createQueryClient()
+
+    await client.query(documentsQuery(1))
+    await client.query(documentsQuery(2))
+    await client.query(documentsQuery(3))
+
+    invalidateDocumentPagesFrom(client, 2)
+
+    expect(
+      client.getQueryState(documentsQuery(1).queryKey)?.isInvalidated,
+    ).toBe(false)
+    expect(
+      client.getQueryState(documentsQuery(2).queryKey)?.isInvalidated,
+    ).toBe(true)
+    expect(
+      client.getQueryState(documentsQuery(3).queryKey)?.isInvalidated,
+    ).toBe(true)
+    expect(list).toHaveBeenCalledTimes(3)
+
+    await client.query(documentsQuery(3))
+    expect(list).toHaveBeenCalledTimes(4)
   })
 
   it('resolves a missing preload bridge to null instead of throwing', async () => {
@@ -110,8 +140,8 @@ describe('query layer', () => {
       createQueryClient().query(documentsCountQuery),
     ).resolves.toBeNull()
     await expect(
-      createQueryClient().infiniteQuery(documentsQuery),
-    ).resolves.toEqual({ pages: [null], pageParams: [null] })
+      createQueryClient().query(documentsQuery(1)),
+    ).resolves.toBeNull()
     await expect(
       createQueryClient().query(documentQuery(1)),
     ).resolves.toBeNull()

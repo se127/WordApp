@@ -5,7 +5,6 @@ import { createAppRouter } from '@/router'
 import type {
   DocumentChanges,
   DocumentListOptions,
-  DocumentListPage,
   DocumentRecord,
 } from '@/types/global'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -36,11 +35,8 @@ function installBridge(
     overrides.get ??
     vi.fn(async (id: number) => rows.find((row) => row.id === id))
   const count = vi.fn(async () => rows.length)
-  const list = vi.fn(
-    async (options: DocumentListOptions): Promise<DocumentListPage> => ({
-      documents: rows.slice(0, options.limit),
-      nextCursor: null,
-    }),
+  const list = vi.fn(async (options: DocumentListOptions) =>
+    rows.slice(0, options.limit),
   )
   const save = vi.fn(async (id: number, changes: DocumentChanges) => {
     const index = rows.findIndex((row) => row.id === id)

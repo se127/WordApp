@@ -71,16 +71,13 @@ describe('preload bridge', () => {
     await expect(api.documents.count()).resolves.toBe(5)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:count')
 
-    const page = {
-      documents: [record],
-      nextCursor: { createdAt: 1, id: 1 },
-    }
+    const page = [record]
     mocks.invoke.mockResolvedValue(page)
     await expect(
-      api.documents.list({ cursor: null, limit: 15 }),
+      api.documents.list({ offset: 15, limit: 15 }),
     ).resolves.toEqual(page)
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:list', {
-      cursor: null,
+      offset: 15,
       limit: 15,
     })
 

@@ -36,7 +36,7 @@ function renderToolbar({
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => undefined),
       count: vi.fn(async () => 0),
-      list: vi.fn(async () => ({ documents: [], nextCursor: null })),
+      list: vi.fn(async () => []),
       delete: vi.fn(async () => undefined),
       deleteMany: removeMany,
       save: vi.fn(async () => undefined),

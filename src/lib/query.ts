@@ -1,8 +1,7 @@
-import type { DocumentListCursor } from '@/types/global'
 import {
-  infiniteQueryOptions,
-  QueryClient,
+  keepPreviousData,
   queryOptions,
+  QueryClient,
 } from '@tanstack/react-query'
 
 export function createQueryClient(): QueryClient {
@@ -27,19 +26,35 @@ export const documentsCountQuery = queryOptions({
   staleTime: Infinity,
 })
 
-export const documentPageSize = 25
+export const documentPageSize = 15
 
-export const documentsQuery = infiniteQueryOptions({
-  queryKey: ['documents', 'list'],
-  queryFn: async ({ pageParam }) =>
-    (await window.WordApp?.documents.list({
-      cursor: pageParam,
-      limit: documentPageSize,
-    })) ?? null,
-  initialPageParam: null as DocumentListCursor | null,
-  getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-  staleTime: Infinity,
-})
+export const documentsQueryKey = ['documents', 'list'] as const
+
+export const documentsQuery = (page: number) =>
+  queryOptions({
+    queryKey: [...documentsQueryKey, page],
+    queryFn: async () =>
+      (await window.WordApp?.documents.list({
+        offset: (page - 1) * documentPageSize,
+        limit: documentPageSize,
+      })) ?? null,
+    placeholderData: keepPreviousData,
+    refetchOnMount: true,
+    staleTime: Infinity,
+  })
+
+export function invalidateDocumentPagesFrom(
+  queryClient: QueryClient,
+  page: number,
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: documentsQueryKey,
+    predicate: (query) => {
+      const cachedPage = query.queryKey[2]
+      return typeof cachedPage === 'number' && cachedPage >= page
+    },
+  })
+}
 
 export const documentQuery = (id: number) =>
   queryOptions({
