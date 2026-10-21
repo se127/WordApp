@@ -180,8 +180,18 @@ function DocumentsTable({
         viewport.scrollTop = 0
       }
       setPage(1)
+      if (nextSearch.trim() === debouncedSearch.trim()) {
+        void queryClient.refetchQueries({
+          queryKey: documentsQuery(1, order, debouncedSearch).queryKey,
+          type: 'active',
+        })
+        void queryClient.refetchQueries({
+          queryKey: documentsCountQueryFor(debouncedSearch).queryKey,
+          type: 'active',
+        })
+      }
     },
-    [onSearchChange, queryClient],
+    [debouncedSearch, onSearchChange, order, queryClient],
   )
 
   useEffect(() => {
@@ -353,7 +363,6 @@ function DocumentsTable({
                 <DocumentTableRow
                   key={document.id}
                   document={document}
-                  deletedPage={currentPage}
                   isSelecting={isSelecting}
                   isSelected={selectedIds.has(document.id)}
                   onToggleSelected={toggleSelectedDocument}
@@ -389,14 +398,12 @@ function DocumentTableColumns({ isSelecting }: { isSelecting: boolean }) {
 
 const DocumentTableRow = memo(function DocumentTableRow({
   document,
-  deletedPage,
   isSelecting,
   isSelected,
   onToggleSelected,
   onDocumentOpen,
 }: {
   document: DocumentRecord
-  deletedPage: number
   isSelecting: boolean
   isSelected: boolean
   onToggleSelected: (id: number) => void
@@ -444,7 +451,6 @@ const DocumentTableRow = memo(function DocumentTableRow({
           <DocumentOptions
             documentId={document.id}
             documentTitle={document.title}
-            deletedPage={deletedPage}
           />
         </div>
       </TableCell>

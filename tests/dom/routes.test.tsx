@@ -1874,6 +1874,72 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
+  it('re-reads the list and the count when a canceled search change is undone', async () => {
+    const document = { ...storedDocument, title: 'یادداشت' }
+    let documents = [document]
+    let holdReads = false
+    const heldReads = new Map<string, (reason: unknown) => void>()
+    const hold = (requestId: string): Promise<never> =>
+      new Promise((_resolve, reject) => {
+        heldReads.set(requestId, reject)
+      })
+    const list = vi.fn((options: DocumentListOptions, requestId: string) =>
+      holdReads
+        ? hold(requestId)
+        : Promise.resolve(documentListPage(documents, options)),
+    )
+    const count = vi.fn((search: string | undefined, requestId: string) =>
+      holdReads
+        ? hold(requestId)
+        : Promise.resolve(
+            search === undefined
+              ? documents.length
+              : documents.filter((row) => row.title.includes(search.trim()))
+                  .length,
+          ),
+    )
+    const cancel = vi.fn((requestId: string) => {
+      const reject = heldReads.get(requestId)
+      if (reject !== undefined) {
+        heldReads.delete(requestId)
+        holdReads = false
+        reject(new DOMException('The read was canceled', 'AbortError'))
+      }
+    })
+    const remove = vi.fn(async (id: number) => {
+      documents = documents.filter((row) => row.id !== id)
+      holdReads = true
+    })
+    installBridge({ list, count, cancel, remove })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'بله',
+      }),
+    )
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+
+    const input = searchInput()
+    await user.type(input, 'x')
+    expect(screen.getByRole('link', { name: 'یادداشت' })).toBeInTheDocument()
+
+    await user.type(input, '{backspace}')
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('link', { name: 'یادداشت' }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+  })
+
   it('returns to the first page when the title search changes', async () => {
     const documents = Array.from({ length: 40 }, (_, index) => ({
       ...storedDocument,
@@ -2480,7 +2546,7 @@ describe('routes', () => {
     )
   })
 
-  it('invalidates the current and following pages after a document is deleted', async () => {
+  it('invalidates every cached list page after a document is deleted', async () => {
     const documents = Array.from({ length: 40 }, (_, index) => ({
       ...storedDocument,
       id: index + 1,
@@ -2535,6 +2601,50 @@ describe('routes', () => {
       .mocked(list)
       .mock.calls.filter(([options]) => options.offset === documentPageSize * 2)
     expect(thirdPageCalls).toHaveLength(2)
+  })
+
+  it('re-reads a filtered page cached before a delete from another page', async () => {
+    const documents = Array.from({ length: 40 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 1' })
+    const input = searchInput()
+    await user.type(input, 'سند 3')
+    await screen.findByRole('link', { name: 'سند 39' })
+    expect(screen.getByRole('link', { name: 'سند 30' })).toBeInTheDocument()
+
+    await user.clear(input)
+    await screen.findByRole('link', { name: 'سند 1' })
+    await user.click(paginationPageLink(2))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    const row = screen.getByRole('link', { name: 'سند 30' }).closest('tr')
+    expect(row).not.toBeNull()
+    await user.click(
+      within(row as HTMLElement).getByRole('button', { name: 'گزینه ها' }),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'بله',
+      }),
+    )
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+
+    await user.type(searchInput(), 'سند 3')
+    await screen.findByRole('link', { name: 'سند 3' })
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('link', { name: 'سند 30' }),
+      ).not.toBeInTheDocument(),
+    )
   })
 
   it('invalidates every page when the deleted document page is unknown', async () => {

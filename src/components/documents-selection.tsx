@@ -18,7 +18,7 @@ import { formatNumber } from '@/lib/number'
 import {
   documentQuery,
   documentsCountQuery,
-  invalidateDocumentPagesFrom,
+  documentsQueryKey,
 } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
@@ -68,7 +68,7 @@ function DocumentsSelectionToolbar({
       void queryClient.invalidateQueries({
         queryKey: documentsCountQuery.queryKey,
       })
-      invalidateDocumentPagesFrom(queryClient, 1)
+      void queryClient.invalidateQueries({ queryKey: documentsQueryKey })
 
       onDocumentsDeleted()
 

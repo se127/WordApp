@@ -3,11 +3,11 @@ import {
   documentsCountQuery,
   documentsCountQueryFor,
   documentsQuery,
+  documentsQueryKey,
   documentPageSize,
   documentQuery,
-  invalidateDocumentPagesFrom,
 } from '@/lib/query'
-import { keepPreviousData } from '@tanstack/react-query'
+import { keepPreviousData, onlineManager } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 type WordAppBridge = Window['WordApp']
@@ -53,6 +53,7 @@ describe('query layer', () => {
     expect(queries?.refetchOnMount).toBe(false)
     expect(queries?.refetchOnWindowFocus).toBe(false)
     expect(queries?.refetchOnReconnect).toBe(false)
+    expect(queries?.networkMode).toBe('always')
     expect(queries?.staleTime).toBeUndefined()
   })
 
@@ -164,30 +165,47 @@ describe('query layer', () => {
     expect(documentPageSize).toBe(15)
   })
 
-  it('invalidates the cached pages from the given page onward', async () => {
+  it('invalidates every cached list combination so a delete cannot leave one stale', async () => {
     const list = vi.fn(async () => [storedDocument])
     installDocuments({ list })
     const client = createQueryClient()
 
-    await client.query(documentsQuery(1))
-    await client.query(documentsQuery(2))
-    await client.query(documentsQuery(3))
+    const pages = [
+      documentsQuery(1),
+      documentsQuery(2),
+      documentsQuery(1, 'oldest'),
+      documentsQuery(1, 'newest', 'گزارش'),
+    ]
+    await client.query(documentsCountQuery)
+    for (const page of pages) {
+      await client.query(page)
+    }
 
-    invalidateDocumentPagesFrom(client, 2)
+    await client.invalidateQueries({ queryKey: documentsQueryKey })
 
+    for (const page of pages) {
+      expect(client.getQueryState(page.queryKey)?.isInvalidated).toBe(true)
+    }
     expect(
-      client.getQueryState(documentsQuery(1).queryKey)?.isInvalidated,
+      client.getQueryState(documentsCountQuery.queryKey)?.isInvalidated,
     ).toBe(false)
-    expect(
-      client.getQueryState(documentsQuery(2).queryKey)?.isInvalidated,
-    ).toBe(true)
-    expect(
-      client.getQueryState(documentsQuery(3).queryKey)?.isInvalidated,
-    ).toBe(true)
-    expect(list).toHaveBeenCalledTimes(3)
 
-    await client.query(documentsQuery(3))
-    expect(list).toHaveBeenCalledTimes(4)
+    await client.query(documentsQuery(1))
+    expect(list).toHaveBeenCalledTimes(pages.length + 1)
+  })
+
+  it('reads while the online manager reports an offline machine', async () => {
+    const list = vi.fn(async () => [storedDocument])
+    installDocuments({ list })
+    onlineManager.setOnline(false)
+
+    try {
+      await expect(
+        createQueryClient().query(documentsQuery(1)),
+      ).resolves.toEqual([storedDocument])
+    } finally {
+      onlineManager.setOnline(true)
+    }
   })
 
   it('cancels the preload read when its query is canceled', async () => {

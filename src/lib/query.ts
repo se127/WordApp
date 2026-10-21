@@ -39,6 +39,7 @@ export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
+        networkMode: 'always',
         refetchOnMount: false,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
@@ -118,19 +119,6 @@ export const documentsQuery = (
     placeholderData: keepPreviousData,
     refetchOnMount: true,
     staleTime: Infinity,
-  })
-}
-
-export function invalidateDocumentPagesFrom(
-  queryClient: QueryClient,
-  page: number,
-): void {
-  void queryClient.invalidateQueries({
-    queryKey: documentsQueryKey,
-    predicate: (query) => {
-      const cachedPage = query.queryKey[2]
-      return typeof cachedPage === 'number' && cachedPage >= page
-    },
   })
 }
 
