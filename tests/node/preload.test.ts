@@ -167,5 +167,8 @@ describe('preload bridge', () => {
 
     api.lifecycle.closeReady()
     expect(mocks.send).toHaveBeenCalledWith('wordapp:app:close-ready')
+
+    api.lifecycle.closeCancelled()
+    expect(mocks.send).toHaveBeenCalledWith('wordapp:app:close-cancelled')
   })
 })

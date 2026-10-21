@@ -1,13 +1,13 @@
 export type DocumentRecord = {
   id: number
-  title: string
+  title: string | null
   body: string
   createdAt: number
   updatedAt: number
 }
 
 export type DocumentChanges = {
-  title?: string
+  title?: string | null
   body?: string
 }
 
@@ -27,6 +27,7 @@ declare global {
       lifecycle: {
         onBeforeClose: (listener: () => void) => () => void
         closeReady: () => void
+        closeCancelled: () => void
       }
       documents: {
         create: () => Promise<DocumentRecord>

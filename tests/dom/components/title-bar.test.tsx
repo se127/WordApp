@@ -44,6 +44,21 @@ describe('TitleBar', () => {
     expect(picker.parentElement).toHaveClass('ps-4')
   })
 
+  it('places trailing content at the right edge', () => {
+    render(
+      <TooltipProvider>
+        <TitleBar trailing={<span>بازگشت به مستندات</span>} />
+      </TooltipProvider>,
+    )
+
+    const bar = titleBar()
+    const trailing = within(bar).getByText('بازگشت به مستندات').parentElement
+
+    expect(bar).toHaveClass('justify-between')
+    expect(trailing).toBe(bar.lastElementChild)
+    expect(trailing).toHaveClass('pe-4')
+  })
+
   it('holds no document tabs, add button, or home link', () => {
     renderTitleBar()
 

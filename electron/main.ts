@@ -24,6 +24,7 @@ import type {
 } from './database.ts'
 import {
   appBeforeCloseChannel,
+  appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
@@ -61,7 +62,7 @@ function revealWindow(browserWindow: BrowserWindow): void {
 
 const errNetworkChanged = -106
 const maxLoadAttempts = 5
-const closeHandshakeGraceMs = 5000
+const closeHandshakeGraceMs = 15000
 
 function isSafeExternalUrl(url: string): boolean {
   try {
@@ -123,6 +124,22 @@ function createWindow(closeTimeoutMs: number): void {
     closeWindow()
   }
 
+  const handleCloseCancelled = (event: IpcMainEvent): void => {
+    if (
+      isClosing ||
+      event.sender !== mainWindow.webContents ||
+      !closeRequested
+    ) {
+      return
+    }
+
+    closeRequested = false
+    if (closeTimer !== undefined) {
+      clearTimeout(closeTimer)
+      closeTimer = undefined
+    }
+  }
+
   mainWindow.on('close', (event) => {
     if (isClosing || !revealedWindows.has(mainWindow)) {
       return
@@ -144,6 +161,7 @@ function createWindow(closeTimeoutMs: number): void {
   })
 
   ipcMain.on(appCloseReadyChannel, handleCloseReady)
+  ipcMain.on(appCloseCancelledChannel, handleCloseCancelled)
 
   mainWindow.on('closed', () => {
     if (closeTimer !== undefined) {
@@ -151,6 +169,7 @@ function createWindow(closeTimeoutMs: number): void {
       closeTimer = undefined
     }
     ipcMain.removeListener(appCloseReadyChannel, handleCloseReady)
+    ipcMain.removeListener(appCloseCancelledChannel, handleCloseCancelled)
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -222,7 +241,7 @@ function isDocumentChanges(value: unknown): value is DocumentChanges {
 
   const { title, body } = value as { title?: unknown; body?: unknown }
   return (
-    (title === undefined || typeof title === 'string') &&
+    (title === undefined || title === null || typeof title === 'string') &&
     (body === undefined || typeof body === 'string')
   )
 }

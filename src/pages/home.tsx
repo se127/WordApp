@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { formatAbsoluteDate, formatRelativeTime } from '@/lib/date'
-import { useCreateDocument } from '@/lib/documents'
+import { documentTitleLabel, useCreateDocument } from '@/lib/documents'
 import {
   clearHomeScrollPosition,
   readHomeOrder,
@@ -459,13 +459,15 @@ const DocumentTableRow = memo(function DocumentTableRow({
   onDocumentOpen: () => void
   onDocumentDeleted: (id: number) => void
 }) {
+  const titleLabel = documentTitleLabel(document.title)
+
   return (
     <TableRow data-state={isSelected ? 'selected' : undefined}>
       {isSelecting ? (
         <TableCell>
           <Checkbox
             checked={isSelected}
-            aria-label={`انتخاب سند ${document.title}`}
+            aria-label={`انتخاب سند ${titleLabel}`}
             onCheckedChange={() => onToggleSelected(document.id)}
           />
         </TableCell>
@@ -478,7 +480,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
             className="block w-full rounded-sm text-start break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             onClick={() => onToggleSelected(document.id)}
           >
-            {document.title}
+            {titleLabel}
           </button>
         ) : (
           <Link
@@ -487,7 +489,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
             className="block rounded-sm break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             onClick={onDocumentOpen}
           >
-            {document.title}
+            {titleLabel}
           </Link>
         )}
         {document.updatedAt !== document.createdAt ? (

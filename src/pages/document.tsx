@@ -1,17 +1,14 @@
+import { DocumentBodyEditor } from '@/components/document-body-editor'
 import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
-import { registerCloseSave, trackDocumentSave } from '@/lib/close-handshake'
-import {
-  documentQuery,
-  documentsCountQuery,
-  documentsQueryKey,
-} from '@/lib/query'
-import type { DocumentChanges } from '@/types/global'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, LoaderCircle, RefreshCw } from 'lucide-react'
+import { documentTitleLabel } from '@/lib/documents'
+import { documentQuery } from '@/lib/query'
+import { useDocumentAutosave } from '@/lib/use-document-autosave'
+import type { DocumentRecord } from '@/types/global'
+import { useQuery } from '@tanstack/react-query'
+import { getRouteApi, useNavigate } from '@tanstack/react-router'
+import { LoaderCircle, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 
 const documentRouteApi = getRouteApi('/documents/$documentId')
 
@@ -25,65 +22,66 @@ function DocumentPage() {
   } = useQuery(documentQuery(Number(documentId)))
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-auto p-6">
-      <div className="flex items-center">
-        <Button variant="outline" asChild>
-          <Link to="/" replace>
-            <ArrowRight />
-            بازگشت به مستندات
-          </Link>
-        </Button>
-      </div>
-
-      {document ? (
-        <div className="flex items-center gap-3">
-          <DocumentTitle
-            documentId={Number(documentId)}
-            title={document.title}
-          />
-          <DocumentOptions
-            documentId={Number(documentId)}
-            documentTitle={document.title}
-            onDocumentDeleted={() => navigate({ to: '/', replace: true })}
-          />
-        </div>
-      ) : null}
-
+    <div className="flex h-full min-h-0 flex-col py-6">
       {isError ? (
         <DocumentRetry onRetry={() => void refetch()} />
       ) : document === undefined ? (
         <DocumentPending />
       ) : document === null ? (
         <DocumentMissing />
-      ) : document.body ? (
-        <p className="text-sm whitespace-pre-wrap">{document.body}</p>
-      ) : null}
+      ) : (
+        <DocumentEditor
+          key={document.id}
+          document={document}
+          onDocumentDeleted={() => navigate({ to: '/', replace: true })}
+        />
+      )}
     </div>
   )
 }
 
-function DocumentTitle({
-  documentId,
-  title,
+function DocumentEditor({
+  document,
+  onDocumentDeleted,
 }: {
-  documentId: number
-  title: string
+  document: DocumentRecord
+  onDocumentDeleted: () => void
 }) {
-  const saveDocument = useDocumentSave(documentId)
+  const { title, updateTitle, updateBody, pauseAutosave, resumeAutosave } =
+    useDocumentAutosave(document)
+
+  return (
+    <>
+      <div className="mb-3 flex shrink-0 items-center gap-3 px-6">
+        <DocumentTitle title={title} onChange={updateTitle} />
+        <DocumentOptions
+          documentId={document.id}
+          documentTitle={title}
+          onBeforeDelete={pauseAutosave}
+          onDeleteFailed={resumeAutosave}
+          onDocumentDeleted={onDocumentDeleted}
+        />
+      </div>
+      <DocumentBodyEditor body={document.body} onBodyChange={updateBody} />
+    </>
+  )
+}
+
+function DocumentTitle({
+  title,
+  onChange,
+}: {
+  title: string | null
+  onChange: (title: string) => void
+}) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [draft, setDraft] = useState<string | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const selectOnOpen = useRef(false)
   const returnFocusToHeading = useRef(false)
-  const skipCommit = useRef(false)
-  const savingPromiseRef = useRef<Promise<boolean> | null>(null)
-  const commitTitleRef = useRef<() => Promise<void>>(async () => {})
-
-  const isEditing = draft !== null
 
   useEffect(() => {
-    if (!isEditing || isSaving) {
+    if (!isEditing) {
       return
     }
 
@@ -93,7 +91,7 @@ function DocumentTitle({
       selectOnOpen.current = false
       input.select()
     }
-  }, [isEditing, isSaving])
+  }, [isEditing])
 
   useEffect(() => {
     if (!isEditing && returnFocusToHeading.current) {
@@ -103,93 +101,34 @@ function DocumentTitle({
   }, [isEditing])
 
   const startEditing = (): void => {
-    skipCommit.current = false
     selectOnOpen.current = true
-    setDraft(title)
+    setIsEditing(true)
   }
 
-  const commitTitle = async (): Promise<void> => {
-    if (draft === null || isSaving) {
-      return
-    }
+  const titleLabel = documentTitleLabel(title)
 
-    if (skipCommit.current) {
-      skipCommit.current = false
-      return
-    }
-
-    const nextTitle = draft.trim()
-
-    if (nextTitle === title || nextTitle === '') {
-      setDraft(null)
-      return
-    }
-
-    setIsSaving(true)
-    const savingPromise = saveDocument({ title: nextTitle })
-    savingPromiseRef.current = savingPromise
-    const saved = await savingPromise
-    savingPromiseRef.current = null
-    setIsSaving(false)
-
-    if (saved) {
-      setDraft(null)
-    } else {
-      returnFocusToHeading.current = false
-    }
-  }
-
-  useEffect(() => {
-    commitTitleRef.current = commitTitle
-  })
-
-  useEffect(
-    () =>
-      registerCloseSave(async () => {
-        const savingPromise = savingPromiseRef.current
-        if (savingPromise !== null) {
-          await savingPromise
+  return isEditing ? (
+    <input
+      ref={inputRef}
+      value={title ?? ''}
+      aria-label="عنوان سند"
+      className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-2xl font-semibold outline-none"
+      onChange={(event) => onChange(event.target.value)}
+      onBlur={() => setIsEditing(false)}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          returnFocusToHeading.current = true
+          setIsEditing(false)
           return
         }
 
-        await commitTitleRef.current()
-      }),
-    [],
-  )
-
-  return isEditing ? (
-    <span className="relative min-w-0 flex-1">
-      <input
-        ref={inputRef}
-        value={draft}
-        disabled={isSaving}
-        aria-label="عنوان سند"
-        className={`h-8 w-full rounded-md border border-input bg-transparent px-2 text-2xl font-semibold outline-none disabled:opacity-60 ${isSaving ? 'pe-8' : ''}`}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => void commitTitle()}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            skipCommit.current = true
-            returnFocusToHeading.current = true
-            setDraft(null)
-            return
-          }
-
-          if (event.key === 'Enter') {
-            returnFocusToHeading.current = true
-            event.currentTarget.blur()
-          }
-        }}
-      />
-      {isSaving ? (
-        <LoaderCircle
-          role="status"
-          aria-label="در حال ذخیره ی سند"
-          className="absolute end-2 top-1/2 size-4 -translate-y-1/2 animate-spin"
-        />
-      ) : null}
-    </span>
+        if (event.key === 'Enter') {
+          returnFocusToHeading.current = true
+          event.currentTarget.blur()
+        }
+      }}
+    />
   ) : (
     <h1
       ref={headingRef}
@@ -204,36 +143,9 @@ function DocumentTitle({
         }
       }}
     >
-      {title}
+      {titleLabel}
     </h1>
   )
-}
-
-function useDocumentSave(documentId: number) {
-  const queryClient = useQueryClient()
-
-  return async (changes: DocumentChanges): Promise<boolean> => {
-    const saved = await trackDocumentSave(
-      Promise.resolve()
-        .then(() => window.WordApp?.documents.save(documentId, changes))
-        .catch(() => undefined),
-    )
-
-    if (!saved) {
-      toast.error('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.')
-      return false
-    }
-
-    queryClient.setQueryData(documentQuery(documentId).queryKey, saved)
-    void queryClient.invalidateQueries({
-      queryKey: documentsCountQuery.queryKey,
-    })
-    void queryClient.invalidateQueries({
-      queryKey: documentsQueryKey,
-    })
-
-    return true
-  }
 }
 
 function DocumentRetry({ onRetry }: { onRetry: () => void }) {

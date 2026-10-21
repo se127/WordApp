@@ -6,6 +6,7 @@ import type {
 } from './database.ts'
 import {
   appBeforeCloseChannel,
+  appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
@@ -29,6 +30,9 @@ contextBridge.exposeInMainWorld('WordApp', {
     },
     closeReady: (): void => {
       ipcRenderer.send(appCloseReadyChannel)
+    },
+    closeCancelled: (): void => {
+      ipcRenderer.send(appCloseCancelledChannel)
     },
   },
   documents: {

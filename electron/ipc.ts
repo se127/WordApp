@@ -1,4 +1,5 @@
 export const appBeforeCloseChannel = 'wordapp:app:before-close'
+export const appCloseCancelledChannel = 'wordapp:app:close-cancelled'
 export const appCloseReadyChannel = 'wordapp:app:close-ready'
 export const documentsCreateChannel = 'wordapp:documents:create'
 export const documentsGetChannel = 'wordapp:documents:get'

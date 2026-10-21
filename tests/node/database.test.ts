@@ -11,7 +11,6 @@ import {
   parseDbFailureArgument,
   parseSeedArgument,
   resetDatabase,
-  untitledDocumentTitle,
 } from '../../electron/database.ts'
 import type {
   DocumentRecord,
@@ -71,7 +70,7 @@ describe('openDatabase', () => {
 
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 2,
+        user_version: 3,
       })
       expect(raw.prepare('PRAGMA journal_mode').get()).toEqual({
         journal_mode: 'wal',
@@ -93,7 +92,7 @@ describe('openDatabase', () => {
         .all()
       expect(columns).toEqual([
         { name: 'id', type: 'INTEGER', notNull: 0, pk: 1 },
-        { name: 'title', type: 'TEXT', notNull: 1, pk: 0 },
+        { name: 'title', type: 'TEXT', notNull: 0, pk: 0 },
         { name: 'body', type: 'TEXT', notNull: 1, pk: 0 },
         { name: 'created_at', type: 'INTEGER', notNull: 1, pk: 0 },
         { name: 'updated_at', type: 'INTEGER', notNull: 1, pk: 0 },
@@ -216,7 +215,7 @@ END;
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 2,
+        user_version: 3,
       })
       expect(
         raw
@@ -246,8 +245,90 @@ END;
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 2,
+        user_version: 3,
       })
+    } finally {
+      raw.close()
+    }
+  })
+
+  it('makes titles nullable and clears only empty legacy titles', async () => {
+    const databasePath = temporaryDatabasePath()
+    const legacy = new DatabaseSync(databasePath)
+    legacy.exec(`
+CREATE TABLE documents (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX documents_created_at_id_idx ON documents (created_at DESC, id DESC);
+
+CREATE TRIGGER documents_touch_updated_at
+AFTER UPDATE ON documents
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+  UPDATE documents
+  SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  WHERE id = NEW.id;
+END;
+`)
+    legacy.exec('PRAGMA user_version = 2')
+    legacy.exec(`
+INSERT INTO documents (title, body, created_at, updated_at)
+VALUES
+  ('بدون عنوان', '', 3000, 3000),
+  ('   ', '', 2000, 2000),
+  ('گزارش', '', 1000, 1000);
+`)
+    legacy.close()
+
+    const store = openDatabase(databasePath)
+    database = store
+
+    expect(
+      (await store.listDocuments({ offset: 0, limit: 15 })).map(
+        (document) => document.title,
+      ),
+    ).toEqual(['بدون عنوان', null, 'گزارش'])
+
+    const saved = await store.saveDocument(1, { body: 'متن' })
+    expect(saved?.title).toBe('بدون عنوان')
+
+    const raw = new DatabaseSync(databasePath)
+    try {
+      expect(raw.prepare('PRAGMA user_version').get()).toEqual({
+        user_version: 3,
+      })
+      expect(
+        raw
+          .prepare(
+            `SELECT "notnull" FROM pragma_table_info('documents')
+             WHERE name = 'title'`,
+          )
+          .get(),
+      ).toEqual({ notnull: 0 })
+      expect(
+        raw
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'index'
+             ORDER BY name`,
+          )
+          .all(),
+      ).toEqual([{ name: 'documents_created_at_id_idx' }])
+      expect(
+        raw
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'trigger'
+             ORDER BY name`,
+          )
+          .all(),
+      ).toEqual([{ name: 'documents_touch_updated_at' }])
     } finally {
       raw.close()
     }
@@ -262,8 +343,7 @@ describe('documents', () => {
     const document = await store.createDocument()
 
     expect(document.id).toBeGreaterThan(0)
-    expect(untitledDocumentTitle).toBe('بدون عنوان')
-    expect(document.title).toBe(untitledDocumentTitle)
+    expect(document.title).toBeNull()
     expect(document.body).toBe('')
     expect(document.createdAt).toBeGreaterThanOrEqual(before)
     expect(document.createdAt).toBeLessThanOrEqual(Date.now())
@@ -305,7 +385,7 @@ describe('documents', () => {
         body: 'گزارش',
       })
 
-      const titles = async (search: string): Promise<string[]> =>
+      const titles = async (search: string): Promise<(string | null)[]> =>
         (
           await store.listDocuments({
             offset: 0,
@@ -364,7 +444,7 @@ describe('documents', () => {
     await store.saveDocument(bang.id, { title: 'خبر!' })
     await store.saveDocument(report.id, { title: 'Report' })
 
-    const titles = async (search: string): Promise<string[]> =>
+    const titles = async (search: string): Promise<(string | null)[]> =>
       (
         await store.listDocuments({
           offset: 0,
@@ -629,14 +709,20 @@ describe('documents', () => {
     expect(saved?.body).toBe('متن')
   })
 
-  it('saves an emptied title instead of leaving the old one', async () => {
+  it('stores an emptied or whitespace-only title as null', async () => {
     const { database: store } = openTestDatabase()
     const document = await store.createDocument()
     await store.saveDocument(document.id, { title: 'گزارش' })
 
-    const saved = await store.saveDocument(document.id, { title: '' })
-
-    expect(saved?.title).toBe('')
+    expect(
+      (await store.saveDocument(document.id, { title: '' }))?.title,
+    ).toBeNull()
+    expect(
+      (await store.saveDocument(document.id, { title: '   ' }))?.title,
+    ).toBeNull()
+    expect(
+      (await store.saveDocument(document.id, { title: null }))?.title,
+    ).toBeNull()
   })
 
   it('a save without changes reads the row back and writes nothing', async () => {
@@ -872,7 +958,7 @@ describe('openDatabase operation delay', () => {
       const [created, count, fetched, listed] = await Promise.all(operations)
       expect(settled).toBe(5)
 
-      expect(created.title).toBe(untitledDocumentTitle)
+      expect(created.title).toBeNull()
       expect(count).toBe(1)
       expect(fetched).toEqual(created)
       expect(listed).toEqual([created])
@@ -1122,7 +1208,7 @@ describe('resetDatabase', () => {
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 2,
+        user_version: 3,
       })
       expect(
         raw.prepare('SELECT COUNT(*) AS count FROM documents').get(),

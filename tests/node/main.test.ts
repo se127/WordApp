@@ -10,6 +10,7 @@ import {
 } from 'vitest'
 import {
   appBeforeCloseChannel,
+  appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
@@ -390,10 +391,33 @@ describe('window close handshake', () => {
     vi.useFakeTimers()
     listenerOn(mocks.win, 'close')(closeEvent())
 
-    vi.advanceTimersByTime(6999)
+    vi.advanceTimersByTime(16999)
     expect(mocks.win.close).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(1)
+    expect(mocks.win.close).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the window open when the renderer reports a failed save', async () => {
+    stubPlatform('win32')
+    await importMain()
+    listenerOn(mocks.win, 'ready-to-show')()
+
+    vi.useFakeTimers()
+    listenerOn(mocks.win, 'close')(closeEvent())
+
+    const cancelled = handlerFor('on', appCloseCancelledChannel)
+    cancelled({ sender: mocks.win.webContents })
+
+    vi.advanceTimersByTime(60_000)
+    expect(mocks.win.close).not.toHaveBeenCalled()
+
+    const retry = closeEvent()
+    listenerOn(mocks.win, 'close')(retry)
+    expect(retry.preventDefault).toHaveBeenCalledOnce()
+
+    const ready = handlerFor('on', appCloseReadyChannel)
+    ready({ sender: mocks.win.webContents })
     expect(mocks.win.close).toHaveBeenCalledOnce()
   })
 })
@@ -755,6 +779,9 @@ describe('documents database', () => {
     expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, {
       title: 'گزارش',
     })
+
+    handlerFor('handle', documentsSaveChannel)({}, 1, { title: null })
+    expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, { title: null })
   })
 
   it('ignores save calls with a bad id or malformed changes', async () => {

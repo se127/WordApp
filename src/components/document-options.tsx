@@ -33,10 +33,14 @@ import { toast } from 'sonner'
 function DocumentOptions({
   documentId,
   documentTitle,
+  onBeforeDelete,
+  onDeleteFailed,
   onDocumentDeleted,
 }: {
   documentId: number
-  documentTitle?: string
+  documentTitle?: string | null
+  onBeforeDelete?: () => void
+  onDeleteFailed?: () => void
   onDocumentDeleted?: () => Promise<void> | void
 }) {
   const queryClient = useQueryClient()
@@ -52,14 +56,19 @@ function DocumentOptions({
         return
       }
 
-      const deleted = await bridge.documents.delete(documentId).then(
-        () => true,
-        () => {
-          toast.error('حذف سند ناموفق بود. دوباره تلاش کنید.')
-          return false
-        },
-      )
+      onBeforeDelete?.()
+
+      const deleted = await Promise.resolve()
+        .then(() => bridge.documents.delete(documentId))
+        .then(
+          () => true,
+          () => {
+            toast.error('حذف سند ناموفق بود. دوباره تلاش کنید.')
+            return false
+          },
+        )
       if (!deleted) {
+        onDeleteFailed?.()
         return
       }
 
@@ -119,7 +128,9 @@ function DocumentOptions({
         >
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {documentTitle === undefined
+              {documentTitle === undefined ||
+              documentTitle === null ||
+              documentTitle.trim() === ''
                 ? 'آیا مطمئن هستید که می خواهید این سند را حذف کنید؟'
                 : `آیا مطمئن هستید که می خواهید سند «${documentTitle}» را حذف کنید؟`}
             </AlertDialogTitle>

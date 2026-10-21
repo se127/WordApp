@@ -1,7 +1,25 @@
-const closeSaveHandlers = new Set<() => Promise<void>>()
+const closeSaveHandlers = new Set<() => Promise<boolean>>()
 const pendingSaves = new Set<Promise<unknown>>()
+const saveListeners = new Set<() => void>()
 
-function registerCloseSave(handler: () => Promise<void>): () => void {
+function notifySaveListeners(): void {
+  for (const listener of saveListeners) {
+    listener()
+  }
+}
+
+function subscribeToDocumentSaves(listener: () => void): () => void {
+  saveListeners.add(listener)
+  return () => {
+    saveListeners.delete(listener)
+  }
+}
+
+function isDocumentSaving(): boolean {
+  return pendingSaves.size > 0
+}
+
+function registerCloseSave(handler: () => Promise<boolean>): () => void {
   closeSaveHandlers.add(handler)
   return () => {
     closeSaveHandlers.delete(handler)
@@ -10,25 +28,41 @@ function registerCloseSave(handler: () => Promise<void>): () => void {
 
 function trackDocumentSave<T>(promise: Promise<T>): Promise<T> {
   pendingSaves.add(promise)
+  notifySaveListeners()
   void promise.then(
     () => {
       pendingSaves.delete(promise)
+      notifySaveListeners()
     },
     () => {
       pendingSaves.delete(promise)
+      notifySaveListeners()
     },
   )
   return promise
 }
 
-async function flushBeforeClose(): Promise<void> {
-  await Promise.allSettled(
+async function flushDocumentSaves(): Promise<boolean> {
+  const handlerResults = await Promise.allSettled(
     [...closeSaveHandlers].map((handler) =>
       Promise.resolve().then(() => handler()),
     ),
   )
-  await Promise.allSettled([...pendingSaves])
-  window.WordApp?.lifecycle?.closeReady()
+  const pendingResults = await Promise.allSettled([...pendingSaves])
+
+  return (
+    handlerResults.every(
+      (result) => result.status === 'fulfilled' && result.value,
+    ) && pendingResults.every((result) => result.status === 'fulfilled')
+  )
+}
+
+async function flushBeforeClose(): Promise<void> {
+  if (await flushDocumentSaves()) {
+    window.WordApp?.lifecycle?.closeReady()
+  } else {
+    window.WordApp?.lifecycle?.closeCancelled()
+  }
 }
 
 function listenForClose(): () => void {
@@ -39,4 +73,11 @@ function listenForClose(): () => void {
   )
 }
 
-export { listenForClose, registerCloseSave, trackDocumentSave }
+export {
+  flushDocumentSaves,
+  isDocumentSaving,
+  listenForClose,
+  registerCloseSave,
+  subscribeToDocumentSaves,
+  trackDocumentSave,
+}

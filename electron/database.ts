@@ -4,14 +4,14 @@ import { DatabaseSync } from 'node:sqlite'
 
 export type DocumentRecord = {
   id: number
-  title: string
+  title: string | null
   body: string
   createdAt: number
   updatedAt: number
 }
 
 export type DocumentChanges = {
-  title?: string
+  title?: string | null
   body?: string
 }
 
@@ -26,7 +26,7 @@ export type DocumentListOptions = {
 
 type DocumentRow = {
   id: number
-  title: string
+  title: string | null
   body: string
   created_at: number
   updated_at: number
@@ -61,8 +61,6 @@ export const databaseOperationNames = [
 ] as const
 
 export type DatabaseOperationName = (typeof databaseOperationNames)[number]
-
-export const untitledDocumentTitle = 'بدون عنوان'
 
 function titleSearchPattern(search: string): string {
   return `%${search.replace(/[!%_]/g, '!$&')}%`
@@ -100,6 +98,38 @@ END;
 DROP INDEX documents_created_at_idx;
 
 CREATE INDEX documents_created_at_id_idx ON documents (created_at DESC, id DESC);
+`,
+  `
+CREATE TABLE documents_nullable_title (
+  id INTEGER PRIMARY KEY,
+  title TEXT,
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+INSERT INTO documents_nullable_title (id, title, body, created_at, updated_at)
+SELECT id,
+       CASE WHEN trim(title) = '' THEN NULL ELSE title END,
+       body,
+       created_at,
+       updated_at
+FROM documents;
+
+DROP TABLE documents;
+ALTER TABLE documents_nullable_title RENAME TO documents;
+
+CREATE INDEX documents_created_at_id_idx ON documents (created_at DESC, id DESC);
+
+CREATE TRIGGER documents_touch_updated_at
+AFTER UPDATE ON documents
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+  UPDATE documents
+  SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  WHERE id = NEW.id;
+END;
 `,
 ]
 
@@ -238,8 +268,13 @@ export function openDatabase(
     `DELETE FROM documents WHERE id IN (SELECT value FROM json_each(?))`,
   )
   const updateDocument = database.prepare(
-    `UPDATE documents SET title = COALESCE(?, title), body = COALESCE(?, body)
-     WHERE id = ?`,
+    'UPDATE documents SET title = ?, body = ? WHERE id = ?',
+  )
+  const updateDocumentTitle = database.prepare(
+    'UPDATE documents SET title = ? WHERE id = ?',
+  )
+  const updateDocumentBody = database.prepare(
+    'UPDATE documents SET body = ? WHERE id = ?',
   )
 
   const toRecord = (row: DocumentRow): DocumentRecord => ({
@@ -256,16 +291,11 @@ export function openDatabase(
       failInjectedOperation('createDocument')
 
       const now = Date.now()
-      const { lastInsertRowid } = insertDocument.run(
-        untitledDocumentTitle,
-        '',
-        now,
-        now,
-      )
+      const { lastInsertRowid } = insertDocument.run(null, '', now, now)
 
       return {
         id: Number(lastInsertRowid),
-        title: untitledDocumentTitle,
+        title: null,
         body: '',
         createdAt: now,
         updatedAt: now,
@@ -348,8 +378,19 @@ export function openDatabase(
       await waitBeforeQuery()
       failInjectedOperation('saveDocument')
 
-      if (changes.title !== undefined || changes.body !== undefined) {
-        updateDocument.run(changes.title ?? null, changes.body ?? null, id)
+      const title =
+        changes.title === undefined
+          ? undefined
+          : changes.title === null || changes.title.trim() === ''
+            ? null
+            : changes.title
+
+      if (title !== undefined && changes.body !== undefined) {
+        updateDocument.run(title, changes.body, id)
+      } else if (title !== undefined) {
+        updateDocumentTitle.run(title, id)
+      } else if (changes.body !== undefined) {
+        updateDocumentBody.run(changes.body, id)
       }
 
       const row = selectDocument.get(id) as DocumentRow | undefined

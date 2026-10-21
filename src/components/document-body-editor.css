@@ -1,0 +1,58 @@
+.document-body-editor [data-slot='scroll-area-viewport'] > div {
+  height: 100%;
+}
+
+.document-body-editor .document-body-prose,
+.document-body-editor .document-body-prose > div {
+  height: 100%;
+}
+
+.document-body-editor .document-body-prose {
+  color: var(--foreground);
+}
+
+.dark .document-body-editor .document-body-prose {
+  --tw-prose-invert-body: white;
+  --tw-prose-invert-headings: white;
+  --tw-prose-invert-lead: white;
+  --tw-prose-invert-links: white;
+  --tw-prose-invert-bold: white;
+  --tw-prose-invert-counters: white;
+  --tw-prose-invert-bullets: white;
+  --tw-prose-invert-quotes: white;
+  --tw-prose-invert-captions: white;
+  --tw-prose-invert-code: white;
+  --tw-prose-invert-pre-code: white;
+  color: white;
+}
+
+.dark .document-body-editor .ProseMirror {
+  color: white;
+}
+
+.document-body-editor .ProseMirror {
+  min-height: 100%;
+  padding: 1.5rem;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.document-body-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: inherit;
+  content: attr(data-placeholder);
+  float: right;
+  height: 0;
+  pointer-events: none;
+}
+
+.document-body-editor .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.document-body-editor .ProseMirror > :last-child {
+  margin-bottom: 0;
+}
+
+.document-body-editor .ProseMirror:focus-visible {
+  outline: none;
+}

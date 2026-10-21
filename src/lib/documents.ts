@@ -5,6 +5,12 @@ import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 
+const untitledDocumentLabel = 'عنوانی انتخاب نشده است.'
+
+function documentTitleLabel(title: string | null): string {
+  return title === null || title.trim() === '' ? untitledDocumentLabel : title
+}
+
 const creatingDocumentListeners = new Set<() => void>()
 let creatingDocumentCount = 0
 
@@ -71,4 +77,4 @@ function useCreateDocument() {
   return { createDocument, isCreating }
 }
 
-export { useCreateDocument }
+export { documentTitleLabel, untitledDocumentLabel, useCreateDocument }

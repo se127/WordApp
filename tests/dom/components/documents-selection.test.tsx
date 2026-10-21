@@ -37,6 +37,7 @@ function renderToolbar({
     lifecycle: {
       onBeforeClose: vi.fn(() => () => {}),
       closeReady: vi.fn(),
+      closeCancelled: vi.fn(),
     },
     documents: {
       create: vi.fn(async () => storedDocument),

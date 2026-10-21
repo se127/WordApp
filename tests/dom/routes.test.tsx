@@ -1,5 +1,6 @@
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { isDocumentSaving } from '@/lib/close-handshake'
 import {
   clearHomeScrollPosition,
   saveHomeOrder,
@@ -51,16 +52,20 @@ const storedDocument = {
   updatedAt: 1_000,
 }
 
+type TestDocument = Omit<typeof storedDocument, 'title'> & {
+  title: string | null
+}
+
 function documentListPage(
-  documents: Array<typeof storedDocument>,
+  documents: Array<TestDocument>,
   { offset, limit, order = 'newest', search }: DocumentListOptions,
-): Array<typeof storedDocument> {
+): Array<TestDocument> {
   const term = search?.trim().toLowerCase() ?? ''
   const matching =
     term === ''
       ? documents
-      : documents.filter((document) =>
-          document.title.toLowerCase().includes(term),
+      : documents.filter(
+          (document) => document.title?.toLowerCase().includes(term) ?? false,
         )
   const ordered = order === 'oldest' ? [...matching].reverse() : matching
   return ordered.slice(offset, offset + limit)
@@ -68,24 +73,24 @@ function documentListPage(
 
 function installBridge(
   options: {
-    create?: () => Promise<typeof storedDocument>
-    get?: (id: number) => Promise<typeof storedDocument | undefined>
+    create?: () => Promise<TestDocument>
+    get?: (id: number) => Promise<TestDocument | undefined>
     count?: (search: string | undefined, requestId: string) => Promise<number>
     list?: (
       options: DocumentListOptions,
       requestId: string,
-    ) => Promise<Array<typeof storedDocument>>
+    ) => Promise<Array<TestDocument>>
     cancel?: (requestId: string) => void
     save?: (
       id: number,
       changes: DocumentChanges,
-    ) => Promise<typeof storedDocument | undefined>
+    ) => Promise<TestDocument | undefined>
     remove?: (id: number) => Promise<void>
     removeMany?: (ids: number[]) => Promise<void>
   } = {},
 ) {
   let storedCount = 0
-  let storedRow = storedDocument
+  let storedRow: TestDocument = storedDocument
   const create =
     options.create ??
     vi.fn(async () => {
@@ -118,12 +123,14 @@ function installBridge(
     }
   })
   const closeReady = vi.fn()
+  const closeCancelled = vi.fn()
 
   window.WordApp = {
     platform: 'win32',
     lifecycle: {
       onBeforeClose,
       closeReady,
+      closeCancelled,
     },
     documents: {
       create,
@@ -148,12 +155,13 @@ function installBridge(
     removeMany,
     onBeforeClose,
     closeReady,
+    closeCancelled,
     triggerBeforeClose: () => beforeCloseListener?.(),
   }
 }
 
 function installDocumentsBridge(
-  documents: Array<typeof storedDocument>,
+  documents: Array<TestDocument>,
   overrides: { removeMany?: (ids: number[]) => Promise<void> } = {},
 ) {
   const stored = [...documents]
@@ -169,8 +177,8 @@ function installDocumentsBridge(
       const term = search?.trim().toLowerCase() ?? ''
       return term === ''
         ? stored.length
-        : stored.filter((document) =>
-            document.title.toLowerCase().includes(term),
+        : stored.filter(
+            (document) => document.title?.toLowerCase().includes(term) ?? false,
           ).length
     }),
     remove: vi.fn(async (id: number) => {
@@ -503,10 +511,10 @@ describe('routes', () => {
   })
 
   it('shows the pending spinner while the document row is loading, then the title with its options menu', async () => {
-    let finishGet!: (document: typeof storedDocument) => void
+    let finishGet!: (document: TestDocument) => void
     const get = vi.fn(
       () =>
-        new Promise<typeof storedDocument>((resolve) => {
+        new Promise<TestDocument>((resolve) => {
           finishGet = resolve
         }),
     )
@@ -533,9 +541,65 @@ describe('routes', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('shows the body editor under the title inside a scrollable prose area with the formatting toolbar', async () => {
+    const body = '<p>متن <strong>مهم</strong></p>'
+    const get = vi.fn(async () => ({ ...storedDocument, body }))
+    installBridge({ get })
+
+    renderRoute('/documents/1')
+
+    const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    const editor = await screen.findByRole('textbox', { name: 'متن سند' })
+    expect(
+      heading.compareDocumentPosition(editor) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+    expect(editor).toHaveTextContent('متن مهم')
+    expect(editor.querySelector('strong')).toHaveTextContent('مهم')
+    expect(editor.closest('.document-body-prose')).toHaveClass('prose')
+    expect(editor.closest('[data-slot="scroll-area"]')).not.toBeNull()
+    expect(editor.closest('[data-slot="scroll-area-viewport"]')).not.toBeNull()
+
+    const toolbar = screen.getByRole('toolbar', {
+      name: 'ابزارهای ویرایش متن',
+    })
+    expect(toolbar).toHaveAttribute('dir', 'rtl')
+    expect(toolbar).toHaveClass(
+      'w-full',
+      'border-y',
+      'bg-emerald-50',
+      'px-6',
+      'dark:bg-zinc-900',
+    )
+    expect(toolbar).not.toHaveClass('border-x')
+    expect(
+      within(toolbar)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(['توپر', 'کج', 'زیرخط دار', 'خط خورده'])
+
+    const page = document.querySelector('.document-body-editor')?.parentElement
+    expect(page).toHaveClass('flex', 'h-full', 'min-h-0', 'flex-col', 'py-6')
+    expect(page).not.toHaveClass('overflow-auto', 'p-6', 'px-6')
+    expect(document.querySelector('.document-body-editor')).not.toHaveClass(
+      'mt-2',
+    )
+
+    const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
+    const titleBar = document.querySelector('[data-slot="title-bar"]')
+    expect(back.closest('[data-slot="title-bar"]')).toBe(titleBar)
+    expect(back.parentElement).toHaveClass('pe-4')
+    expect(titleBar).toHaveClass('justify-between')
+    expect(titleBar?.firstElementChild).toContainElement(
+      screen.getByRole('button', { name: 'تغییر پوسته' }),
+    )
+    expect(titleBar?.lastElementChild).toContainElement(back)
+    expect(heading.parentElement).toHaveClass('mb-3', 'px-6')
+  })
+
   it('reports a failed document read with an error and a retry button, and recovers the document when pressed', async () => {
     let attempts = 0
-    const get = vi.fn((): Promise<typeof storedDocument> => {
+    const get = vi.fn((): Promise<TestDocument> => {
       attempts += 1
       return attempts === 1
         ? Promise.reject(
@@ -584,13 +648,13 @@ describe('routes', () => {
 
   it('shows the content-box spinner while a retry from a failed document read is in flight', async () => {
     let reads = 0
-    let finishRetry!: (document: typeof storedDocument) => void
-    const get = vi.fn((): Promise<typeof storedDocument> => {
+    let finishRetry!: (document: TestDocument) => void
+    const get = vi.fn((): Promise<TestDocument> => {
       reads += 1
       if (reads === 1) {
         return Promise.reject(new Error('document read failed'))
       }
-      return new Promise<typeof storedDocument>((resolve) => {
+      return new Promise<TestDocument>((resolve) => {
         finishRetry = resolve
       })
     })
@@ -622,7 +686,7 @@ describe('routes', () => {
   })
 
   it('shows the document retry as a labeled button without a tooltip', async () => {
-    const get = vi.fn(async (): Promise<typeof storedDocument> => {
+    const get = vi.fn(async (): Promise<TestDocument> => {
       throw new Error('document read failed')
     })
     installBridge({ get })
@@ -753,7 +817,9 @@ describe('routes', () => {
 
     expect(heading).toHaveFocus()
     expect(heading).toHaveClass('focus:border-input')
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
 
     await user.keyboard(' ')
@@ -770,7 +836,9 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -794,7 +862,7 @@ describe('routes', () => {
     expect(input.selectionEnd).toBe('بدون عنوان'.length)
   })
 
-  it('hands focus back to the heading when Enter commits the edit', async () => {
+  it('hands focus back to the heading when Enter closes the title editor', async () => {
     const { save } = installBridge()
     const user = userEvent.setup()
 
@@ -808,10 +876,23 @@ describe('routes', () => {
     })
     await user.keyboard('گزارش')
     expect(input).toHaveValue('گزارش')
+    expect(save).not.toHaveBeenCalled()
     await user.keyboard('{Enter}')
 
-    const saved = await screen.findByRole('heading', { name: 'گزارش' })
-    expect(save).toHaveBeenCalledExactlyOnceWith(1, { title: 'گزارش' })
+    const saved = await screen.findByRole(
+      'heading',
+      { name: 'گزارش' },
+      { timeout: 1_500 },
+    )
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'گزارش',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
     await vi.waitFor(() => expect(saved).toHaveFocus())
 
     await user.keyboard('{Enter}')
@@ -828,7 +909,7 @@ describe('routes', () => {
     expect(screen.getByRole('button', { name: 'گزینه ها' })).toHaveFocus()
   })
 
-  it('saves the changed title on blur and updates the row without re-reading it', async () => {
+  it('debounces title saves while the input stays focused without a loading state', async () => {
     const { get, save } = installBridge()
     const user = userEvent.setup()
 
@@ -840,19 +921,30 @@ describe('routes', () => {
     await user.type(input, 'گزارش سالانه')
 
     expect(save).not.toHaveBeenCalled()
+    expect(input).not.toBeDisabled()
+    expect(input).toHaveFocus()
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'گزارش سالانه',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
+
+    expect(input).not.toBeDisabled()
+    expect(input).toHaveFocus()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     await user.tab()
 
-    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
-      title: 'گزارش سالانه',
-    })
     expect(
       await screen.findByRole('heading', { name: 'گزارش سالانه' }),
     ).toBeInTheDocument()
+    expect(save).toHaveBeenCalledTimes(1)
     expect(get).toHaveBeenCalledOnce()
-    expect(
-      screen.queryByRole('status', { name: 'در حال به روز رسانی سند' }),
-    ).not.toBeInTheDocument()
   })
 
   it('does not save when the title is blurred unchanged', async () => {
@@ -874,7 +966,7 @@ describe('routes', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('cancels the title edit on Escape and keeps the stored title', async () => {
+  it('keeps the typed title on Escape and saves it without canceling the edit', async () => {
     const { save } = installBridge()
     const user = userEvent.setup()
 
@@ -886,13 +978,23 @@ describe('routes', () => {
 
     await user.keyboard('{Escape}')
 
-    const kept = await screen.findByRole('heading', { name: 'بدون عنوان' })
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    const kept = await screen.findByRole('heading', { name: 'پیش نویس' })
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
     await vi.waitFor(() => expect(kept).toHaveFocus())
-    expect(save).not.toHaveBeenCalled()
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'پیش نویس',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
   })
 
-  it('saves the title with its surrounding whitespace trimmed', async () => {
+  it('saves a non-empty title exactly as typed', async () => {
     const { save } = installBridge()
     const user = userEvent.setup()
 
@@ -908,12 +1010,18 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'گزارش سالانه' }),
     ).toBeInTheDocument()
-    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
-      title: 'گزارش سالانه',
-    })
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: '  گزارش سالانه  ',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
   })
 
-  it('restores the previous title when the draft is only whitespace', async () => {
+  it('shows the untitled placeholder and saves null when the draft is only whitespace', async () => {
     const { save } = installBridge()
     const user = userEvent.setup()
 
@@ -927,19 +1035,83 @@ describe('routes', () => {
     await user.tab()
 
     expect(
-      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+      await screen.findByRole('heading', {
+        name: 'عنوانی انتخاب نشده است.',
+      }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    expect(save).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: null,
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
   })
 
-  it('holds the title input disabled with a spinner while the save is in flight', async () => {
+  it.each(['{Enter}', '{Escape}', '{Tab}'])(
+    'shows the untitled placeholder when %s closes an empty title',
+    async (key) => {
+      const { save } = installBridge()
+      const user = userEvent.setup()
+
+      renderRoute('/documents/1')
+      await user.click(
+        await screen.findByRole('heading', { name: 'بدون عنوان' }),
+      )
+      const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+      await user.clear(input)
+      expect(input).toHaveValue('')
+
+      await user.keyboard(key)
+
+      expect(
+        await screen.findByRole('heading', {
+          name: 'عنوانی انتخاب نشده است.',
+        }),
+      ).toBeInTheDocument()
+      await vi.waitFor(
+        () => {
+          expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+            title: null,
+            body: '',
+          })
+        },
+        { timeout: 1_500 },
+      )
+    },
+  )
+
+  it('shows the untitled placeholder for a saved document without a title and opens an empty input', async () => {
+    const untitled = { ...storedDocument, title: null }
+    installBridge({ get: vi.fn(async () => untitled) })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+
+    const heading = await screen.findByRole('heading', {
+      name: 'عنوانی انتخاب نشده است.',
+    })
+    await user.click(heading)
+
+    const input = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
+    expect(input).toHaveValue('')
+    expect(input).toHaveFocus()
+  })
+
+  it('saves the title in the background without disabling the input or showing a loading state', async () => {
     let storedRow = storedDocument
     const get = vi.fn(async () => storedRow)
-    let finishSave!: (document: typeof storedDocument) => void
+    let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
-        new Promise<typeof storedDocument>((resolve) => {
+        new Promise<TestDocument>((resolve) => {
           finishSave = resolve
         }),
     )
@@ -949,22 +1121,26 @@ describe('routes', () => {
     renderRoute('/documents/1')
     await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
-    expect(input).not.toHaveClass('pe-8')
     await user.clear(input)
     await user.type(input, 'پیگیری')
-    await user.tab()
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'پیگیری',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
 
     const pending = screen.getByRole('textbox', { name: 'عنوان سند' })
-    expect(pending).toBeDisabled()
+    expect(pending).not.toBeDisabled()
     expect(pending).toHaveValue('پیگیری')
-    expect(pending).toHaveClass('pe-8')
-    expect(pending.parentElement?.querySelector('svg')).toHaveClass(
-      'size-4',
-      'animate-spin',
-    )
-    expect(
-      screen.getByRole('status', { name: 'در حال ذخیره ی سند' }),
-    ).toBeInTheDocument()
+    expect(pending).toHaveFocus()
+    expect(pending).not.toHaveClass('pe-8')
+    expect(pending.parentElement?.querySelector('.animate-spin')).toBeNull()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     storedRow = {
       ...storedRow,
@@ -973,15 +1149,20 @@ describe('routes', () => {
     }
     await act(() => finishSave(storedRow))
 
+    expect(pending).toHaveValue('پیگیری')
+    expect(pending).not.toBeDisabled()
+    await user.tab()
     expect(
       await screen.findByRole('heading', { name: 'پیگیری' }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
   })
 
   it('reports a failed save with an error toast and keeps the edited text for another try', async () => {
     let attempts = 0
-    let storedRow = storedDocument
+    let storedRow: TestDocument = storedDocument
     const get = vi.fn(async () => storedRow)
     const save = vi.fn(async (_id: number, changes: DocumentChanges) => {
       attempts += 1
@@ -1016,18 +1197,82 @@ describe('routes', () => {
         'The saveDocument operation failed (injected by --with-db-failure)',
       ),
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('textbox', { name: 'عنوان سند' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'پیش نویس' }),
+    ).toBeInTheDocument()
 
-    const kept = screen.getByRole('textbox', { name: 'عنوان سند' })
+    await user.click(screen.getByRole('heading', { name: 'پیش نویس' }))
+    const kept = await screen.findByRole<HTMLInputElement>('textbox', {
+      name: 'عنوان سند',
+    })
     expect(kept).toHaveValue('پیش نویس')
     expect(kept).not.toBeDisabled()
-    await vi.waitFor(() => expect(kept).toHaveFocus())
+    expect(kept).toHaveFocus()
+
+    await user.clear(kept)
+    await user.type(kept, 'پیش نویس دوم')
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledTimes(2)
+      },
+      { timeout: 1_500 },
+    )
 
     await user.tab()
 
     expect(
-      await screen.findByRole('heading', { name: 'پیش نویس' }),
+      await screen.findByRole('heading', { name: 'پیش نویس دوم' }),
     ).toBeInTheDocument()
-    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith(1, {
+      title: 'پیش نویس دوم',
+      body: '',
+    })
+  })
+
+  it('keeps the body text and shows only an error toast when a body save fails', async () => {
+    let rejectSave!: (error: Error) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((_resolve, reject) => {
+          rejectSave = reject
+        }),
+    )
+    installBridge({ save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    const editor = await screen.findByRole('textbox', { name: 'متن سند' })
+    await user.click(editor)
+    await user.keyboard('متن')
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'بدون عنوان',
+          body: expect.stringContaining('متن'),
+        })
+      },
+      { timeout: 1_500 },
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(editor).toHaveTextContent('متن')
+
+    await act(() =>
+      rejectSave(
+        new Error(
+          'The saveDocument operation failed (injected by --with-db-failure)',
+        ),
+      ),
+    )
+
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(editor).toHaveTextContent('متن')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('saves a pending title before signaling that the window can close', async () => {
@@ -1050,10 +1295,66 @@ describe('routes', () => {
     await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
     expect(save).toHaveBeenCalledExactlyOnceWith(1, {
       title: 'گزارش سالانه',
+      body: '',
     })
+
+    await user.keyboard('{Enter}')
+
     expect(
       await screen.findByRole('heading', { name: 'گزارش سالانه' }),
     ).toBeInTheDocument()
+  })
+
+  it('keeps the window open when a pending save fails before close', async () => {
+    let rejectSave!: (error: Error) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((_resolve, reject) => {
+          rejectSave = reject
+        }),
+    )
+    const { triggerBeforeClose, closeReady, closeCancelled } = installBridge({
+      save,
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'گزارش',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    expect(closeReady).not.toHaveBeenCalled()
+    expect(closeCancelled).not.toHaveBeenCalled()
+
+    await act(() =>
+      rejectSave(
+        new Error(
+          'The saveDocument operation failed (injected by --with-db-failure)',
+        ),
+      ),
+    )
+
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    await vi.waitFor(() => expect(closeCancelled).toHaveBeenCalledOnce())
+    expect(closeReady).not.toHaveBeenCalled()
   })
 
   it('signals close immediately when no title edit is pending', async () => {
@@ -1074,10 +1375,10 @@ describe('routes', () => {
   })
 
   it('waits for an in-flight title save before signaling close', async () => {
-    let finishSave!: (document: typeof storedDocument) => void
+    let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
-        new Promise<typeof storedDocument>((resolve) => {
+        new Promise<TestDocument>((resolve) => {
           finishSave = resolve
         }),
     )
@@ -1089,11 +1390,14 @@ describe('routes', () => {
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
     await user.clear(input)
     await user.type(input, 'پیگیری')
-    await user.keyboard('{Enter}')
 
-    expect(
-      screen.getByRole('status', { name: 'در حال ذخیره ی سند' }),
-    ).toBeInTheDocument()
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledOnce()
+      },
+      { timeout: 1_500 },
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     await act(async () => {
       triggerBeforeClose()
@@ -1113,15 +1417,125 @@ describe('routes', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
-  it('keeps the close handshake waiting for a save whose editor unmounted', async () => {
-    let finishSave!: (document: typeof storedDocument) => void
+  it('disables the documents back button while a save is in flight and restores it afterwards', async () => {
+    let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
-        new Promise<typeof storedDocument>((resolve) => {
+        new Promise<TestDocument>((resolve) => {
           finishSave = resolve
         }),
     )
-    const { triggerBeforeClose, closeReady } = installBridge({
+    installBridge({ save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledOnce()
+      },
+      { timeout: 1_500 },
+    )
+
+    const disabledBack = screen.getByRole('button', {
+      name: 'بازگشت به مستندات',
+    })
+    expect(disabledBack).toBeDisabled()
+    expect(
+      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await user.click(disabledBack)
+
+    expect(screen.getByRole('heading', { name: 'گزارش' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
+    ).not.toBeInTheDocument()
+
+    await act(() =>
+      finishSave({
+        ...storedDocument,
+        title: 'گزارش',
+        updatedAt: 2_000,
+      }),
+    )
+
+    expect(
+      await screen.findByRole('link', { name: 'بازگشت به مستندات' }),
+    ).toBeInTheDocument()
+  })
+
+  it('disables the documents back link as soon as it flushes a pending debounce', async () => {
+    let finishSave!: (document: TestDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    installBridge({
+      save,
+      count: vi.fn(async () => 1),
+      list: vi.fn(async () => [storedDocument]),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    expect(save).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    const disabledBack = screen.getByRole('button', {
+      name: 'بازگشت به مستندات',
+    })
+    expect(disabledBack).toBeDisabled()
+    expect(
+      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
+    ).not.toBeInTheDocument()
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش',
+      body: '',
+    })
+    expect(
+      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(disabledBack)
+    expect(save).toHaveBeenCalledOnce()
+
+    await act(() =>
+      finishSave({
+        ...storedDocument,
+        title: 'گزارش',
+        updatedAt: 2_000,
+      }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('saves a pending title before leaving through the documents back link', async () => {
+    let finishSave!: (document: TestDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const { closeReady } = installBridge({
       save,
       count: vi.fn(async () => 1),
       list: vi.fn(async () => [storedDocument]),
@@ -1133,17 +1547,16 @@ describe('routes', () => {
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
     await user.clear(input)
     await user.type(input, 'پیگیری')
-    await user.keyboard('{Enter}')
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
-    await screen.findByRole('heading', { name: 'مستندات (۱)' })
 
-    await act(async () => {
-      triggerBeforeClose()
-      await Promise.resolve()
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'پیگیری',
+      body: '',
     })
-
-    expect(closeReady).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
+    ).not.toBeInTheDocument()
 
     await act(() =>
       finishSave({
@@ -1153,11 +1566,77 @@ describe('routes', () => {
       }),
     )
 
-    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(closeReady).not.toHaveBeenCalled()
+    expect(save).toHaveBeenCalledOnce()
   })
 
-  it('creates an untitled document and opens its page', async () => {
-    const { create, get } = installBridge()
+  it('saves pending title and body changes before leaving through the documents back link', async () => {
+    const pendingSaves: Array<{
+      changes: DocumentChanges
+      resolve: (document: TestDocument) => void
+    }> = []
+    const save = vi.fn(
+      (_id: number, changes: DocumentChanges) =>
+        new Promise<TestDocument>((resolve) => {
+          pendingSaves.push({ changes, resolve })
+        }),
+    )
+    installBridge({
+      save,
+      count: vi.fn(async () => 1),
+      list: vi.fn(async () => [storedDocument]),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const titleInput = await screen.findByRole('textbox', {
+      name: 'عنوان سند',
+    })
+    await user.clear(titleInput)
+    await user.type(titleInput, 'گزارش')
+
+    const editor = await screen.findByRole('textbox', { name: 'متن سند' })
+    await user.click(editor)
+    await user.keyboard('متن')
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    await vi.waitFor(() => {
+      expect(pendingSaves).toHaveLength(1)
+    })
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش',
+      body: expect.stringContaining('متن'),
+    })
+    expect(
+      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
+    ).not.toBeInTheDocument()
+
+    const [pending] = pendingSaves
+    await act(() =>
+      pending.resolve({
+        ...storedDocument,
+        ...pending.changes,
+        updatedAt: 2_000,
+      }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('creates an untitled document and opens its empty page with the placeholder', async () => {
+    const untitled = { ...storedDocument, title: null }
+    const { create, get } = installBridge({
+      create: vi.fn(async () => untitled),
+      get: vi.fn(async () => untitled),
+    })
     const user = userEvent.setup()
 
     renderRoute('/')
@@ -1170,16 +1649,18 @@ describe('routes', () => {
 
     expect(create).toHaveBeenCalledOnce()
     expect(
-      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+      await screen.findByRole('heading', {
+        name: 'عنوانی انتخاب نشده است.',
+      }),
     ).toBeInTheDocument()
     expect(get).toHaveBeenCalledWith(1)
   })
 
   it('disables the create button and shows a spinner while the document is being created', async () => {
-    let finishCreate!: (document: typeof storedDocument) => void
+    let finishCreate!: (document: TestDocument) => void
     const create = vi.fn(
       () =>
-        new Promise<typeof storedDocument>((resolve) => {
+        new Promise<TestDocument>((resolve) => {
           finishCreate = resolve
         }),
     )
@@ -1218,6 +1699,8 @@ describe('routes', () => {
     expect(back).toHaveAttribute('data-variant', 'outline')
     expect(back.querySelector('svg')).toHaveClass('lucide-arrow-right')
     expect(back).toHaveTextContent('بازگشت به مستندات')
+    expect(back).toHaveAttribute('dir', 'rtl')
+    expect(back.closest('[data-slot="title-bar"]')).not.toBeNull()
 
     await user.click(back)
 
@@ -1398,6 +1881,51 @@ describe('routes', () => {
     )
     await screen.findByRole('heading', { name: 'بدون عنوان' })
     expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not report a failed save after the document is deleted', async () => {
+    let rejectSave!: (error: Error) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((_resolve, reject) => {
+          rejectSave = reject
+        }),
+    )
+    installBridge({ save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledOnce()
+      },
+      { timeout: 1_500 },
+    )
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      rejectSave(new Error('The saveDocument operation failed'))
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() => expect(isDocumentSaving()).toBe(false))
+    expect(
+      screen.queryByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
   })
 
   it('reports a failed delete with an error toast and keeps the dialog open for another try', async () => {
@@ -1678,6 +2206,55 @@ describe('routes', () => {
     )
   })
 
+  it('shows the untitled placeholder in the list and on the document page', async () => {
+    const untitled = { ...storedDocument, title: null }
+    installDocumentsBridge([untitled])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    const titleLink = await screen.findByRole('link', {
+      name: 'عنوانی انتخاب نشده است.',
+    })
+    await user.click(titleLink)
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'عنوانی انتخاب نشده است.',
+      }),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('heading', { name: 'عنوانی انتخاب نشده است.' }),
+    )
+    expect(
+      await screen.findByRole<HTMLInputElement>('textbox', {
+        name: 'عنوان سند',
+      }),
+    ).toHaveValue('')
+  })
+
+  it('asks to delete an untitled document without using the placeholder as its title', async () => {
+    const untitled = { ...storedDocument, title: null }
+    installDocumentsBridge([untitled])
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'عنوانی انتخاب نشده است.' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(
+      within(dialog).getByText(
+        'آیا مطمئن هستید که می خواهید این سند را حذف کنید؟',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText(/عنوانی انتخاب نشده است/),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows a centered message while no documents are stored', async () => {
     installBridge()
 
@@ -1824,10 +2401,10 @@ describe('routes', () => {
   })
 
   it('keeps the home page usable with a centered loader while the first list read is in flight', async () => {
-    let finishList!: (documents: Array<typeof storedDocument>) => void
+    let finishList!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
       (_options: DocumentListOptions) =>
-        new Promise<Array<typeof storedDocument>>((resolve) => {
+        new Promise<Array<TestDocument>>((resolve) => {
           finishList = resolve
         }),
     )
@@ -2138,11 +2715,11 @@ describe('routes', () => {
   it('keeps the rows visible and pulses them while a filtered read is in flight', async () => {
     const matching = { ...storedDocument, id: 1, title: 'گزارش' }
     const other = { ...storedDocument, id: 2, title: 'یادداشت' }
-    let finishSearch!: (documents: Array<typeof storedDocument>) => void
+    let finishSearch!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         if (options.search === 'گزارش') {
-          return new Promise<Array<typeof storedDocument>>((resolve) => {
+          return new Promise<Array<TestDocument>>((resolve) => {
             finishSearch = resolve
           })
         }
@@ -2193,21 +2770,19 @@ describe('routes', () => {
     const stale = { ...storedDocument, id: 3, title: 'گزارش قدیمی' }
     let searchRequestId: string | undefined
     let finishStaleSearch:
-      ((documents: Array<typeof storedDocument>) => void) | undefined
+      ((documents: Array<TestDocument>) => void) | undefined
     let rejectStaleSearch: ((reason?: unknown) => void) | undefined
     const list = vi.fn(
       (
         options: DocumentListOptions,
         requestId: string,
-      ): Promise<Array<typeof storedDocument>> => {
+      ): Promise<Array<TestDocument>> => {
         if (options.search === 'گ') {
           searchRequestId = requestId
-          return new Promise<Array<typeof storedDocument>>(
-            (resolve, reject) => {
-              finishStaleSearch = resolve
-              rejectStaleSearch = reject
-            },
-          )
+          return new Promise<Array<TestDocument>>((resolve, reject) => {
+            finishStaleSearch = resolve
+            rejectStaleSearch = reject
+          })
         }
         if (options.search === 'گزارش') {
           return Promise.resolve([matching])
@@ -2276,8 +2851,9 @@ describe('routes', () => {
         : Promise.resolve(
             search === undefined
               ? documents.length
-              : documents.filter((row) => row.title.includes(search.trim()))
-                  .length,
+              : documents.filter(
+                  (row) => row.title?.includes(search.trim()) ?? false,
+                ).length,
           ),
     )
     const cancel = vi.fn((requestId: string) => {
@@ -2393,12 +2969,12 @@ describe('routes', () => {
 
   it('keeps the stale rows and pulses the table while the list re-reads', async () => {
     let reads = 0
-    let finishReread!: (documents: Array<typeof storedDocument>) => void
+    let finishReread!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         reads += 1
         if (reads > 1) {
-          return new Promise<Array<typeof storedDocument>>((resolve) => {
+          return new Promise<Array<TestDocument>>((resolve) => {
             finishReread = resolve
           })
         }
@@ -2455,7 +3031,7 @@ describe('routes', () => {
   it('reports a failed list read with an error and a retry button, and recovers the table when pressed', async () => {
     let attempts = 0
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         attempts += 1
         return attempts === 1
           ? Promise.reject(
@@ -2532,16 +3108,14 @@ describe('routes', () => {
 
   it('shows the centered loader while a retry from a failed list read is in flight', async () => {
     let attempts = 0
-    let finishRetry!: (documents: Array<typeof storedDocument>) => void
+    let finishRetry!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
-      (
-        _options: DocumentListOptions,
-      ): Promise<Array<typeof storedDocument>> => {
+      (_options: DocumentListOptions): Promise<Array<TestDocument>> => {
         attempts += 1
         if (attempts === 1) {
           return Promise.reject(new Error('list read failed'))
         }
-        return new Promise<Array<typeof storedDocument>>((resolve) => {
+        return new Promise<Array<TestDocument>>((resolve) => {
           finishRetry = resolve
         })
       },
@@ -2574,9 +3148,9 @@ describe('routes', () => {
 
   it('keeps the retry button busy with a spinner while a stale list re-reads', async () => {
     let reads = 0
-    let finishRetry!: (documents: Array<typeof storedDocument>) => void
+    let finishRetry!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         reads += 1
         if (reads === 1) {
           return Promise.resolve(documentListPage([storedDocument], options))
@@ -2584,7 +3158,7 @@ describe('routes', () => {
         if (reads === 2) {
           return Promise.reject(new Error('list re-read failed'))
         }
-        return new Promise<Array<typeof storedDocument>>((resolve) => {
+        return new Promise<Array<TestDocument>>((resolve) => {
           finishRetry = resolve
         })
       },
@@ -2628,9 +3202,7 @@ describe('routes', () => {
 
   it('shows the list retry as a labeled button without a tooltip', async () => {
     const list = vi.fn(
-      async (
-        _options: DocumentListOptions,
-      ): Promise<Array<typeof storedDocument>> => {
+      async (_options: DocumentListOptions): Promise<Array<TestDocument>> => {
         throw new Error('list read failed')
       },
     )
@@ -2740,11 +3312,11 @@ describe('routes', () => {
       id: index + 1,
       title: `سند ${index + 1}`,
     }))
-    let finishPageTwo!: (documents: Array<typeof storedDocument>) => void
+    let finishPageTwo!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         if (options.offset === documentPageSize) {
-          return new Promise<Array<typeof storedDocument>>((resolve) => {
+          return new Promise<Array<TestDocument>>((resolve) => {
             finishPageTwo = resolve
           })
         }
@@ -2802,7 +3374,7 @@ describe('routes', () => {
     }))
     let pageTwoAttempts = 0
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         if (options.offset === documentPageSize) {
           pageTwoAttempts += 1
           if (pageTwoAttempts === 1) {
@@ -2912,16 +3484,16 @@ describe('routes', () => {
     let pageTwoDocuments = documents.slice(documentPageSize)
     let countValue = documents.length
     let holdFirstPage = false
-    let finishFirstPage!: (documents: Array<typeof storedDocument>) => void
+    let finishFirstPage!: (documents: Array<TestDocument>) => void
     const count = vi.fn(async () => countValue)
     const list = vi.fn(
-      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+      (options: DocumentListOptions): Promise<Array<TestDocument>> => {
         if (options.offset === documentPageSize) {
           return Promise.resolve(pageTwoDocuments)
         }
 
         if (holdFirstPage) {
-          return new Promise<Array<typeof storedDocument>>((resolve) => {
+          return new Promise<Array<TestDocument>>((resolve) => {
             finishFirstPage = resolve
           })
         }
@@ -3956,7 +4528,7 @@ describe('routes', () => {
   })
 
   it('re-reads the documents list once the created document is stored', async () => {
-    const stored: Array<typeof storedDocument> = []
+    const stored: Array<TestDocument> = []
     const list = vi.fn(async (options: DocumentListOptions) =>
       documentListPage(stored, options),
     )
@@ -3997,7 +4569,7 @@ describe('routes', () => {
   })
 
   it('re-reads the documents list after a title save so the table shows the new title', async () => {
-    const stored = [{ ...storedDocument }]
+    const stored: TestDocument[] = [{ ...storedDocument }]
     const list = vi.fn(async (options: DocumentListOptions) =>
       documentListPage(stored, options),
     )
@@ -4040,7 +4612,7 @@ describe('routes', () => {
   })
 
   it('re-reads the filtered count after a title save changes the match', async () => {
-    const stored = [{ ...storedDocument, title: 'گزارش' }]
+    const stored: TestDocument[] = [{ ...storedDocument, title: 'گزارش' }]
     const list = vi.fn(async (options: DocumentListOptions) =>
       documentListPage(stored, options),
     )
@@ -4048,7 +4620,9 @@ describe('routes', () => {
       const term = search?.trim().toLowerCase() ?? ''
       return term === ''
         ? stored.length
-        : stored.filter((row) => row.title.toLowerCase().includes(term)).length
+        : stored.filter(
+            (row) => row.title?.toLowerCase().includes(term) ?? false,
+          ).length
     })
     const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
     const save = vi.fn(async (id: number, changes: DocumentChanges) => {
@@ -4106,7 +4680,9 @@ describe('routes', () => {
       const term = search?.trim().toLowerCase() ?? ''
       return term === ''
         ? stored.length
-        : stored.filter((row) => row.title.toLowerCase().includes(term)).length
+        : stored.filter(
+            (row) => row.title?.toLowerCase().includes(term) ?? false,
+          ).length
     })
     const get = vi.fn(async (id: number) => stored.find((row) => row.id === id))
     const remove = vi.fn(async (id: number) => {
