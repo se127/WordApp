@@ -111,9 +111,12 @@ function DocumentsTable({
   )
   const scrollViewportRef = useRef<HTMLDivElement | null>(null)
   const queryClient = useQueryClient()
-  const { data: documentCount } = useQuery(
-    documentsCountQueryFor(debouncedSearch),
-  )
+  const {
+    data: documentCount,
+    isError: isCountError,
+    isFetching: isCountFetching,
+    refetch: refetchCount,
+  } = useQuery(documentsCountQueryFor(debouncedSearch))
   const totalPages =
     documentCount === undefined || documentCount === null
       ? undefined
@@ -295,10 +298,30 @@ function DocumentsTable({
 
   if (documents.length === 0) {
     if (currentPage > 1) {
+      if (
+        !isCountError &&
+        (isCountFetching ||
+          documentCount === undefined ||
+          documentCount === null)
+      ) {
+        return (
+          <div className="flex min-h-0 w-full flex-1 flex-col">
+            {controls}
+            <DocumentsPending />
+          </div>
+        )
+      }
+
       return (
         <div className="flex min-h-0 w-full flex-1 flex-col">
           {controls}
-          <DocumentsPending />
+          <DocumentsRetry
+            isRetrying={isCountFetching || isFetching}
+            onRetry={() => {
+              void refetchCount()
+              void refetch()
+            }}
+          />
         </div>
       )
     }

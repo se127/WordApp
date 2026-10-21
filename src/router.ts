@@ -1,4 +1,4 @@
-import { RoutePending } from '@/components/route-pending'
+import { RouteNotFound } from '@/components/route-not-found'
 import { queryClient } from '@/lib/query'
 import { documentRoute } from '@/routes/document'
 import { homeRoute } from '@/routes/home'
@@ -22,9 +22,7 @@ export function createAppRouter(
     context: { queryClient },
     defaultStaleTime: 0,
     defaultPreload: false,
-    defaultPendingMs: 0,
-    defaultPendingMinMs: 0,
-    defaultPendingComponent: RoutePending,
+    defaultNotFoundComponent: RouteNotFound,
   })
 }
 

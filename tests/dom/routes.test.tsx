@@ -609,6 +609,37 @@ describe('routes', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
+  it('explains that a document id has no stored row instead of leaving the page blank', async () => {
+    installBridge({ get: vi.fn(async () => undefined) })
+
+    renderRoute('/documents/999')
+
+    expect(
+      await screen.findByText('سندی با این شناسه پیدا نشد.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'بازگشت به مستندات' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('shows a Persian not-found page with a way home for an unknown route', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/missing-page')
+
+    expect(
+      await screen.findByText('صفحه ی مورد نظر پیدا نشد.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Not Found')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+  })
+
   it('shows the stored title as a full-width heading at the icon-button height that truncates, tints on hover and focus, and borders on focus', async () => {
     installBridge()
 
@@ -880,8 +911,9 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
+    const main = await screen.findByRole('main')
     await user.click(
-      await within(screen.getByRole('main')).findByRole('button', {
+      await within(main).findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -905,8 +937,9 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
+    const main = await screen.findByRole('main')
     await user.click(
-      await within(screen.getByRole('main')).findByRole('button', {
+      await within(main).findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -1187,8 +1220,9 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
+    const main = await screen.findByRole('main')
     await user.click(
-      await within(screen.getByRole('main')).findByRole('button', {
+      await within(main).findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -1218,8 +1252,9 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
+    const main = await screen.findByRole('main')
     await user.click(
-      await within(screen.getByRole('main')).findByRole('button', {
+      await within(main).findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2440,6 +2475,66 @@ describe('routes', () => {
       },
       expect.any(String),
     )
+  })
+
+  it('replaces the endless page loader with a retry when the count fails on a later page', async () => {
+    const documents = Array.from({ length: 16 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    let countReads = 0
+    const count = vi.fn(async () => {
+      countReads += 1
+      if (countReads === 2) {
+        throw new Error('count read failed')
+      }
+      return countReads === 1 ? 16 : 15
+    })
+    let pageTwoDocuments = documents.slice(15)
+    const list = vi.fn(async (options: DocumentListOptions) =>
+      options.offset === documentPageSize
+        ? [...pageTwoDocuments]
+        : documentListPage(documents, options),
+    )
+    installBridge({ list, count })
+    const user = userEvent.setup()
+    const { queryClient } = renderRoute('/')
+
+    await screen.findByRole('heading', { name: 'مستندات (۱۶)' })
+    await user.click(paginationPageLink(2))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    pageTwoDocuments = []
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: documentsCountQuery.queryKey,
+      })
+    })
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: documentsQuery(2).queryKey,
+      })
+    })
+
+    expect(
+      await screen.findByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('status', { name: 'در حال بارگذاری سندها' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 1' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۱۵)' }),
+    ).toBeInTheDocument()
   })
 
   it('remembers the page and scroll position after opening a document and returning to it', async () => {

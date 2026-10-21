@@ -51,7 +51,9 @@ function DocumentPage() {
         <DocumentRetry onRetry={() => void refetch()} />
       ) : document === undefined ? (
         <DocumentPending />
-      ) : document?.body ? (
+      ) : document === null ? (
+        <DocumentMissing />
+      ) : document.body ? (
         <p className="text-sm whitespace-pre-wrap">{document.body}</p>
       ) : null}
     </div>
@@ -200,6 +202,14 @@ function DocumentRetry({ onRetry }: { onRetry: () => void }) {
         <RefreshCw className="size-4 text-destructive" />
         تلاش دوباره
       </Button>
+    </div>
+  )
+}
+
+function DocumentMissing() {
+  return (
+    <div className="flex min-h-32 w-full flex-1 items-center justify-center">
+      <p className="text-sm">سندی با این شناسه پیدا نشد.</p>
     </div>
   )
 }
