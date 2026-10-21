@@ -168,10 +168,11 @@ function useDocumentAutosave(document: DocumentRecord) {
 
   useEffect(() => {
     return () => {
-      clearTimer()
-      void flush()
+      if (timerRef.current !== null) {
+        void flush()
+      }
     }
-  }, [clearTimer, flush])
+  }, [flush])
 
   useEffect(() => registerCloseSave(flush), [flush])
 

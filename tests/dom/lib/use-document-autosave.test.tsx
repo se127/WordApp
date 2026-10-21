@@ -160,6 +160,45 @@ describe('useDocumentAutosave', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
+  it('does not save again on unmount when the immediate flush failed', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async () => {
+      throw new Error(
+        'The saveDocument operation failed (injected by --with-db-failure)',
+      )
+    })
+    const { result, unmount } = renderAutosave(save)
+
+    act(() => result.current.updateTitle('گزارش'))
+    await act(() => flushDocumentSaves())
+
+    expect(save).toHaveBeenCalledOnce()
+
+    unmount()
+    await advance(0)
+
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('saves pending changes on unmount when the debounce has not fired', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, unmount } = renderAutosave(save)
+
+    act(() => result.current.updateTitle('گزارش'))
+    unmount()
+    await advance(0)
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش',
+      body: '<p>قبلی</p>',
+    })
+  })
+
   it('pauses autosave and resumes pending changes after a failed delete', async () => {
     vi.useFakeTimers()
     const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({

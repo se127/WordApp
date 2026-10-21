@@ -1527,6 +1527,44 @@ describe('routes', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
+  it('saves once and shows one error toast when the back link save fails', async () => {
+    const save = vi.fn(async () => {
+      throw new Error(
+        'The saveDocument operation failed (injected by --with-db-failure)',
+      )
+    })
+    installBridge({
+      save,
+      count: vi.fn(async () => 1),
+      list: vi.fn(async () => [storedDocument]),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش',
+      body: '',
+    })
+    expect(
+      screen.getAllByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toHaveLength(1)
+  })
+
   it('saves a pending title before leaving through the documents back link', async () => {
     let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
