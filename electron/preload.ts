@@ -5,6 +5,8 @@ import type {
   DocumentRecord,
 } from './database.ts'
 import {
+  appBeforeCloseChannel,
+  appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
@@ -17,6 +19,18 @@ import {
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
+  lifecycle: {
+    onBeforeClose: (listener: () => void): (() => void) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(appBeforeCloseChannel, handler)
+      return () => {
+        ipcRenderer.removeListener(appBeforeCloseChannel, handler)
+      }
+    },
+    closeReady: (): void => {
+      ipcRenderer.send(appCloseReadyChannel)
+    },
+  },
   documents: {
     create: (): Promise<DocumentRecord> =>
       ipcRenderer.invoke(documentsCreateChannel),

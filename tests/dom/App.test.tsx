@@ -11,6 +11,10 @@ type WordAppBridge = Window['WordApp']
 function installBridge() {
   window.WordApp = {
     platform: 'win32',
+    lifecycle: {
+      onBeforeClose: vi.fn(() => () => {}),
+      closeReady: vi.fn(),
+    },
     documents: {
       create: vi.fn(async () => ({
         id: 1,

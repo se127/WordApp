@@ -1,3 +1,5 @@
+export const appBeforeCloseChannel = 'wordapp:app:before-close'
+export const appCloseReadyChannel = 'wordapp:app:close-ready'
 export const documentsCreateChannel = 'wordapp:documents:create'
 export const documentsGetChannel = 'wordapp:documents:get'
 export const documentsCountChannel = 'wordapp:documents:count'

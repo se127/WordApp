@@ -7,6 +7,7 @@ import {
   session,
   shell,
 } from 'electron'
+import type { IpcMainEvent } from 'electron'
 import path from 'node:path'
 import {
   openDatabase,
@@ -22,6 +23,8 @@ import type {
   WordAppDatabase,
 } from './database.ts'
 import {
+  appBeforeCloseChannel,
+  appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
@@ -58,6 +61,7 @@ function revealWindow(browserWindow: BrowserWindow): void {
 
 const errNetworkChanged = -106
 const maxLoadAttempts = 5
+const closeHandshakeGraceMs = 5000
 
 function isSafeExternalUrl(url: string): boolean {
   try {
@@ -77,7 +81,7 @@ function isSameAppPage(currentUrl: string, nextUrl: string): boolean {
   }
 }
 
-function createWindow(): void {
+function createWindow(closeTimeoutMs: number): void {
   const mainWindow = new BrowserWindow({
     minWidth: 800,
     minHeight: 600,
@@ -87,6 +91,66 @@ function createWindow(): void {
       devTools: !app.isPackaged,
       preload: path.join(appRoot, 'dist-electron', 'preload.cjs'),
     },
+  })
+
+  let closeRequested = false
+  let isClosing = false
+  let closeTimer: ReturnType<typeof setTimeout> | undefined
+
+  const closeWindow = (): void => {
+    if (closeTimer !== undefined) {
+      clearTimeout(closeTimer)
+      closeTimer = undefined
+    }
+
+    if (mainWindow.isDestroyed()) {
+      return
+    }
+
+    isClosing = true
+    mainWindow.close()
+  }
+
+  const handleCloseReady = (event: IpcMainEvent): void => {
+    if (
+      isClosing ||
+      event.sender !== mainWindow.webContents ||
+      !closeRequested
+    ) {
+      return
+    }
+
+    closeWindow()
+  }
+
+  mainWindow.on('close', (event) => {
+    if (isClosing || !revealedWindows.has(mainWindow)) {
+      return
+    }
+
+    event.preventDefault()
+    if (closeRequested) {
+      return
+    }
+
+    closeRequested = true
+    try {
+      mainWindow.webContents.send(appBeforeCloseChannel)
+    } catch {
+      closeWindow()
+      return
+    }
+    closeTimer = setTimeout(closeWindow, closeTimeoutMs)
+  })
+
+  ipcMain.on(appCloseReadyChannel, handleCloseReady)
+
+  mainWindow.on('closed', () => {
+    if (closeTimer !== undefined) {
+      clearTimeout(closeTimer)
+      closeTimer = undefined
+    }
+    ipcMain.removeListener(appCloseReadyChannel, handleCloseReady)
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -211,7 +275,9 @@ function isDocumentRequest(value: unknown): value is DocumentRequest {
   return isDocumentRequestId(requestId)
 }
 
-void app.whenReady().then(async () => {
+async function startApp(): Promise<void> {
+  await app.whenReady()
+
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.wordapp.app')
   }
@@ -220,10 +286,18 @@ void app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
   }
 
-  await session.defaultSession.setProxy({
-    mode: 'system',
-    proxyBypassRules: '<local>',
-  })
+  try {
+    await session.defaultSession.setProxy({
+      mode: 'system',
+      proxyBypassRules: '<local>',
+    })
+  } catch (error) {
+    console.error(
+      `The system proxy could not be configured: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
 
   const databasePath = app.isPackaged
     ? path.join(app.getPath('userData'), 'db.sqlite')
@@ -393,17 +467,48 @@ void app.whenReady().then(async () => {
     database.close()
   })
 
-  createWindow()
+  createWindow(operationDelayMs + closeHandshakeGraceMs)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      createWindow(operationDelayMs + closeHandshakeGraceMs)
     }
   })
-})
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => {
+    const [existingWindow] = BrowserWindow.getAllWindows()
+    if (existingWindow === undefined) {
+      return
+    }
+
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore()
+    }
+    existingWindow.focus()
+  })
+
+  void startApp().catch((error) => {
+    console.error(
+      `The app could not start: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+    dialog.showErrorBox(
+      'WordApp',
+      'آغاز برنامه ناموفق بود. برنامه بسته می شود.',
+    )
+    app.exit(1)
+  })
+} else {
+  app.quit()
+}

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   expose: vi.fn(),
   invoke: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn(),
   send: vi.fn(),
 }))
 
@@ -10,6 +12,8 @@ vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: mocks.expose },
   ipcRenderer: {
     invoke: mocks.invoke,
+    on: mocks.on,
+    removeListener: mocks.removeListener,
     send: mocks.send,
   },
 }))
@@ -137,5 +141,31 @@ describe('preload bridge', () => {
       'wordapp:documents:cancel',
       'list-1',
     )
+  })
+
+  it('forwards the close handshake over the app lifecycle channels', async () => {
+    const api = await importPreload()
+    const listener = vi.fn()
+
+    const unsubscribe = api.lifecycle.onBeforeClose(listener)
+    const handler = mocks.on.mock.calls.at(-1)?.[1] as (() => void) | undefined
+
+    expect(mocks.on).toHaveBeenCalledWith(
+      'wordapp:app:before-close',
+      expect.any(Function),
+    )
+    expect(handler).toBeTypeOf('function')
+
+    handler?.()
+    expect(listener).toHaveBeenCalledOnce()
+
+    unsubscribe()
+    expect(mocks.removeListener).toHaveBeenCalledWith(
+      'wordapp:app:before-close',
+      handler,
+    )
+
+    api.lifecycle.closeReady()
+    expect(mocks.send).toHaveBeenCalledWith('wordapp:app:close-ready')
   })
 })

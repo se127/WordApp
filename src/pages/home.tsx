@@ -308,6 +308,15 @@ function DocumentsTable({
     )
   }
 
+  if (documents.length === 0 && isFetching) {
+    return (
+      <div className="flex min-h-0 w-full flex-1 flex-col">
+        {controls}
+        <DocumentsPending />
+      </div>
+    )
+  }
+
   if (documents.length === 0) {
     if (currentPage > 1) {
       if (
@@ -465,6 +474,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
         {isSelecting ? (
           <button
             type="button"
+            aria-pressed={isSelected}
             className="block w-full rounded-sm text-start break-words outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             onClick={() => onToggleSelected(document.id)}
           >
@@ -642,7 +652,7 @@ function CountPending() {
     <LoaderCircle
       role="status"
       aria-label="در حال بارگذاری"
-      className="size-4 animate-spin text-black dark:text-white"
+      className="size-4 animate-spin"
     />
   )
 }

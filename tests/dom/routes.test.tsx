@@ -108,9 +108,23 @@ function installBridge(
     })
   const remove = options.remove ?? vi.fn(async () => undefined)
   const removeMany = options.removeMany ?? vi.fn(async () => undefined)
+  let beforeCloseListener: (() => void) | undefined
+  const onBeforeClose = vi.fn((listener: () => void) => {
+    beforeCloseListener = listener
+    return () => {
+      if (beforeCloseListener === listener) {
+        beforeCloseListener = undefined
+      }
+    }
+  })
+  const closeReady = vi.fn()
 
   window.WordApp = {
     platform: 'win32',
+    lifecycle: {
+      onBeforeClose,
+      closeReady,
+    },
     documents: {
       create,
       get,
@@ -123,7 +137,19 @@ function installBridge(
     },
   } satisfies WordAppBridge
 
-  return { create, get, count, list, cancel, save, remove, removeMany }
+  return {
+    create,
+    get,
+    count,
+    list,
+    cancel,
+    save,
+    remove,
+    removeMany,
+    onBeforeClose,
+    closeReady,
+    triggerBeforeClose: () => beforeCloseListener?.(),
+  }
 }
 
 function installDocumentsBridge(
@@ -280,7 +306,10 @@ describe('routes', () => {
     renderRoute('/')
 
     const heading = await screen.findByRole('heading')
-    expect(within(heading).getByRole('status')).toBeInTheDocument()
+    expect(within(heading).getByRole('status')).toHaveClass(
+      'size-4',
+      'animate-spin',
+    )
     expect(
       within(screen.getByRole('main')).getByRole('button', {
         name: 'افزودن سند',
@@ -1001,6 +1030,132 @@ describe('routes', () => {
     expect(save).toHaveBeenCalledTimes(2)
   })
 
+  it('saves a pending title before signaling that the window can close', async () => {
+    const { save, triggerBeforeClose, closeReady } = installDocumentsBridge([
+      storedDocument,
+    ])
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش سالانه')
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش سالانه',
+    })
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش سالانه' }),
+    ).toBeInTheDocument()
+  })
+
+  it('signals close immediately when no title edit is pending', async () => {
+    const { save, triggerBeforeClose, closeReady } = installDocumentsBridge([
+      storedDocument,
+    ])
+
+    renderRoute('/documents/1')
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('waits for an in-flight title save before signaling close', async () => {
+    let finishSave!: (document: typeof storedDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<typeof storedDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const { triggerBeforeClose, closeReady } = installBridge({ save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'پیگیری')
+    await user.keyboard('{Enter}')
+
+    expect(
+      screen.getByRole('status', { name: 'در حال ذخیره ی سند' }),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    expect(closeReady).not.toHaveBeenCalled()
+
+    const saved = {
+      ...storedDocument,
+      title: 'پیگیری',
+      updatedAt: 2_000,
+    }
+    await act(() => finishSave(saved))
+
+    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the close handshake waiting for a save whose editor unmounted', async () => {
+    let finishSave!: (document: typeof storedDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<typeof storedDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const { triggerBeforeClose, closeReady } = installBridge({
+      save,
+      count: vi.fn(async () => 1),
+      list: vi.fn(async () => [storedDocument]),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'پیگیری')
+    await user.keyboard('{Enter}')
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await screen.findByRole('heading', { name: 'مستندات (۱)' })
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    expect(closeReady).not.toHaveBeenCalled()
+
+    await act(() =>
+      finishSave({
+        ...storedDocument,
+        title: 'پیگیری',
+        updatedAt: 2_000,
+      }),
+    )
+
+    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+  })
+
   it('creates an untitled document and opens its page', async () => {
     const { create, get } = installBridge()
     const user = userEvent.setup()
@@ -1071,6 +1226,28 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
+  it('does not leave the document page in history when the back link is used', async () => {
+    installDocumentsBridge([storedDocument])
+    const user = userEvent.setup()
+
+    const { router } = renderRoute('/')
+    await user.click(await screen.findByRole('link', { name: 'بدون عنوان' }))
+    await screen.findByRole('heading', { name: 'بدون عنوان' })
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await screen.findByRole('heading', { name: 'مستندات (۱)' })
+
+    await act(() => router.history.back())
+
+    expect(router.state.location.pathname).toBe('/')
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'بدون عنوان' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('offers delete in the options menu and asks for confirmation before deleting', async () => {
     const { remove } = installBridge()
     const user = userEvent.setup()
@@ -1087,7 +1264,7 @@ describe('routes', () => {
     const dialog = await screen.findByRole('alertdialog')
     expect(
       within(dialog).getByText(
-        'آیا مطمئن هستید که می خواهید این سند را حذف کنید؟',
+        'آیا مطمئن هستید که می خواهید سند «بدون عنوان» را حذف کنید؟',
       ),
     ).toBeInTheDocument()
     expect(
@@ -1202,6 +1379,16 @@ describe('routes', () => {
     ).toBeInTheDocument()
     expect(remove).toHaveBeenCalledWith(1)
     expect(count).toHaveBeenCalledTimes(2)
+
+    await act(() => router.history.back())
+
+    expect(router.state.location.pathname).toBe('/')
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('سندی با این شناسه پیدا نشد.'),
+    ).not.toBeInTheDocument()
 
     await act(() =>
       router.navigate({
@@ -2716,6 +2903,86 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps the loader while a saved later page is clamped to a page that is still loading', async () => {
+    const documents = Array.from({ length: 16 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    let pageTwoDocuments = documents.slice(documentPageSize)
+    let countValue = documents.length
+    let holdFirstPage = false
+    let finishFirstPage!: (documents: Array<typeof storedDocument>) => void
+    const count = vi.fn(async () => countValue)
+    const list = vi.fn(
+      (options: DocumentListOptions): Promise<Array<typeof storedDocument>> => {
+        if (options.offset === documentPageSize) {
+          return Promise.resolve(pageTwoDocuments)
+        }
+
+        if (holdFirstPage) {
+          return new Promise<Array<typeof storedDocument>>((resolve) => {
+            finishFirstPage = resolve
+          })
+        }
+
+        return Promise.resolve(documentListPage(documents, options))
+      },
+    )
+    installBridge({
+      count,
+      list,
+      get: vi.fn(async (id: number) =>
+        documents.find((document) => document.id === id),
+      ),
+    })
+    const user = userEvent.setup()
+    const { queryClient } = renderRoute('/documents/1')
+
+    await screen.findByRole('heading', { name: 'سند 1' })
+    saveHomePage(2)
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+    await screen.findByRole('link', { name: 'سند 16' })
+
+    pageTwoDocuments = []
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: documentsQuery(2).queryKey,
+      })
+    })
+    expect(
+      await screen.findByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+
+    holdFirstPage = true
+    countValue = documentPageSize
+    await act(async () => {
+      await queryClient.invalidateQueries({
+        queryKey: documentsCountQuery.queryKey,
+      })
+    })
+
+    await vi.waitFor(() => expect(finishFirstPage).toBeTypeOf('function'))
+    expect(
+      screen.getByRole('status', { name: 'در حال بارگذاری سندها' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+
+    await act(() => finishFirstPage(documents.slice(0, documentPageSize)))
+
+    expect(
+      await screen.findByRole('link', { name: 'سند 15' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۱۵)' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('remembers the page and scroll position after opening a document and returning to it', async () => {
     const documents = Array.from({ length: 40 }, (_, index) => ({
       ...storedDocument,
@@ -3390,9 +3657,11 @@ describe('routes', () => {
       screen.queryByRole('link', { name: 'یادداشت' }),
     ).not.toBeInTheDocument()
     const title = screen.getByRole('button', { name: 'یادداشت' })
+    expect(title).toHaveAttribute('aria-pressed', 'false')
 
     await user.click(title)
 
+    expect(title).toHaveAttribute('aria-pressed', 'true')
     expect(
       screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
     ).toBeChecked()
@@ -3403,6 +3672,7 @@ describe('routes', () => {
 
     await user.click(title)
 
+    expect(title).toHaveAttribute('aria-pressed', 'false')
     expect(
       screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
     ).not.toBeChecked()

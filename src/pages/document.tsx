@@ -1,5 +1,6 @@
 import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
+import { registerCloseSave, trackDocumentSave } from '@/lib/close-handshake'
 import {
   documentQuery,
   documentsCountQuery,
@@ -27,7 +28,7 @@ function DocumentPage() {
     <div className="flex h-full flex-col gap-4 overflow-auto p-6">
       <div className="flex items-center">
         <Button variant="outline" asChild>
-          <Link to="/">
+          <Link to="/" replace>
             <ArrowRight />
             بازگشت به مستندات
           </Link>
@@ -42,7 +43,8 @@ function DocumentPage() {
           />
           <DocumentOptions
             documentId={Number(documentId)}
-            onDocumentDeleted={() => navigate({ to: '/' })}
+            documentTitle={document.title}
+            onDocumentDeleted={() => navigate({ to: '/', replace: true })}
           />
         </div>
       ) : null}
@@ -75,6 +77,8 @@ function DocumentTitle({
   const selectOnOpen = useRef(false)
   const returnFocusToHeading = useRef(false)
   const skipCommit = useRef(false)
+  const savingPromiseRef = useRef<Promise<boolean> | null>(null)
+  const commitTitleRef = useRef<() => Promise<void>>(async () => {})
 
   const isEditing = draft !== null
 
@@ -122,7 +126,10 @@ function DocumentTitle({
     }
 
     setIsSaving(true)
-    const saved = await saveDocument({ title: nextTitle })
+    const savingPromise = saveDocument({ title: nextTitle })
+    savingPromiseRef.current = savingPromise
+    const saved = await savingPromise
+    savingPromiseRef.current = null
     setIsSaving(false)
 
     if (saved) {
@@ -131,6 +138,24 @@ function DocumentTitle({
       returnFocusToHeading.current = false
     }
   }
+
+  useEffect(() => {
+    commitTitleRef.current = commitTitle
+  })
+
+  useEffect(
+    () =>
+      registerCloseSave(async () => {
+        const savingPromise = savingPromiseRef.current
+        if (savingPromise !== null) {
+          await savingPromise
+          return
+        }
+
+        await commitTitleRef.current()
+      }),
+    [],
+  )
 
   return isEditing ? (
     <span className="relative min-w-0 flex-1">
@@ -188,9 +213,11 @@ function useDocumentSave(documentId: number) {
   const queryClient = useQueryClient()
 
   return async (changes: DocumentChanges): Promise<boolean> => {
-    const saved = await window.WordApp?.documents
-      .save(documentId, changes)
-      .catch(() => undefined)
+    const saved = await trackDocumentSave(
+      Promise.resolve()
+        .then(() => window.WordApp?.documents.save(documentId, changes))
+        .catch(() => undefined),
+    )
 
     if (!saved) {
       toast.error('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.')

@@ -9,6 +9,8 @@ import {
   type Mock,
 } from 'vitest'
 import {
+  appBeforeCloseChannel,
+  appCloseReadyChannel,
   documentsCancelChannel,
   documentsCountChannel,
   documentsCreateChannel,
@@ -22,8 +24,12 @@ import {
 const mocks = vi.hoisted(() => {
   const win = {
     isDestroyed: vi.fn(() => false),
+    isMinimized: vi.fn(() => false),
     maximize: vi.fn(),
+    restore: vi.fn(),
     show: vi.fn(),
+    close: vi.fn(),
+    focus: vi.fn(),
     loadURL: vi.fn(async () => {}),
     loadFile: vi.fn(async () => {}),
     on: vi.fn(),
@@ -87,6 +93,7 @@ const mocks = vi.hoisted(() => {
     setAppUserModelId: vi.fn(),
     exit: vi.fn(),
     quit: vi.fn(),
+    requestSingleInstanceLock: vi.fn(() => true),
   }
 
   return {
@@ -96,7 +103,11 @@ const mocks = vi.hoisted(() => {
     created,
     database,
     dialog,
-    ipcMain: { on: vi.fn(), handle: vi.fn() },
+    ipcMain: {
+      on: vi.fn(),
+      handle: vi.fn(),
+      removeListener: vi.fn(),
+    },
     openDatabase: vi.fn(() => database),
     parseDbDelayArgument,
     parseDbFailureArgument,
@@ -195,6 +206,7 @@ beforeEach(() => {
   mocks.state.isPackaged = false
   mocks.state.options = undefined
   mocks.win.isDestroyed.mockReturnValue(false)
+  mocks.app.requestSingleInstanceLock.mockReturnValue(true)
 })
 
 afterEach(() => {
@@ -249,6 +261,25 @@ describe('dev run', () => {
       proxyBypassRules: '<local>',
     })
   })
+
+  it('still opens the window when the system proxy cannot be configured', async () => {
+    stubPlatform('win32')
+    mocks.session.defaultSession.setProxy.mockRejectedValueOnce(
+      new Error('proxy configuration failed'),
+    )
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(mocks.created).toHaveLength(1)
+      expect(consoleError).toHaveBeenCalledWith(
+        'The system proxy could not be configured: proxy configuration failed',
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
 })
 
 describe('window reveal', () => {
@@ -285,6 +316,112 @@ describe('window reveal', () => {
 
     expect(mocks.win.show).not.toHaveBeenCalled()
     expect(mocks.win.maximize).not.toHaveBeenCalled()
+  })
+})
+
+describe('single instance', () => {
+  it('quits before opening the database when another instance owns the lock', async () => {
+    stubPlatform('win32')
+    mocks.app.requestSingleInstanceLock.mockReturnValueOnce(false)
+
+    await importMain({ expectWindow: false })
+
+    expect(mocks.app.quit).toHaveBeenCalledOnce()
+    expect(mocks.openDatabase).not.toHaveBeenCalled()
+    expect(mocks.created).toHaveLength(0)
+  })
+
+  it('restores and focuses the existing window for a second launch', async () => {
+    stubPlatform('win32')
+    await importMain()
+    mocks.win.isMinimized.mockReturnValueOnce(true)
+
+    listenerOn(mocks.app, 'second-instance')()
+
+    expect(mocks.win.restore).toHaveBeenCalledOnce()
+    expect(mocks.win.focus).toHaveBeenCalledOnce()
+  })
+})
+
+describe('window close handshake', () => {
+  const closeEvent = () => ({ preventDefault: vi.fn() })
+
+  it('asks the renderer to save before closing and closes after it is ready', async () => {
+    stubPlatform('win32')
+    await importMain()
+    listenerOn(mocks.win, 'ready-to-show')()
+
+    const ready = handlerFor('on', appCloseReadyChannel)
+    ready({ sender: mocks.win.webContents })
+    expect(mocks.win.close).not.toHaveBeenCalled()
+
+    const event = closeEvent()
+    listenerOn(mocks.win, 'close')(event)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.send).toHaveBeenCalledWith(
+      appBeforeCloseChannel,
+    )
+
+    ready({ sender: {} })
+    expect(mocks.win.close).not.toHaveBeenCalled()
+
+    ready({ sender: mocks.win.webContents })
+    ready({ sender: mocks.win.webContents })
+    expect(mocks.win.close).toHaveBeenCalledOnce()
+  })
+
+  it('closes immediately before the first frame is revealed', async () => {
+    stubPlatform('win32')
+    await importMain()
+
+    const event = closeEvent()
+    listenerOn(mocks.win, 'close')(event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(mocks.win.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('forces the close after the save grace period when the renderer stays silent', async () => {
+    stubPlatform('win32')
+    vi.stubEnv('DEV_DB_DELAY', '2000')
+    await importMain()
+    listenerOn(mocks.win, 'ready-to-show')()
+
+    vi.useFakeTimers()
+    listenerOn(mocks.win, 'close')(closeEvent())
+
+    vi.advanceTimersByTime(6999)
+    expect(mocks.win.close).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(mocks.win.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe('startup failures', () => {
+  it('reports an unexpected startup failure and exits', async () => {
+    stubPlatform('win32')
+    mocks.BrowserWindow.mockImplementationOnce(function () {
+      throw new Error('window creation failed')
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain({ expectWindow: false })
+
+      await vi.waitFor(() =>
+        expect(mocks.dialog.showErrorBox).toHaveBeenCalledExactlyOnceWith(
+          'WordApp',
+          'آغاز برنامه ناموفق بود. برنامه بسته می شود.',
+        ),
+      )
+      expect(mocks.app.exit).toHaveBeenCalledExactlyOnceWith(1)
+      expect(consoleError).toHaveBeenCalledWith(
+        'The app could not start: window creation failed',
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })
 

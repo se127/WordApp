@@ -34,6 +34,10 @@ function renderToolbar({
 
   window.WordApp = {
     platform: 'win32',
+    lifecycle: {
+      onBeforeClose: vi.fn(() => () => {}),
+      closeReady: vi.fn(),
+    },
     documents: {
       create: vi.fn(async () => storedDocument),
       get: vi.fn(async () => undefined),

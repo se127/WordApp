@@ -24,6 +24,10 @@ declare global {
   interface Window {
     WordApp: {
       platform: string
+      lifecycle: {
+        onBeforeClose: (listener: () => void) => () => void
+        closeReady: () => void
+      }
       documents: {
         create: () => Promise<DocumentRecord>
         get: (id: number) => Promise<DocumentRecord | undefined>

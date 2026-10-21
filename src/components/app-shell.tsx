@@ -1,8 +1,12 @@
 import { TitleBar } from '@/components/title-bar'
 import { Toaster } from '@/components/ui/sonner'
+import { listenForClose } from '@/lib/close-handshake'
 import { Outlet } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 function AppShell() {
+  useEffect(() => listenForClose(), [])
+
   return (
     <div className="flex h-screen flex-col bg-emerald-50 dark:bg-zinc-900">
       <TitleBar />
