@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, Menu, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  session,
+  shell,
+} from 'electron'
 import path from 'node:path'
 import {
   openDatabase,
@@ -11,6 +19,7 @@ import type {
   DatabaseOperationName,
   DocumentChanges,
   DocumentListOptions,
+  WordAppDatabase,
 } from './database.ts'
 import {
   documentsCancelChannel,
@@ -233,10 +242,22 @@ void app.whenReady().then(async () => {
     }
   }
 
-  const database = openDatabase(databasePath, {
-    operationDelayMs,
-    failingOperations,
-  })
+  let database: WordAppDatabase
+  try {
+    database = openDatabase(databasePath, {
+      operationDelayMs,
+      failingOperations,
+    })
+  } catch (error) {
+    console.error(
+      `The database could not be opened: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+    dialog.showErrorBox('WordApp', 'پایگاه داده باز نشد. برنامه بسته می شود.')
+    app.exit(1)
+    return
+  }
 
   const activeDocumentRequests = new Map<string, AbortController>()
   const canceledDocumentRequests = new Set<string>()

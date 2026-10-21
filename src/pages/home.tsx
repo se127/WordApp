@@ -254,6 +254,18 @@ function DocumentsTable({
     setSelectedIds(new Set<number>())
   }, [])
 
+  const forgetDeletedDocument = useCallback((documentId: number): void => {
+    setSelectedIds((ids) => {
+      if (!ids.has(documentId)) {
+        return ids
+      }
+
+      const next = new Set(ids)
+      next.delete(documentId)
+      return next
+    })
+  }, [])
+
   const isSearchPending =
     search !== debouncedSearch || (debouncedSearch.trim() !== '' && isFetching)
   const controls = (
@@ -390,6 +402,7 @@ function DocumentsTable({
                   isSelected={selectedIds.has(document.id)}
                   onToggleSelected={toggleSelectedDocument}
                   onDocumentOpen={rememberScrollPosition}
+                  onDocumentDeleted={forgetDeletedDocument}
                 />
               ))}
             </TableBody>
@@ -425,12 +438,14 @@ const DocumentTableRow = memo(function DocumentTableRow({
   isSelected,
   onToggleSelected,
   onDocumentOpen,
+  onDocumentDeleted,
 }: {
   document: DocumentRecord
   isSelecting: boolean
   isSelected: boolean
   onToggleSelected: (id: number) => void
   onDocumentOpen: () => void
+  onDocumentDeleted: (id: number) => void
 }) {
   return (
     <TableRow data-state={isSelected ? 'selected' : undefined}>
@@ -474,6 +489,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
           <DocumentOptions
             documentId={document.id}
             documentTitle={document.title}
+            onDocumentDeleted={() => onDocumentDeleted(document.id)}
           />
         </div>
       </TableCell>

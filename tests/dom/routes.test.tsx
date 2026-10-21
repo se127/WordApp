@@ -640,6 +640,40 @@ describe('routes', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a Persian error page with a retry when a route fails to render', async () => {
+    installDocumentsBridge([storedDocument])
+    const renderRelativeTime =
+      dateSpies.formatRelativeTime.getMockImplementation()
+    if (renderRelativeTime === undefined) {
+      throw new Error('The relative time formatter is not mocked')
+    }
+    let shouldFail = true
+    dateSpies.formatRelativeTime.mockImplementation((timestamp: number) => {
+      if (shouldFail) {
+        throw new Error('The row could not be rendered')
+      }
+      return renderRelativeTime(timestamp)
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    expect(
+      await screen.findByText('نمایش این صفحه ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong!')).not.toBeInTheDocument()
+
+    shouldFail = false
+    await user.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+
+    expect(
+      await screen.findByRole('link', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    dateSpies.formatRelativeTime.mockImplementation(renderRelativeTime)
+    consoleError.mockRestore()
+  })
+
   it('shows the stored title as a full-width heading at the icon-button height that truncates, tints on hover and focus, and borders on focus', async () => {
     installBridge()
 
@@ -807,6 +841,65 @@ describe('routes', () => {
     expect(
       screen.queryByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
     ).not.toBeInTheDocument()
+  })
+
+  it('cancels the title edit on Escape and keeps the stored title', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'پیش نویس')
+
+    await user.keyboard('{Escape}')
+
+    const kept = await screen.findByRole('heading', { name: 'بدون عنوان' })
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await vi.waitFor(() => expect(kept).toHaveFocus())
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('saves the title with its surrounding whitespace trimmed', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, '  گزارش سالانه  ')
+    expect(input).toHaveValue('  گزارش سالانه  ')
+
+    await user.tab()
+
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش سالانه' }),
+    ).toBeInTheDocument()
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش سالانه',
+    })
+  })
+
+  it('restores the previous title when the draft is only whitespace', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, '   ')
+    expect(input).toHaveValue('   ')
+
+    await user.tab()
+
+    expect(
+      await screen.findByRole('heading', { name: 'بدون عنوان' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('holds the title input disabled with a spinner while the save is in flight', async () => {
@@ -2890,6 +2983,69 @@ describe('routes', () => {
     await vi.waitFor(() =>
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
     )
+  })
+
+  it('drops a document deleted from its row menu out of the selected set', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      { ...storedDocument, id: 2, title: 'گزارش' },
+    ]
+    const { removeMany } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    await user.click(screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }))
+
+    const row = screen.getByRole('button', { name: 'یادداشت' }).closest('tr')
+    expect(row).not.toBeNull()
+    await user.click(
+      within(row as HTMLElement).getByRole('button', { name: 'گزینه ها' }),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'بله',
+      }),
+    )
+
+    expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', {
+        name: 'حذف اسناد انتخاب شده (۱)',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }),
+    ).toBeChecked()
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'یادداشت' }),
+      ).not.toBeInTheDocument(),
+    )
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument(),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    )
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'بله',
+      }),
+    )
+
+    expect(removeMany).toHaveBeenCalledExactlyOnceWith([2])
+    expect(await screen.findByText('۱ سند حذف شد.')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۰)' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the row checkboxes hidden until the selection toggle is pressed', async () => {

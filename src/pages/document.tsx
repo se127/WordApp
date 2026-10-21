@@ -74,6 +74,7 @@ function DocumentTitle({
   const [isSaving, setIsSaving] = useState(false)
   const selectOnOpen = useRef(false)
   const returnFocusToHeading = useRef(false)
+  const skipCommit = useRef(false)
 
   const isEditing = draft !== null
 
@@ -98,6 +99,7 @@ function DocumentTitle({
   }, [isEditing])
 
   const startEditing = (): void => {
+    skipCommit.current = false
     selectOnOpen.current = true
     setDraft(title)
   }
@@ -107,13 +109,20 @@ function DocumentTitle({
       return
     }
 
-    if (draft === title) {
+    if (skipCommit.current) {
+      skipCommit.current = false
+      return
+    }
+
+    const nextTitle = draft.trim()
+
+    if (nextTitle === title || nextTitle === '') {
       setDraft(null)
       return
     }
 
     setIsSaving(true)
-    const saved = await saveDocument({ title: draft })
+    const saved = await saveDocument({ title: nextTitle })
     setIsSaving(false)
 
     if (saved) {
@@ -134,6 +143,14 @@ function DocumentTitle({
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => void commitTitle()}
         onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            skipCommit.current = true
+            returnFocusToHeading.current = true
+            setDraft(null)
+            return
+          }
+
           if (event.key === 'Enter') {
             returnFocusToHeading.current = true
             event.currentTarget.blur()

@@ -1,3 +1,4 @@
+import { RouteError } from '@/components/route-error'
 import { RouteNotFound } from '@/components/route-not-found'
 import { queryClient } from '@/lib/query'
 import { documentRoute } from '@/routes/document'
@@ -23,6 +24,7 @@ export function createAppRouter(
     defaultStaleTime: 0,
     defaultPreload: false,
     defaultNotFoundComponent: RouteNotFound,
+    defaultErrorComponent: RouteError,
   })
 }
 

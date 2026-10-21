@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => {
   }
 
   const created: unknown[] = []
+  const dialog = { showErrorBox: vi.fn() }
   const state: { isPackaged: boolean; options: unknown } = {
     isPackaged: false,
     options: undefined,
@@ -93,6 +94,7 @@ const mocks = vi.hoisted(() => {
     app,
     created,
     database,
+    dialog,
     ipcMain: { on: vi.fn(), handle: vi.fn() },
     openDatabase: vi.fn(() => database),
     parseDbDelayArgument,
@@ -109,6 +111,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
   app: mocks.app,
   BrowserWindow: mocks.BrowserWindow,
+  dialog: mocks.dialog,
   ipcMain: mocks.ipcMain,
   Menu: mocks.Menu,
   session: mocks.session,
@@ -285,6 +288,24 @@ describe('window reveal', () => {
 })
 
 describe('documents database', () => {
+  it('reports a database that cannot be opened and quits without a window', async () => {
+    stubPlatform('win32')
+    mocks.openDatabase.mockImplementationOnce(() => {
+      throw new Error('The database file is locked')
+    })
+
+    await importMain({ expectWindow: false })
+
+    await vi.waitFor(() =>
+      expect(mocks.dialog.showErrorBox).toHaveBeenCalledExactlyOnceWith(
+        'WordApp',
+        'پایگاه داده باز نشد. برنامه بسته می شود.',
+      ),
+    )
+    expect(mocks.app.exit).toHaveBeenCalledExactlyOnceWith(1)
+    expect(mocks.created).toHaveLength(0)
+  })
+
   it('opens the dev database inside the project folder when unpackaged', async () => {
     await importMain()
 
