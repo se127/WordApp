@@ -2566,11 +2566,14 @@ describe('routes', () => {
   })
 
   it('returns to the first page when the order changes', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -2578,7 +2581,9 @@ describe('routes', () => {
 
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize + 1}`,
+    })
 
     await user.click(
       screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
@@ -2588,7 +2593,7 @@ describe('routes', () => {
     )
 
     expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
-    await screen.findByRole('link', { name: 'سند 40' })
+    await screen.findByRole('link', { name: `سند ${documents.length}` })
     expect(list).toHaveBeenLastCalledWith(
       {
         offset: 0,
@@ -2937,18 +2942,23 @@ describe('routes', () => {
   })
 
   it('returns to the first page when the title search changes', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
     renderRoute('/')
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize + 1}`,
+    })
 
     await user.type(searchInput(), 'سند')
 
@@ -3259,21 +3269,26 @@ describe('routes', () => {
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
-  it('pages through documents fifteen at a time and disables the first and last page', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+  it('pages through documents fifty at a time and disables the first and last page', async () => {
+    const documents = Array.from(
+      { length: documentPageSize * 2 + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
     renderRoute('/')
 
     await screen.findByRole('link', { name: 'سند 1' })
-    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(15)
+    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(
+      documentPageSize,
+    )
     expect(
-      screen.queryByRole('link', { name: 'سند 16' }),
+      screen.queryByRole('link', { name: `سند ${documentPageSize + 1}` }),
     ).not.toBeInTheDocument()
     expect(list).toHaveBeenCalledExactlyOnceWith(
       {
@@ -3292,8 +3307,10 @@ describe('routes', () => {
 
     await user.click(paginationPageLink(2))
 
-    await screen.findByRole('link', { name: 'سند 16' })
-    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(15)
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
+    expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(
+      documentPageSize,
+    )
     expect(
       screen.queryByRole('link', { name: 'سند 1' }),
     ).not.toBeInTheDocument()
@@ -3318,10 +3335,14 @@ describe('routes', () => {
       }),
     )
 
-    await screen.findByRole('link', { name: 'سند 31' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize * 2 + 1}`,
+    })
     expect(screen.getAllByRole('link', { name: /^سند / })).toHaveLength(10)
     expect(
-      screen.queryByRole('link', { name: 'سند 41' }),
+      screen.queryByRole('link', {
+        name: `سند ${documentPageSize * 2 + 11}`,
+      }),
     ).not.toBeInTheDocument()
     expect(list).toHaveBeenLastCalledWith(
       {
@@ -3345,11 +3366,14 @@ describe('routes', () => {
   })
 
   it('keeps the previous page visible and disables pagination while the next page loads', async () => {
-    const documents = Array.from({ length: 30 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     let finishPageTwo!: (documents: Array<TestDocument>) => void
     const list = vi.fn(
       (options: DocumentListOptions): Promise<Array<TestDocument>> => {
@@ -3372,7 +3396,7 @@ describe('routes', () => {
 
     expect(screen.getByRole('link', { name: 'سند 1' })).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'سند 16' }),
+      screen.queryByRole('link', { name: `سند ${documentPageSize + 1}` }),
     ).not.toBeInTheDocument()
     expect(list).toHaveBeenLastCalledWith(
       {
@@ -3393,8 +3417,10 @@ describe('routes', () => {
 
     await act(() => finishPageTwo(documents.slice(documentPageSize)))
 
-    await screen.findByRole('link', { name: 'سند 16' })
-    expect(screen.getByRole('link', { name: 'سند 30' })).toBeInTheDocument()
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
+    expect(
+      screen.getByRole('link', { name: `سند ${documents.length}` }),
+    ).toBeInTheDocument()
     expect(documentsTable()).not.toHaveClass('animate-pulse')
     expect(documentsTable()).not.toHaveAttribute('inert')
     expect(
@@ -3405,11 +3431,14 @@ describe('routes', () => {
   })
 
   it('shows the list error when the next page fails and retries that page', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     let pageTwoAttempts = 0
     const list = vi.fn(
       (options: DocumentListOptions): Promise<Array<TestDocument>> => {
@@ -3440,7 +3469,9 @@ describe('routes', () => {
     await user.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
 
     expect(
-      await screen.findByRole('link', { name: 'سند 16' }),
+      await screen.findByRole('link', {
+        name: `سند ${documentPageSize + 1}`,
+      }),
     ).toBeInTheDocument()
     expect(pageTwoAttempts).toBe(2)
     expect(list).toHaveBeenLastCalledWith(
@@ -3454,20 +3485,23 @@ describe('routes', () => {
   })
 
   it('replaces the endless page loader with a retry when the count fails on a later page', async () => {
-    const documents = Array.from({ length: 16 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 1 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     let countReads = 0
     const count = vi.fn(async () => {
       countReads += 1
       if (countReads === 2) {
         throw new Error('count read failed')
       }
-      return countReads === 1 ? 16 : 15
+      return countReads === 1 ? documentPageSize + 1 : documentPageSize
     })
-    let pageTwoDocuments = documents.slice(15)
+    let pageTwoDocuments = documents.slice(documentPageSize)
     const list = vi.fn(async (options: DocumentListOptions) =>
       options.offset === documentPageSize
         ? [...pageTwoDocuments]
@@ -3477,9 +3511,11 @@ describe('routes', () => {
     const user = userEvent.setup()
     const { queryClient } = renderRoute('/')
 
-    await screen.findByRole('heading', { name: 'مستندات (۱۶)' })
+    await screen.findByRole('heading', {
+      name: `مستندات (${formatNumber(documentPageSize + 1)})`,
+    })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
     pageTwoDocuments = []
     await act(async () => {
@@ -3509,16 +3545,21 @@ describe('routes', () => {
       screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
     ).not.toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'مستندات (۱۵)' }),
+      screen.getByRole('heading', {
+        name: `مستندات (${formatNumber(documentPageSize)})`,
+      }),
     ).toBeInTheDocument()
   })
 
   it('keeps the loader while a saved later page is clamped to a page that is still loading', async () => {
-    const documents = Array.from({ length: 16 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 1 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     let pageTwoDocuments = documents.slice(documentPageSize)
     let countValue = documents.length
     let holdFirstPage = false
@@ -3552,7 +3593,7 @@ describe('routes', () => {
     await screen.findByRole('heading', { name: 'سند 1' })
     saveHomePage(2)
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
     pageTwoDocuments = []
     await act(async () => {
@@ -3583,10 +3624,12 @@ describe('routes', () => {
     await act(() => finishFirstPage(documents.slice(0, documentPageSize)))
 
     expect(
-      await screen.findByRole('link', { name: 'سند 15' }),
+      await screen.findByRole('link', { name: `سند ${documentPageSize}` }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'مستندات (۱۵)' }),
+      screen.getByRole('heading', {
+        name: `مستندات (${formatNumber(documentPageSize)})`,
+      }),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
@@ -3594,11 +3637,14 @@ describe('routes', () => {
   })
 
   it('remembers the page and scroll position after opening a document and returning to it', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3606,19 +3652,20 @@ describe('routes', () => {
 
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    const pageTwoFirstTitle = `سند ${documentPageSize + 1}`
+    await screen.findByRole('link', { name: pageTwoFirstTitle })
 
     await act(() => {
       listViewport().scrollTop = 400
     })
 
-    await user.click(screen.getByRole('link', { name: 'سند 16' }))
-    await screen.findByRole('heading', { name: 'سند 16' })
+    await user.click(screen.getByRole('link', { name: pageTwoFirstTitle }))
+    await screen.findByRole('heading', { name: pageTwoFirstTitle })
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
     await within(screen.getByRole('main')).findByRole('link', {
-      name: 'سند 16',
+      name: pageTwoFirstTitle,
     })
     expect(
       screen.queryByRole('link', { name: 'سند 1' }),
@@ -3636,11 +3683,14 @@ describe('routes', () => {
   })
 
   it('starts a newly selected page at the top of the list', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3652,17 +3702,20 @@ describe('routes', () => {
     })
 
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
     expect(listViewport().scrollTop).toBe(0)
   })
 
   it('starts again from the first page after a new document is created', async () => {
-    const documents = Array.from({ length: 20 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3670,7 +3723,7 @@ describe('routes', () => {
 
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
     await user.click(
       within(screen.getByRole('main')).getByRole('button', {
@@ -3698,11 +3751,14 @@ describe('routes', () => {
   })
 
   it('returns to the first page with cleared filters after a new document is created', async () => {
-    const documents = Array.from({ length: 20 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3754,11 +3810,14 @@ describe('routes', () => {
   })
 
   it('invalidates every cached list page after a document is deleted', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize * 2 + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3766,7 +3825,9 @@ describe('routes', () => {
 
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(3))
-    await screen.findByRole('link', { name: 'سند 31' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize * 2 + 1}`,
+    })
     expect(list).toHaveBeenLastCalledWith(
       {
         offset: documentPageSize * 2,
@@ -3777,9 +3838,11 @@ describe('routes', () => {
     )
 
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
-    const row = screen.getByRole('link', { name: 'سند 16' }).closest('tr')
+    const row = screen
+      .getByRole('link', { name: `سند ${documentPageSize + 1}` })
+      .closest('tr')
     expect(row).not.toBeNull()
     await user.click(
       within(row as HTMLElement).getByRole('button', { name: 'گزینه ها' }),
@@ -3792,17 +3855,21 @@ describe('routes', () => {
     )
 
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
-    await screen.findByRole('link', { name: 'سند 17' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 2}` })
     expect(
-      screen.queryByRole('link', { name: 'سند 16' }),
+      screen.queryByRole('link', { name: `سند ${documentPageSize + 1}` }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'سند 31' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: `سند ${documentPageSize * 2 + 1}` }),
+    ).toBeInTheDocument()
 
     await user.click(paginationPageLink(3))
 
-    await screen.findByRole('link', { name: 'سند 32' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize * 2 + 2}`,
+    })
     expect(
-      screen.queryByRole('link', { name: 'سند 31' }),
+      screen.queryByRole('link', { name: `سند ${documentPageSize * 2 + 1}` }),
     ).not.toBeInTheDocument()
     const thirdPageCalls = vi
       .mocked(list)
@@ -3811,11 +3878,14 @@ describe('routes', () => {
   })
 
   it('re-reads a filtered page cached before a delete from another page', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3823,16 +3893,22 @@ describe('routes', () => {
 
     await screen.findByRole('link', { name: 'سند 1' })
     const input = searchInput()
-    await user.type(input, 'سند 3')
-    await screen.findByRole('link', { name: 'سند 39' })
-    expect(screen.getByRole('link', { name: 'سند 30' })).toBeInTheDocument()
+    await user.type(input, 'سند 5')
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize + 9}`,
+    })
+    expect(
+      screen.getByRole('link', { name: `سند ${documentPageSize}` }),
+    ).toBeInTheDocument()
 
     await user.clear(input)
     await screen.findByRole('link', { name: 'سند 1' })
     await user.click(paginationPageLink(2))
-    await screen.findByRole('link', { name: 'سند 16' })
+    await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
-    const row = screen.getByRole('link', { name: 'سند 30' }).closest('tr')
+    const row = screen
+      .getByRole('link', { name: `سند ${documentPageSize + 5}` })
+      .closest('tr')
     expect(row).not.toBeNull()
     await user.click(
       within(row as HTMLElement).getByRole('button', { name: 'گزینه ها' }),
@@ -3845,21 +3921,24 @@ describe('routes', () => {
     )
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
 
-    await user.type(searchInput(), 'سند 3')
-    await screen.findByRole('link', { name: 'سند 3' })
+    await user.type(searchInput(), 'سند 5')
+    await screen.findByRole('link', { name: 'سند 5' })
     await vi.waitFor(() =>
       expect(
-        screen.queryByRole('link', { name: 'سند 30' }),
+        screen.queryByRole('link', { name: `سند ${documentPageSize + 5}` }),
       ).not.toBeInTheDocument(),
     )
   })
 
   it('invalidates every page when the deleted document page is unknown', async () => {
-    const documents = Array.from({ length: 40 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize * 2 + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3875,7 +3954,9 @@ describe('routes', () => {
     })
 
     await user.click(paginationPageLink(3))
-    await screen.findByRole('link', { name: 'سند 31' })
+    await screen.findByRole('link', {
+      name: `سند ${documentPageSize * 2 + 1}`,
+    })
     expect(list).toHaveBeenLastCalledWith(
       {
         offset: documentPageSize * 2,
@@ -3903,7 +3984,7 @@ describe('routes', () => {
 
     expect(await screen.findByText('سند حذف شد.')).toBeInTheDocument()
     await within(screen.getByRole('main')).findByRole('link', {
-      name: 'سند 32',
+      name: `سند ${documentPageSize * 2 + 2}`,
     })
 
     await user.click(paginationPageLink(1))
@@ -3921,11 +4002,14 @@ describe('routes', () => {
   })
 
   it('invalidates every page after a batch delete that spans pages', async () => {
-    const documents = Array.from({ length: 20 }, (_, index) => ({
-      ...storedDocument,
-      id: index + 1,
-      title: `سند ${index + 1}`,
-    }))
+    const documents = Array.from(
+      { length: documentPageSize + 10 },
+      (_, index) => ({
+        ...storedDocument,
+        id: index + 1,
+        title: `سند ${index + 1}`,
+      }),
+    )
     const { list } = installDocumentsBridge(documents)
     const user = userEvent.setup()
 
@@ -3940,12 +4024,11 @@ describe('routes', () => {
     await user.click(screen.getByRole('checkbox', { name: 'انتخاب سند سند 1' }))
 
     await user.click(paginationPageLink(2))
+    const pageTwoFirstTitle = `انتخاب سند سند ${documentPageSize + 1}`
     await screen.findByRole('checkbox', {
-      name: 'انتخاب سند سند 16',
+      name: pageTwoFirstTitle,
     })
-    await user.click(
-      screen.getByRole('checkbox', { name: 'انتخاب سند سند 16' }),
-    )
+    await user.click(screen.getByRole('checkbox', { name: pageTwoFirstTitle }))
     await user.click(
       screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۲)' }),
     )
@@ -3956,7 +4039,9 @@ describe('routes', () => {
     )
 
     expect(await screen.findByText('۲ سند حذف شد.')).toBeInTheDocument()
-    await screen.findByRole('checkbox', { name: 'انتخاب سند سند 19' })
+    await screen.findByRole('checkbox', {
+      name: `انتخاب سند سند ${documentPageSize + 9}`,
+    })
 
     await user.click(paginationPageLink(1))
 

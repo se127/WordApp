@@ -196,6 +196,80 @@ function createWindow(closeTimeoutMs: number): void {
   mainWindow.webContents.on('render-process-gone', () => {
     revealWindow(mainWindow)
   })
+
+  if (!app.isPackaged) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.isAutoRepeat) {
+        return
+      }
+
+      const webContents = mainWindow.webContents
+      const matchesKey = (code: string, key: string): boolean =>
+        input.code === code || input.key.toLowerCase() === key
+
+      if (
+        input.key === 'F11' &&
+        !input.control &&
+        !input.shift &&
+        !input.alt &&
+        !input.meta
+      ) {
+        event.preventDefault()
+        mainWindow.setFullScreen(!mainWindow.isFullScreen())
+        return
+      }
+
+      if (!input.control || input.alt || input.meta) {
+        return
+      }
+
+      if (input.shift && matchesKey('KeyI', 'i')) {
+        event.preventDefault()
+        webContents.toggleDevTools()
+        return
+      }
+
+      if (matchesKey('KeyR', 'r')) {
+        event.preventDefault()
+        if (input.shift) {
+          webContents.reloadIgnoringCache()
+        } else {
+          webContents.reload()
+        }
+        return
+      }
+
+      if (
+        !input.shift &&
+        (input.code === 'Digit0' ||
+          input.code === 'Numpad0' ||
+          input.key === '0')
+      ) {
+        event.preventDefault()
+        webContents.setZoomLevel(0)
+        return
+      }
+
+      if (
+        input.code === 'NumpadAdd' ||
+        input.key === '+' ||
+        input.code === 'Equal'
+      ) {
+        event.preventDefault()
+        webContents.setZoomLevel(webContents.getZoomLevel() + 0.5)
+        return
+      }
+
+      if (
+        input.code === 'NumpadSubtract' ||
+        (!input.shift && (input.code === 'Minus' || input.key === '-'))
+      ) {
+        event.preventDefault()
+        webContents.setZoomLevel(webContents.getZoomLevel() - 0.5)
+      }
+    })
+  }
+
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, _errorDescription, _validatedUrl, isMainFrame) => {
@@ -301,9 +375,7 @@ async function startApp(): Promise<void> {
     app.setAppUserModelId('com.wordapp.app')
   }
 
-  if (app.isPackaged) {
-    Menu.setApplicationMenu(null)
-  }
+  Menu.setApplicationMenu(null)
 
   try {
     await session.defaultSession.setProxy({

@@ -85,7 +85,7 @@ export function documentsCountQueryFor(search: string) {
   })
 }
 
-export const documentPageSize = 15
+export const documentPageSize = 50
 
 export const documentsQueryKey = ['documents', 'list'] as const
 

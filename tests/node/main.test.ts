@@ -26,8 +26,10 @@ const mocks = vi.hoisted(() => {
   const win = {
     isDestroyed: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
     maximize: vi.fn(),
     restore: vi.fn(),
+    setFullScreen: vi.fn(),
     show: vi.fn(),
     close: vi.fn(),
     focus: vi.fn(),
@@ -37,9 +39,14 @@ const mocks = vi.hoisted(() => {
     once: vi.fn(),
     webContents: {
       getURL: vi.fn(() => 'file:///C:/fake/wordapp/dist/index.html'),
+      getZoomLevel: vi.fn(() => 0),
       on: vi.fn(),
+      reload: vi.fn(),
+      reloadIgnoringCache: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
+      setZoomLevel: vi.fn(),
+      toggleDevTools: vi.fn(),
     },
   }
 
@@ -237,6 +244,11 @@ describe('packaged app', () => {
     expect(options.show).toBe(false)
     expect(options.autoHideMenuBar).toBe(true)
     expect(options.webPreferences?.devTools).toBe(false)
+    expect(
+      asMock(mocks.win.webContents.on).mock.calls.some(
+        ([event]) => event === 'before-input-event',
+      ),
+    ).toBe(false)
     expect(options.webPreferences?.preload).toBe(
       path.join('C:/fake/wordapp', 'dist-electron', 'preload.cjs'),
     )
@@ -249,18 +261,145 @@ describe('packaged app', () => {
 })
 
 describe('dev run', () => {
-  it('keeps the menu and DevTools and loads the dev server URL', async () => {
+  it('drops the menu but keeps DevTools and loads the dev server URL', async () => {
     stubPlatform('win32')
 
     await importMain({ devServerUrl: 'http://127.0.0.1:5173/' })
 
-    expect(mocks.Menu.setApplicationMenu).not.toHaveBeenCalled()
+    expect(mocks.Menu.setApplicationMenu).toHaveBeenCalledExactlyOnceWith(null)
     expect(windowOptions().webPreferences?.devTools).toBe(true)
     expect(mocks.win.loadURL).toHaveBeenCalledWith('http://127.0.0.1:5173/')
     expect(mocks.session.defaultSession.setProxy).toHaveBeenCalledWith({
       mode: 'system',
       proxyBypassRules: '<local>',
     })
+  })
+
+  it('toggles DevTools with Ctrl+Shift+I in development', async () => {
+    stubPlatform('win32')
+
+    await importMain({ devServerUrl: 'http://127.0.0.1:5173/' })
+
+    const onKey = listenerOn(mocks.win.webContents, 'before-input-event')
+    const event = { preventDefault: vi.fn() }
+
+    onKey(event, {
+      type: 'keyDown',
+      key: 'ی',
+      code: 'KeyI',
+      control: true,
+      shift: true,
+      alt: false,
+      meta: false,
+      isAutoRepeat: false,
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.toggleDevTools).toHaveBeenCalledOnce()
+
+    onKey(event, {
+      type: 'keyDown',
+      key: 'ی',
+      code: 'KeyI',
+      control: true,
+      shift: false,
+      alt: false,
+      meta: false,
+      isAutoRepeat: false,
+    })
+    onKey(event, {
+      type: 'keyDown',
+      key: 'ی',
+      code: 'KeyI',
+      control: true,
+      shift: true,
+      alt: false,
+      meta: false,
+      isAutoRepeat: true,
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.toggleDevTools).toHaveBeenCalledOnce()
+  })
+
+  it('reloads the page with Ctrl+R and Ctrl+Shift+R in development', async () => {
+    stubPlatform('win32')
+
+    await importMain({ devServerUrl: 'http://127.0.0.1:5173/' })
+
+    const onKey = listenerOn(mocks.win.webContents, 'before-input-event')
+    const event = { preventDefault: vi.fn() }
+
+    onKey(event, {
+      type: 'keyDown',
+      key: 'ق',
+      code: 'KeyR',
+      control: true,
+      shift: false,
+      alt: false,
+      meta: false,
+      isAutoRepeat: false,
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.reload).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.reloadIgnoringCache).not.toHaveBeenCalled()
+
+    onKey(event, {
+      type: 'keyDown',
+      key: 'ق',
+      code: 'KeyR',
+      control: true,
+      shift: true,
+      alt: false,
+      meta: false,
+      isAutoRepeat: false,
+    })
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(2)
+    expect(mocks.win.webContents.reload).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.reloadIgnoringCache).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the View menu zoom and fullscreen shortcuts in development', async () => {
+    stubPlatform('win32')
+
+    await importMain({ devServerUrl: 'http://127.0.0.1:5173/' })
+
+    const onKey = listenerOn(mocks.win.webContents, 'before-input-event')
+    const event = { preventDefault: vi.fn() }
+    const press = (input: Record<string, unknown>) =>
+      onKey(event, {
+        type: 'keyDown',
+        control: true,
+        shift: false,
+        alt: false,
+        meta: false,
+        isAutoRepeat: false,
+        ...input,
+      })
+
+    press({ key: '0', code: 'Digit0' })
+    expect(mocks.win.webContents.setZoomLevel).toHaveBeenLastCalledWith(0)
+
+    press({ key: '=', code: 'Equal' })
+    expect(mocks.win.webContents.setZoomLevel).toHaveBeenLastCalledWith(0.5)
+
+    press({ key: '+', code: 'Equal', shift: true })
+    expect(mocks.win.webContents.setZoomLevel).toHaveBeenLastCalledWith(0.5)
+
+    press({ key: '-', code: 'Minus' })
+    expect(mocks.win.webContents.setZoomLevel).toHaveBeenLastCalledWith(-0.5)
+
+    mocks.win.isFullScreen.mockReturnValueOnce(false)
+    press({ key: 'F11', control: false })
+    expect(mocks.win.setFullScreen).toHaveBeenLastCalledWith(true)
+
+    mocks.win.isFullScreen.mockReturnValueOnce(true)
+    press({ key: 'F11', control: false })
+    expect(mocks.win.setFullScreen).toHaveBeenLastCalledWith(false)
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(6)
   })
 
   it('still opens the window when the system proxy cannot be configured', async () => {

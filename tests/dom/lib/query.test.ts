@@ -167,7 +167,7 @@ describe('query layer', () => {
   it('keeps the previous page on screen while the next page loads', () => {
     expect(documentsQuery(1).placeholderData).toBe(keepPreviousData)
     expect(documentsQuery(1).refetchOnMount).toBe(true)
-    expect(documentPageSize).toBe(15)
+    expect(documentPageSize).toBe(50)
   })
 
   it('invalidates every cached list combination so a delete cannot leave one stale', async () => {
