@@ -1,4 +1,4 @@
-import { saveHomePage } from '@/lib/home-page'
+import { resetHomeBrowseState } from '@/lib/home-page'
 import { documentsCountQuery, documentsQueryKey } from '@/lib/query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
@@ -62,7 +62,7 @@ function useCreateDocument() {
         to: '/documents/$documentId',
         params: { documentId: String(document.id) },
       })
-      saveHomePage(1)
+      resetHomeBrowseState()
     })().finally(() => {
       finishCreatingDocument()
     })

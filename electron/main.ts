@@ -59,6 +59,24 @@ function revealWindow(browserWindow: BrowserWindow): void {
 const errNetworkChanged = -106
 const maxLoadAttempts = 5
 
+function isSafeExternalUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function isSameAppPage(currentUrl: string, nextUrl: string): boolean {
+  try {
+    const current = new URL(currentUrl)
+    const next = new URL(nextUrl)
+    return current.origin === next.origin && current.pathname === next.pathname
+  } catch {
+    return false
+  }
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     minWidth: 800,
@@ -113,8 +131,21 @@ function createWindow(): void {
   )
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url)
+    }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isSameAppPage(mainWindow.webContents.getURL(), url)) {
+      return
+    }
+
+    event.preventDefault()
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url)
+    }
   })
 
   loadPage()

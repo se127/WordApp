@@ -51,7 +51,13 @@ function DocumentsSelectionToolbar({
     setIsDeleting(true)
     await (async () => {
       const ids = [...selectedIds]
-      const deleted = await window.WordApp?.documents.deleteMany(ids).then(
+      const bridge = window.WordApp
+      if (bridge === undefined) {
+        toast.error('حذف اسناد ناموفق بود. دوباره تلاش کنید.')
+        return
+      }
+
+      const deleted = await bridge.documents.deleteMany(ids).then(
         () => true,
         () => {
           toast.error('حذف اسناد ناموفق بود. دوباره تلاش کنید.')

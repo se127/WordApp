@@ -41,6 +41,7 @@ import {
   documentsQueryKey,
 } from '@/lib/query'
 import { useDebouncedValue } from '@/lib/use-debounced-value'
+import { useNow } from '@/lib/use-now'
 import { cn } from '@/lib/utils'
 import type { DocumentListOrder, DocumentRecord } from '@/types/global'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -111,6 +112,7 @@ function DocumentsTable({
   )
   const scrollViewportRef = useRef<HTMLDivElement | null>(null)
   const queryClient = useQueryClient()
+  const now = useNow()
   const {
     data: documentCount,
     isError: isCountError,
@@ -167,6 +169,7 @@ function DocumentsTable({
     }
     setOrder(nextOrder)
     setPage(1)
+    setSelectedIds((ids) => (ids.size === 0 ? ids : new Set<number>()))
   }, [])
 
   const changeSearch = useCallback(
@@ -183,6 +186,7 @@ function DocumentsTable({
         viewport.scrollTop = 0
       }
       setPage(1)
+      setSelectedIds((ids) => (ids.size === 0 ? ids : new Set<number>()))
       if (nextSearch.trim() === debouncedSearch.trim()) {
         void queryClient.refetchQueries({
           queryKey: documentsQuery(1, order, debouncedSearch).queryKey,
@@ -283,7 +287,7 @@ function DocumentsTable({
     </div>
   )
 
-  if (isError) {
+  if (isError || documents === null) {
     return (
       <div className="flex min-h-0 w-full flex-1 flex-col">
         {controls}
@@ -302,10 +306,6 @@ function DocumentsTable({
         <DocumentsPending />
       </div>
     )
-  }
-
-  if (documents === null) {
-    return null
   }
 
   if (documents.length === 0) {
@@ -347,7 +347,7 @@ function DocumentsTable({
               ? 'هنوز سندی ثبت نشده است.'
               : 'سندی با این عنوان پیدا نشد.'}
           </p>
-          {search === '' ? null : (
+          {search.trim() === '' ? null : (
             <Button variant="outline" onClick={() => changeSearch('')}>
               نمایش همه ی سندها
             </Button>
@@ -398,6 +398,7 @@ function DocumentsTable({
                 <DocumentTableRow
                   key={document.id}
                   document={document}
+                  now={now}
                   isSelecting={isSelecting}
                   isSelected={selectedIds.has(document.id)}
                   onToggleSelected={toggleSelectedDocument}
@@ -434,6 +435,7 @@ function DocumentTableColumns({ isSelecting }: { isSelecting: boolean }) {
 
 const DocumentTableRow = memo(function DocumentTableRow({
   document,
+  now,
   isSelecting,
   isSelected,
   onToggleSelected,
@@ -441,6 +443,7 @@ const DocumentTableRow = memo(function DocumentTableRow({
   onDocumentDeleted,
 }: {
   document: DocumentRecord
+  now: number
   isSelecting: boolean
   isSelected: boolean
   onToggleSelected: (id: number) => void
@@ -478,11 +481,11 @@ const DocumentTableRow = memo(function DocumentTableRow({
           </Link>
         )}
         {document.updatedAt !== document.createdAt ? (
-          <DocumentUpdatedAt updatedAt={document.updatedAt} />
+          <DocumentUpdatedAt updatedAt={document.updatedAt} now={now} />
         ) : null}
       </TableCell>
       <TableCell className="text-center">
-        <DocumentCreatedAt createdAt={document.createdAt} />
+        <DocumentCreatedAt createdAt={document.createdAt} now={now} />
       </TableCell>
       <TableCell>
         <div className="flex justify-end">
@@ -497,7 +500,13 @@ const DocumentTableRow = memo(function DocumentTableRow({
   )
 })
 
-function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
+function DocumentCreatedAt({
+  createdAt,
+  now,
+}: {
+  createdAt: number
+  now: number
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -505,7 +514,7 @@ function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
           tabIndex={0}
           className="cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          {formatRelativeTime(createdAt)}
+          {formatRelativeTime(createdAt, now)}
         </span>
       </TooltipTrigger>
       <TooltipContent>{formatAbsoluteDate(createdAt)}</TooltipContent>
@@ -513,7 +522,13 @@ function DocumentCreatedAt({ createdAt }: { createdAt: number }) {
   )
 }
 
-function DocumentUpdatedAt({ updatedAt }: { updatedAt: number }) {
+function DocumentUpdatedAt({
+  updatedAt,
+  now,
+}: {
+  updatedAt: number
+  now: number
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -521,7 +536,7 @@ function DocumentUpdatedAt({ updatedAt }: { updatedAt: number }) {
           tabIndex={0}
           className="cursor-default rounded-sm text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          {`ویرایش شده: ${formatRelativeTime(updatedAt)}`}
+          {`ویرایش شده: ${formatRelativeTime(updatedAt, now)}`}
         </span>
       </TooltipTrigger>
       <TooltipContent>{formatAbsoluteDate(updatedAt)}</TooltipContent>

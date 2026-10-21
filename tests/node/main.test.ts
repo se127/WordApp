@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     on: vi.fn(),
     once: vi.fn(),
     webContents: {
+      getURL: vi.fn(() => 'file:///C:/fake/wordapp/dist/index.html'),
       on: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
@@ -964,6 +965,44 @@ describe('external links', () => {
 
     expect(mocks.shell.openExternal).toHaveBeenCalledWith('https://example.com')
     expect(result).toEqual({ action: 'deny' })
+  })
+
+  it('denies popups with non-https schemes without opening them', async () => {
+    await importMain()
+
+    const handler = asMock(mocks.win.webContents.setWindowOpenHandler).mock
+      .calls[0]?.[0] as (details: { url: string }) => unknown
+
+    for (const url of [
+      'http://example.com',
+      'file:///C:/Windows/notepad.exe',
+      'javascript:alert(1)',
+    ]) {
+      expect(handler({ url })).toEqual({ action: 'deny' })
+    }
+
+    expect(mocks.shell.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('keeps the window on the app page and opens safe external navigations in the browser', async () => {
+    await importMain()
+
+    const willNavigate = listenerOn(mocks.win.webContents, 'will-navigate')
+    const event = { preventDefault: vi.fn() }
+
+    willNavigate(event, mocks.win.webContents.getURL())
+    expect(event.preventDefault).not.toHaveBeenCalled()
+
+    willNavigate(event, 'https://example.com/docs')
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.shell.openExternal).toHaveBeenCalledWith(
+      'https://example.com/docs',
+    )
+
+    event.preventDefault.mockClear()
+    willNavigate(event, 'file:///C:/Windows/notepad.exe')
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.shell.openExternal).toHaveBeenCalledOnce()
   })
 })
 

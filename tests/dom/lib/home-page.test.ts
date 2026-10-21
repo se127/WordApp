@@ -4,6 +4,7 @@ import {
   readHomePage,
   readHomeScrollPosition,
   readHomeSearch,
+  resetHomeBrowseState,
   saveHomeOrder,
   saveHomePage,
   saveHomeScrollPosition,
@@ -31,12 +32,18 @@ describe('home page memory', () => {
     expect(readHomePage()).toBe(7)
   })
 
-  it('starts again from the first page after a document is created', () => {
+  it('resets the page, filters, and scroll position after a document is created', () => {
     saveHomePage(4)
+    saveHomeOrder('oldest')
+    saveHomeSearch('گزارش')
+    saveHomeScrollPosition({ page: 4, scrollTop: 420 })
 
-    saveHomePage(1)
+    resetHomeBrowseState()
 
     expect(readHomePage()).toBe(1)
+    expect(readHomeOrder()).toBe('newest')
+    expect(readHomeSearch()).toBe('')
+    expect(readHomeScrollPosition()).toBeNull()
   })
 
   it('starts with the newest documents first', () => {

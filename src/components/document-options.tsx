@@ -46,7 +46,13 @@ function DocumentOptions({
   const deleteDocument = async (): Promise<void> => {
     setIsDeleting(true)
     await (async () => {
-      const deleted = await window.WordApp?.documents.delete(documentId).then(
+      const bridge = window.WordApp
+      if (bridge === undefined) {
+        toast.error('حذف سند ناموفق بود. دوباره تلاش کنید.')
+        return
+      }
+
+      const deleted = await bridge.documents.delete(documentId).then(
         () => true,
         () => {
           toast.error('حذف سند ناموفق بود. دوباره تلاش کنید.')

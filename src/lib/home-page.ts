@@ -45,3 +45,10 @@ export function readHomeSearch(): string {
 export function saveHomeSearch(search: string): void {
   homeSearch = search
 }
+
+export function resetHomeBrowseState(): void {
+  homePage = 1
+  homeOrder = 'newest'
+  homeSearch = ''
+  homeScrollPosition = null
+}

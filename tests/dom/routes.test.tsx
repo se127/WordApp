@@ -4,6 +4,7 @@ import {
   clearHomeScrollPosition,
   saveHomeOrder,
   saveHomePage,
+  saveHomeScrollPosition,
   saveHomeSearch,
 } from '@/lib/home-page'
 import { formatNumber } from '@/lib/number'
@@ -231,6 +232,7 @@ afterEach(() => {
   saveHomeSearch('')
   clearHomeScrollPosition()
   toast.dismiss()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   Reflect.deleteProperty(window, 'WordApp')
 })
@@ -1255,6 +1257,30 @@ describe('routes', () => {
     expect(remove).toHaveBeenCalledTimes(2)
   })
 
+  it('reports a row delete that cannot reach the bridge instead of closing silently', async () => {
+    const documents = [{ ...storedDocument, id: 1, title: 'یادداشت' }]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(screen.getByRole('button', { name: 'گزینه ها' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'حذف' }))
+    const dialog = await screen.findByRole('alertdialog')
+
+    Reflect.deleteProperty(window, 'WordApp')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(
+      await screen.findByText('حذف سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'یادداشت', hidden: true }),
+    ).toBeInTheDocument()
+  })
+
   it('reuses the cached count when the home page is revisited without a write', async () => {
     const { count, get } = installBridge()
     const user = userEvent.setup()
@@ -1475,6 +1501,21 @@ describe('routes', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
+  it('treats a whitespace-only search as empty and hides the clear-results button', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByText('هنوز سندی ثبت نشده است.')
+
+    await user.type(searchInput(), '   ')
+
+    expect(
+      screen.queryByRole('button', { name: 'نمایش همه ی سندها' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('هنوز سندی ثبت نشده است.')).toBeInTheDocument()
+  })
+
   it('shows the relative age with the full Persian date and a spaced ، in a tooltip', async () => {
     const fixedNow = new Date(2026, 6, 8, 15, 0).getTime()
     vi.spyOn(Date, 'now').mockReturnValue(fixedNow)
@@ -1552,6 +1593,32 @@ describe('routes', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'چهارشنبه 17 تیر ماه 1405 ، 14:55',
     )
+  })
+
+  it('refreshes relative ages once a minute while the list stays open', async () => {
+    const fixedNow = new Date(2026, 6, 8, 15, 0).getTime()
+    vi.useFakeTimers()
+    vi.setSystemTime(fixedNow)
+    const recent = {
+      ...storedDocument,
+      id: 1,
+      title: 'امروز',
+      createdAt: fixedNow - 5 * 60_000,
+      updatedAt: fixedNow - 5 * 60_000,
+    }
+    installDocumentsBridge([recent])
+
+    renderRoute('/')
+    await act(async () => {})
+
+    expect(screen.getByText('۵ دقیقه ی پیش')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(screen.getByText('۶ دقیقه ی پیش')).toBeInTheDocument()
+    expect(screen.queryByText('۵ دقیقه ی پیش')).not.toBeInTheDocument()
   })
 
   it('opens the document page when a row title is clicked', async () => {
@@ -2257,6 +2324,25 @@ describe('routes', () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
+  it('shows the list retry instead of a blank table when the bridge is missing', async () => {
+    Reflect.deleteProperty(window, 'WordApp')
+
+    renderRoute('/')
+
+    const message = await screen.findByText(
+      'بارگذاری سندها ناموفق بود. دوباره تلاش کنید.',
+    )
+    expect(message.parentElement).toHaveClass(
+      'items-center',
+      'justify-center',
+      'flex-col',
+    )
+    expect(
+      screen.getByRole('button', { name: 'تلاش دوباره' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
   it('shows the centered loader while a retry from a failed list read is in flight', async () => {
     let attempts = 0
     let finishRetry!: (documents: Array<typeof storedDocument>) => void
@@ -2734,6 +2820,62 @@ describe('routes', () => {
     )
   })
 
+  it('returns to the first page with cleared filters after a new document is created', async () => {
+    const documents = Array.from({ length: 20 }, (_, index) => ({
+      ...storedDocument,
+      id: index + 1,
+      title: `سند ${index + 1}`,
+    }))
+    const { list } = installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+
+    await screen.findByRole('link', { name: 'سند 1' })
+    await user.click(
+      screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'قدیم به جدید' }),
+    )
+    await screen.findByRole('link', { name: 'سند 20' })
+
+    await user.type(searchInput(), 'سند')
+    await vi.waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'سند', order: 'oldest' }),
+        expect.any(String),
+      ),
+    )
+
+    saveHomeScrollPosition({ page: 1, scrollTop: 400 })
+
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
+    await screen.findByRole('heading', { name: 'سند 1' })
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    await screen.findByRole('link', { name: 'سند 1' })
+    expect(searchInput()).toHaveValue('')
+    expect(
+      screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
+    ).toHaveTextContent('جدید به قدیم')
+    expect(paginationPageLink(1)).toHaveAttribute('aria-current', 'page')
+    expect(listViewport().scrollTop).toBe(0)
+    expect(list).toHaveBeenLastCalledWith(
+      {
+        offset: 0,
+        limit: documentPageSize,
+        order: 'newest',
+      },
+      expect.any(String),
+    )
+  })
+
   it('invalidates every cached list page after a document is deleted', async () => {
     const documents = Array.from({ length: 40 }, (_, index) => ({
       ...storedDocument,
@@ -3046,6 +3188,83 @@ describe('routes', () => {
     expect(
       await screen.findByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
+  })
+
+  it('clears the selected documents when the title search changes', async () => {
+    const documents = [
+      { ...storedDocument, id: 1, title: 'یادداشت' },
+      {
+        ...storedDocument,
+        id: 2,
+        title: 'گزارش',
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+
+    await user.click(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+    await user.click(screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }))
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.type(searchInput(), 'گزارش')
+
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }),
+    ).not.toBeChecked()
+  })
+
+  it('clears the selected documents when the order changes', async () => {
+    const documents = [
+      {
+        ...storedDocument,
+        id: 1,
+        title: 'یادداشت',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        ...storedDocument,
+        id: 2,
+        title: 'گزارش',
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+    ]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'گزارش' })
+
+    await user.click(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+    await user.click(screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }))
+    expect(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    ).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'ترتیب بر اساس تاریخ ایجاد' }),
+    )
+    await user.click(
+      await screen.findByRole('option', { name: 'قدیم به جدید' }),
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'انتخاب سند گزارش' }),
+    ).not.toBeChecked()
   })
 
   it('keeps the row checkboxes hidden until the selection toggle is pressed', async () => {
@@ -3432,6 +3651,38 @@ describe('routes', () => {
     ).not.toBeChecked()
     expect(removeMany).toHaveBeenCalledTimes(2)
     expect(removeMany).toHaveBeenLastCalledWith([1])
+  })
+
+  it('reports a batch delete that cannot reach the bridge instead of closing silently', async () => {
+    const documents = [{ ...storedDocument, id: 1, title: 'یادداشت' }]
+    installDocumentsBridge(documents)
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('link', { name: 'یادداشت' })
+
+    await user.click(screen.getByRole('button', { name: 'انتخاب گروهی اسناد' }))
+    await user.click(
+      screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱)' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+
+    Reflect.deleteProperty(window, 'WordApp')
+    await user.click(within(dialog).getByRole('button', { name: 'بله' }))
+
+    expect(
+      await screen.findByText('حذف اسناد ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'انتخاب سند یادداشت',
+        hidden: true,
+      }),
+    ).toBeChecked()
   })
 
   it('re-reads the documents list once the created document is stored', async () => {
