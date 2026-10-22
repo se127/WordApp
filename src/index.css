@@ -135,5 +135,18 @@
   }
   [data-sonner-toast] {
     @apply font-sans;
+    display: flow-root !important;
+  }
+  [data-sonner-toast] [data-icon] {
+    float: inline-start;
+    margin-top: calc((1.5em - 1rem) / 2);
+    margin-inline-end: 10px !important;
+  }
+  [data-sonner-toast] [data-content] {
+    display: block !important;
+  }
+  [data-sonner-toast] [data-description] {
+    clear: both;
+    margin-top: 2px;
   }
 }

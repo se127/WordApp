@@ -3,6 +3,7 @@ import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { queryClient } from '@/lib/query'
 import { act, render, screen, within } from '@testing-library/react'
+import { readFile } from 'node:fs/promises'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -127,6 +128,23 @@ describe('App', () => {
       })
       vi.useRealTimers()
     }
+  })
+
+  it('keeps the toast icon on the first line and lets later lines span the full width', async () => {
+    const styles = await readFile('src/index.css', 'utf8')
+
+    expect(styles).toMatch(
+      /\[data-sonner-toast\]\s*\{[^}]*display: flow-root !important;/,
+    )
+    expect(styles).toMatch(
+      /\[data-sonner-toast\] \[data-icon\]\s*\{[^}]*float: inline-start;[^}]*margin-top:\s*calc\(\(1\.5em - 1rem\) \/ 2\);[^}]*margin-inline-end: 10px !important;/,
+    )
+    expect(styles).toMatch(
+      /\[data-sonner-toast\] \[data-content\]\s*\{[^}]*display: block !important;/,
+    )
+    expect(styles).toMatch(
+      /\[data-sonner-toast\] \[data-description\]\s*\{[^}]*clear: both;[^}]*margin-top: 2px;/,
+    )
   })
 
   it('mounts without the preload bridge', async () => {
