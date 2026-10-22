@@ -319,6 +319,18 @@ describe('DocumentBodyEditor', () => {
 
     const styleSelect = screen.getByRole('combobox', { name: 'سبک متن' })
     expect(styleSelect).toHaveTextContent('پاراگراف')
+    expect(styleSelect).toHaveClass(
+      'border-input',
+      'bg-white',
+      'hover:bg-white',
+      'dark:bg-zinc-800',
+      'dark:hover:bg-zinc-800',
+    )
+    expect(styleSelect).not.toHaveClass(
+      'border-transparent',
+      'dark:bg-transparent',
+      'dark:hover:bg-muted/50',
+    )
 
     await user.click(styleSelect)
     await user.click(await screen.findByRole('option', { name: 'عنوان ۲' }))
@@ -358,6 +370,18 @@ describe('DocumentBodyEditor', () => {
       name: 'اندازه ی متن',
     })
     expect(fontSizeSelect).toHaveTextContent('۱۶px')
+    expect(fontSizeSelect).toHaveClass(
+      'border-input',
+      'bg-white',
+      'hover:bg-white',
+      'dark:bg-zinc-800',
+      'dark:hover:bg-zinc-800',
+    )
+    expect(fontSizeSelect).not.toHaveClass(
+      'border-transparent',
+      'dark:bg-transparent',
+      'dark:hover:bg-muted/50',
+    )
 
     await user.hover(fontSizeSelect)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('اندازه ی متن')

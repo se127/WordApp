@@ -440,7 +440,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
           <TooltipTrigger asChild>
             <SelectTrigger
               aria-label="سبک متن"
-              className="w-32 border-transparent bg-transparent hover:bg-gray-300 dark:bg-transparent dark:hover:bg-muted/50"
+              className="w-32 border-input bg-white hover:bg-white dark:bg-zinc-800 dark:hover:bg-zinc-800"
             >
               <SelectValue>
                 {currentTextStyle.icon}
@@ -481,7 +481,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
           <TooltipTrigger asChild>
             <SelectTrigger
               aria-label="اندازه ی متن"
-              className="w-24 border-transparent bg-transparent hover:bg-gray-300 dark:bg-transparent dark:hover:bg-muted/50"
+              className="w-24 border-input bg-white hover:bg-white dark:bg-zinc-800 dark:hover:bg-zinc-800"
             >
               <SelectValue>{currentFontSize.label}</SelectValue>
             </SelectTrigger>
