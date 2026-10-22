@@ -34,6 +34,9 @@ import { formatNumber } from '@/lib/number'
 import { cn } from '@/lib/utils'
 import { Highlight } from '@tiptap/extension-highlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { Subscript as SubscriptExtension } from '@tiptap/extension-subscript'
+import { Superscript as SuperscriptExtension } from '@tiptap/extension-superscript'
+import { TextAlign } from '@tiptap/extension-text-align'
 import { Color, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import {
   EditorContent,
@@ -43,6 +46,11 @@ import {
 } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Baseline,
   Bold,
   Heading2,
   Heading3,
@@ -59,6 +67,8 @@ import {
   Redo,
   Square,
   Strikethrough,
+  Subscript,
+  Superscript,
   Type,
   Underline,
   Undo,
@@ -73,6 +83,9 @@ const documentBodyExtensions = [
   FontSize,
   Highlight.configure({ multicolor: true }),
   Placeholder.configure({ placeholder: 'متن سند را اینجا بنویسید...' }),
+  TextAlign.configure({ types: ['heading', 'paragraph'] }),
+  SuperscriptExtension,
+  SubscriptExtension,
 ]
 const documentBodyEditorProps = {
   attributes: {
@@ -124,6 +137,19 @@ const fontSizeOptions = fontSizes.map((size) => ({
 }))
 
 const defaultFontSize = fontSizeOptions[0]
+
+const textAlignOptions = [
+  { value: 'right', label: 'راست چین', icon: <AlignRight /> },
+  { value: 'left', label: 'چپ چین', icon: <AlignLeft /> },
+  { value: 'center', label: 'وسط چین', icon: <AlignCenter /> },
+  { value: 'justify', label: 'بلوکی', icon: <AlignJustify /> },
+]
+
+const textPositionOptions = [
+  { value: 'baseline', label: 'معمولی', icon: <Baseline /> },
+  { value: 'superscript', label: 'بالا نویس', icon: <Superscript /> },
+  { value: 'subscript', label: 'پایین نویس', icon: <Subscript /> },
+]
 
 const colorGrid = [
   [
@@ -210,6 +236,37 @@ function fontSizeValue(editor: Editor | null): string {
   const size = parseFontSize(current) ?? fontSizes[0]
 
   return `${snapFontSize(size)}px`
+}
+
+function textAlignValue(editor: Editor | null): string {
+  if (editor === null) {
+    return 'right'
+  }
+
+  const attributes = editor.isActive('heading')
+    ? editor.getAttributes('heading')
+    : editor.getAttributes('paragraph')
+  const textAlign = attributes.textAlign
+
+  if (typeof textAlign === 'string') {
+    return textAlign
+  }
+
+  return editor.isActive({ dir: 'ltr' }) ? 'left' : 'right'
+}
+
+function textPositionValue(
+  editor: Editor | null,
+): 'baseline' | 'subscript' | 'superscript' {
+  if (editor?.isActive('superscript')) {
+    return 'superscript'
+  }
+
+  if (editor?.isActive('subscript')) {
+    return 'subscript'
+  }
+
+  return 'baseline'
 }
 
 function useEditorFocusAfterToolbarSelection(editor: Editor | null) {
@@ -309,6 +366,8 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
       textDirection: currentEditor?.isActive({ dir: 'ltr' }) ? 'ltr' : 'rtl',
+      textAlign: textAlignValue(currentEditor),
+      textPosition: textPositionValue(currentEditor),
       fontSize: fontSizeValue(currentEditor),
       textColor: currentEditor?.getAttributes('textStyle').color as
         string | undefined,
@@ -320,6 +379,8 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const directionFocus = useEditorFocusAfterToolbarSelection(editor)
   const textStyleFocus = useEditorFocusAfterToolbarSelection(editor)
   const fontSizeFocus = useEditorFocusAfterToolbarSelection(editor)
+  const textAlignFocus = useEditorFocusAfterToolbarSelection(editor)
+  const textPositionFocus = useEditorFocusAfterToolbarSelection(editor)
 
   const currentTextStyle =
     textStyleOptions.find(
@@ -329,6 +390,16 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const currentFontSize =
     fontSizeOptions.find((option) => option.value === editorState?.fontSize) ??
     defaultFontSize
+
+  const currentTextAlign =
+    textAlignOptions.find(
+      (option) => option.value === editorState?.textAlign,
+    ) ?? textAlignOptions[0]
+
+  const currentTextPosition =
+    textPositionOptions.find(
+      (option) => option.value === editorState?.textPosition,
+    ) ?? textPositionOptions[0]
 
   const setTextStyle = (value: string): void => {
     if (editor === null) {
@@ -366,6 +437,35 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
 
     fontSizeFocus.markToolbarSelection()
     editor.chain().focus().setFontSize(value).run()
+  }
+
+  const setTextAlign = (value: string): void => {
+    if (editor === null) {
+      return
+    }
+
+    textAlignFocus.markToolbarSelection()
+    editor.chain().focus().setTextAlign(value).run()
+  }
+
+  const setTextPosition = (value: string): void => {
+    if (editor === null) {
+      return
+    }
+
+    textPositionFocus.markToolbarSelection()
+
+    if (value === 'superscript') {
+      editor.chain().focus().unsetSubscript().setSuperscript().run()
+      return
+    }
+
+    if (value === 'subscript') {
+      editor.chain().focus().unsetSuperscript().setSubscript().run()
+      return
+    }
+
+    editor.chain().focus().unsetSuperscript().unsetSubscript().run()
   }
 
   return (
@@ -587,6 +687,89 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <ListOrdered />
       </ToolbarButton>
+      <Separator orientation="vertical" />
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="تراز متن"
+                disabled={editor === null}
+                className="hover:bg-gray-300"
+              >
+                {currentTextAlign.icon}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>تراز متن</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="start"
+          className="w-40"
+          onCloseAutoFocus={textAlignFocus.handleCloseAutoFocus}
+        >
+          <DropdownMenuRadioGroup
+            value={editorState?.textAlign ?? 'right'}
+            onValueChange={setTextAlign}
+          >
+            {textAlignOptions.map((option) => (
+              <DropdownMenuRadioItem
+                key={option.value}
+                value={option.value}
+                className="whitespace-nowrap"
+                onSelect={textAlignFocus.markToolbarSelection}
+              >
+                {option.icon}
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="موقعیت متن"
+                disabled={editor === null}
+                className="hover:bg-gray-300"
+              >
+                {currentTextPosition.icon}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>موقعیت متن</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="start"
+          className="w-40"
+          onCloseAutoFocus={textPositionFocus.handleCloseAutoFocus}
+        >
+          <DropdownMenuRadioGroup
+            value={editorState?.textPosition ?? 'baseline'}
+            onValueChange={setTextPosition}
+          >
+            {textPositionOptions.map((option) => (
+              <DropdownMenuRadioItem
+                key={option.value}
+                value={option.value}
+                className="whitespace-nowrap"
+                onSelect={textPositionFocus.markToolbarSelection}
+              >
+                {option.icon}
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   )
 }

@@ -592,6 +592,8 @@ describe('routes', () => {
       'رنگ پس زمینه',
       'لیست نقطه ای',
       'لیست نشانه دار',
+      'تراز متن',
+      'موقعیت متن',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement

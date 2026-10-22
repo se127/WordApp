@@ -105,6 +105,8 @@ describe('DocumentBodyEditor', () => {
       'رنگ پس زمینه',
       'لیست نقطه ای',
       'لیست نشانه دار',
+      'تراز متن',
+      'موقعیت متن',
     ])
 
     const [
@@ -119,6 +121,8 @@ describe('DocumentBodyEditor', () => {
       highlightColorButton,
       bulletListButton,
       orderedListButton,
+      textAlignButton,
+      textPositionButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -134,6 +138,8 @@ describe('DocumentBodyEditor', () => {
       directionButton,
       textColorButton,
       highlightColorButton,
+      textAlignButton,
+      textPositionButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
@@ -163,7 +169,7 @@ describe('DocumentBodyEditor', () => {
     expect(fontSizeSelect).toHaveTextContent('۱۶px')
 
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
-    expect(separators).toHaveLength(3)
+    expect(separators).toHaveLength(4)
     for (const separator of separators) {
       expect(separator).toHaveAttribute('data-orientation', 'vertical')
     }
@@ -173,6 +179,9 @@ describe('DocumentBodyEditor', () => {
     expect(separators[1]?.nextElementSibling).toBe(fontSizeSelect)
     expect(separators[2]?.previousElementSibling).toBe(highlightColorButton)
     expect(separators[2]?.nextElementSibling).toBe(bulletListButton)
+    expect(separators[3]?.previousElementSibling).toBe(orderedListButton)
+    expect(separators[3]?.nextElementSibling).toBe(textAlignButton)
+    expect(textAlignButton.nextElementSibling).toBe(textPositionButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -196,21 +205,50 @@ describe('DocumentBodyEditor', () => {
     expect(editor.querySelector('p')).not.toHaveClass('is-editor-empty')
   })
 
-  it('keeps the empty-body placeholder on every block type and follows its direction', async () => {
+  it('keeps the empty placeholder on the chosen text alignment', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    const alignButton = screen.getByRole('button', { name: 'تراز متن' })
+
+    for (const [label, value] of [
+      ['وسط چین', 'center'],
+      ['چپ چین', 'left'],
+      ['بلوکی', 'justify'],
+      ['راست چین', 'right'],
+    ]) {
+      await user.click(alignButton)
+      await user.click(
+        await screen.findByRole('menuitemradio', { name: label }),
+      )
+
+      const emptyParagraph = editor.querySelector('p')
+      expect(emptyParagraph).toHaveClass('is-editor-empty')
+      expect(emptyParagraph).toHaveAttribute(
+        'data-placeholder',
+        'متن سند را اینجا بنویسید...',
+      )
+      expect(emptyParagraph).toHaveAttribute('style', `text-align: ${value};`)
+    }
+  })
+
+  it('keeps the empty-body placeholder out of flow so it follows the alignment', async () => {
     const editorStyles = await readFile(
       'src/components/document-body-editor.css',
       'utf8',
     )
     expect(editorStyles).toMatch(/\.ProseMirror\s*\{[^}]*font-size: 16px;/)
     expect(editorStyles).toMatch(
-      /\.ProseMirror\s+\.is-editor-empty:first-child::before\s*\{[^}]*color: var\(--muted-foreground\);/,
+      /\.is-editor-empty:first-child\s*\{[^}]*position: relative;/,
     )
     expect(editorStyles).toMatch(
-      /\.is-editor-empty:first-child::before\s*\{[^}]*float: right;/,
+      /\.is-editor-empty:first-child::before\s*\{[^}]*position: absolute;[^}]*inset-inline: 0;[^}]*color: var\(--muted-foreground\);[^}]*content: attr\(data-placeholder\);[^}]*text-align: inherit;/,
     )
-    expect(editorStyles).toMatch(
-      /\[dir='ltr'\]\.is-editor-empty:first-child::before\s*\{[^}]*float: left;/,
+    expect(editorStyles).not.toMatch(
+      /\.is-editor-empty:first-child::before\s*\{[^}]*float:/,
     )
+    expect(editorStyles).not.toMatch(/\[dir='ltr'\]\.is-editor-empty/)
   })
 
   it('cycles nested list markers by depth', async () => {
@@ -713,6 +751,150 @@ describe('DocumentBodyEditor', () => {
     )
 
     expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('applies text alignment from the alignment menu and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const alignButton = screen.getByRole('button', { name: 'تراز متن' })
+    expect(alignButton.querySelector('svg')).toHaveClass('lucide-align-right')
+    await user.click(alignButton)
+
+    const menu = document.querySelector('[data-slot="dropdown-menu-content"]')
+    expect(menu).toHaveClass('w-40')
+    expect(
+      await screen.findByRole('menuitemradio', { name: 'راست چین' }),
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      screen.getByRole('menuitemradio', { name: 'چپ چین' }),
+    ).toHaveAttribute('aria-checked', 'false')
+    expect(
+      (await screen.findAllByRole('menuitemradio')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['راست چین', 'چپ چین', 'وسط چین', 'بلوکی'])
+    expect(screen.getByRole('menuitemradio', { name: 'وسط چین' })).toHaveClass(
+      'whitespace-nowrap',
+    )
+
+    await user.click(screen.getByRole('menuitemradio', { name: 'وسط چین' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl" style="text-align: center;">متن</p>',
+    )
+    expect(alignButton.querySelector('svg')).toHaveClass('lucide-align-center')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(alignButton)
+    expect(
+      await screen.findByRole('menuitemradio', { name: 'وسط چین' }),
+    ).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByRole('menuitemradio', { name: 'وسط چین' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl" style="text-align: center;">متن</p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('shows the block direction as the alignment when no alignment is set', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    await user.click(screen.getByRole('button', { name: 'جهت متن' }))
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'چپ به راست' }),
+    )
+
+    const alignButton = screen.getByRole('button', { name: 'تراز متن' })
+    expect(alignButton.querySelector('svg')).toHaveClass('lucide-align-left')
+    await user.click(alignButton)
+
+    expect(
+      await screen.findByRole('menuitemradio', { name: 'چپ چین' }),
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('applies text position from the position menu and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+    await user.keyboard('{Control>}a{/Control}')
+
+    const positionButton = screen.getByRole('button', { name: 'موقعیت متن' })
+    expect(positionButton.querySelector('svg')).toHaveClass('lucide-baseline')
+    await user.click(positionButton)
+
+    expect(
+      await screen.findByRole('menuitemradio', { name: 'معمولی' }),
+    ).toHaveAttribute('aria-checked', 'true')
+    expect(
+      (await screen.findAllByRole('menuitemradio')).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(['معمولی', 'بالا نویس', 'پایین نویس'])
+
+    await user.click(screen.getByRole('menuitemradio', { name: 'بالا نویس' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><sup>متن</sup></p>',
+    )
+    expect(positionButton.querySelector('svg')).toHaveClass(
+      'lucide-superscript',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(positionButton)
+    expect(
+      await screen.findByRole('menuitemradio', { name: 'بالا نویس' }),
+    ).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByRole('menuitemradio', { name: 'پایین نویس' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><sub>متن</sub></p>',
+    )
+    expect(positionButton.querySelector('svg')).toHaveClass('lucide-subscript')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(positionButton)
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'معمولی' }),
+    )
+
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(positionButton)
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'معمولی' }),
+    )
+
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('returns focus to the editor after a keyboard selection in a toolbar menu', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const alignButton = screen.getByRole('button', { name: 'تراز متن' })
+    alignButton.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('menuitemradio', { name: 'راست چین' })
+    await user.keyboard('{Enter}')
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl" style="text-align: right;">متن</p>',
+    )
     expect(await editorTextbox()).toHaveFocus()
   })
 
