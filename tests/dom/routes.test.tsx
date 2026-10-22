@@ -20,7 +20,7 @@ import { createAppRouter } from '@/router'
 import type { DocumentChanges, DocumentListOptions } from '@/types/global'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, RouterProvider } from '@tanstack/react-router'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { toast } from 'sonner'
@@ -224,6 +224,10 @@ function renderRoute(initialEntry: string) {
   )
 
   return { router, queryClient }
+}
+
+function pressSaveShortcut(): boolean {
+  return fireEvent.keyDown(document.body, { key: 's', ctrlKey: true })
 }
 
 function documentsPagination(): HTMLElement {
@@ -1171,6 +1175,75 @@ describe('routes', () => {
     expect(
       screen.queryByRole('textbox', { name: 'عنوان سند' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('saves pending changes when Ctrl+S is pressed', async () => {
+    const { save } = installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    expect(save).not.toHaveBeenCalled()
+    expect(pressSaveShortcut()).toBe(false)
+
+    await vi.waitFor(
+      () => {
+        expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+          title: 'گزارش',
+          body: '',
+        })
+      },
+      { timeout: 1_500 },
+    )
+  })
+
+  it('does not save again when Ctrl+S is pressed during a debounced save', async () => {
+    let finishSave!: (document: TestDocument) => void
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    installBridge({ save })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce(), {
+      timeout: 1_500,
+    })
+    expect(
+      screen.getByRole('status', { name: 'در حال ذخیره...' }),
+    ).toBeInTheDocument()
+
+    expect(pressSaveShortcut()).toBe(false)
+    expect(pressSaveShortcut()).toBe(false)
+    expect(save).toHaveBeenCalledOnce()
+
+    await act(() =>
+      finishSave({ ...storedDocument, title: 'گزارش', updatedAt: 2_000 }),
+    )
+
+    expect(save).toHaveBeenCalledOnce()
+  })
+
+  it('does not intercept Ctrl+S on the documents page', async () => {
+    const { save } = installBridge()
+
+    renderRoute('/')
+    await screen.findByRole('heading', { name: /مستندات/ })
+
+    expect(pressSaveShortcut()).toBe(true)
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('reports a failed save with an error toast and keeps the edited text for another try', async () => {

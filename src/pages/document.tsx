@@ -61,9 +61,30 @@ function DocumentEditor({
     body,
     updateTitle,
     updateBody,
+    saveNow,
     pauseAutosave,
     resumeAutosave,
   } = useDocumentAutosave(document)
+
+  useEffect(() => {
+    const saveOnShortcut = (event: KeyboardEvent): void => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.key.toLowerCase() !== 's'
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      void saveNow()
+    }
+
+    window.addEventListener('keydown', saveOnShortcut)
+    return () => {
+      window.removeEventListener('keydown', saveOnShortcut)
+    }
+  }, [saveNow])
 
   return (
     <>

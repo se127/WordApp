@@ -269,6 +269,7 @@ function useDocumentAutosave(document: DocumentRecord) {
     body,
     updateTitle,
     updateBody,
+    saveNow: flush,
     pauseAutosave,
     resumeAutosave,
   }

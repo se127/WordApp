@@ -286,6 +286,77 @@ describe('useDocumentAutosave', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
+  it('saves immediately through saveNow and saves again after a new change', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result } = renderAutosave(save)
+
+    act(() => result.current.updateTitle('گزارش'))
+    await act(() => result.current.saveNow())
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'گزارش',
+      body: '<p>قبلی</p>',
+    })
+
+    await act(() => result.current.saveNow())
+    expect(save).toHaveBeenCalledOnce()
+
+    act(() => result.current.updateTitle('گزارش دوم'))
+    await act(() => result.current.saveNow())
+
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith(1, {
+      title: 'گزارش دوم',
+      body: '<p>قبلی</p>',
+    })
+
+    await advance(documentSaveDebounceMs)
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not start a second save when saveNow is called during a save', async () => {
+    vi.useFakeTimers()
+    let finishSave!: (document: DocumentRecord) => void
+    const save = vi.fn(
+      () =>
+        new Promise<DocumentRecord>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const { result } = renderAutosave(save)
+
+    act(() => result.current.updateTitle('گزارش'))
+    let firstSave!: Promise<boolean>
+    act(() => {
+      firstSave = result.current.saveNow()
+    })
+    await advance(0)
+    expect(save).toHaveBeenCalledOnce()
+
+    let secondSave!: Promise<boolean>
+    let thirdSave!: Promise<boolean>
+    act(() => {
+      secondSave = result.current.saveNow()
+      thirdSave = result.current.saveNow()
+    })
+    expect(save).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      finishSave({ ...documentRecord, title: 'گزارش', updatedAt: 2_000 })
+      await Promise.resolve()
+    })
+
+    await expect(firstSave).resolves.toBe(true)
+    await expect(secondSave).resolves.toBe(true)
+    await expect(thirdSave).resolves.toBe(true)
+    expect(save).toHaveBeenCalledOnce()
+  })
+
   it('does not save again on unmount when the immediate flush failed', async () => {
     vi.useFakeTimers()
     const save = vi.fn(async () => {
