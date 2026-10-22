@@ -67,7 +67,7 @@ function DocumentEditor({
 
   return (
     <>
-      <div className="mb-3 flex shrink-0 items-center gap-3 px-6">
+      <div className="mb-5 flex shrink-0 items-center gap-3 px-6">
         <DocumentTitle title={title} onChange={updateTitle} />
         <DocumentOptions
           documentId={document.id}

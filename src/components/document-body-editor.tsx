@@ -51,7 +51,7 @@ function DocumentBodyEditor({
         role="toolbar"
         aria-label="ابزارهای ویرایش متن"
         dir="rtl"
-        className="flex w-full shrink-0 items-center gap-1 border-y bg-emerald-50 px-6 py-1 dark:bg-zinc-900"
+        className="flex w-full shrink-0 items-center gap-1 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-700"
       >
         <EditorToolbar editor={editor} />
       </div>
@@ -140,6 +140,7 @@ function ToolbarButton({
           aria-label={label}
           aria-pressed={isActive}
           disabled={disabled}
+          className={isActive ? undefined : 'hover:bg-gray-300'}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onClick}
         >

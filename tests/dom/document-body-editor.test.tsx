@@ -3,6 +3,7 @@ import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { readFile } from 'node:fs/promises'
 import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -83,9 +84,9 @@ describe('DocumentBodyEditor', () => {
     expect(toolbar).toHaveClass(
       'w-full',
       'border-y',
-      'bg-emerald-50',
+      'bg-gray-100',
       'px-6',
-      'dark:bg-zinc-900',
+      'dark:bg-zinc-700',
     )
     expect(toolbar).not.toHaveClass('border-x')
     expect(toolbar).not.toHaveClass('px-2')
@@ -103,6 +104,8 @@ describe('DocumentBodyEditor', () => {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
       expect(button).toHaveAttribute('aria-pressed', 'false')
+      expect(button).toHaveClass('hover:bg-gray-300')
+      expect(button).not.toHaveClass('bg-primary')
     }
 
     const user = userEvent.setup()
@@ -125,6 +128,16 @@ describe('DocumentBodyEditor', () => {
     await typeInEditor('متن')
 
     expect(editor.querySelector('p')).not.toHaveClass('is-editor-empty')
+  })
+
+  it('paints the empty-body placeholder with the muted foreground color', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+    expect(editorStyles).toMatch(
+      /p\.is-editor-empty:first-child::before\s*\{[^}]*color: var\(--muted-foreground\);/,
+    )
   })
 
   it('reports the editor HTML whenever the body changes', async () => {
@@ -167,6 +180,12 @@ describe('DocumentBodyEditor', () => {
       await user.click(button)
       expect(button).toHaveAttribute('aria-pressed', 'true')
       expect(button).toHaveAttribute('data-variant', 'default')
+      expect(button).toHaveClass(
+        'bg-primary',
+        'text-primary-foreground',
+        'hover:bg-primary/80',
+      )
+      expect(button).not.toHaveClass('hover:bg-gray-300')
     }
 
     const body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0]

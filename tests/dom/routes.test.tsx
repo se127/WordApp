@@ -567,9 +567,9 @@ describe('routes', () => {
     expect(toolbar).toHaveClass(
       'w-full',
       'border-y',
-      'bg-emerald-50',
+      'bg-gray-100',
       'px-6',
-      'dark:bg-zinc-900',
+      'dark:bg-zinc-700',
     )
     expect(toolbar).not.toHaveClass('border-x')
     expect(
@@ -594,7 +594,7 @@ describe('routes', () => {
       screen.getByRole('button', { name: 'تغییر پوسته' }),
     )
     expect(titleBar?.lastElementChild).toContainElement(back)
-    expect(heading.parentElement).toHaveClass('mb-3', 'px-6')
+    expect(heading.parentElement).toHaveClass('mb-5', 'px-6')
   })
 
   it('reports a failed document read with an error and a retry button, and recovers the document when pressed', async () => {
