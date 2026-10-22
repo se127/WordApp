@@ -151,6 +151,20 @@ implementing it — never decide that on your own. If it should:
   `expect(await editorTextbox()).toHaveFocus()` after each toolbar button and option,
   including the already-active option and a keyboard selection.
 
+## Editor toolbar — new blocks need explicit spacing
+
+- Any toolbar button or select that inserts a new HTML block must join the editor's
+  spacing system: add its selector to the `margin-top: 0` group in
+  `src/components/document-body-editor.css` so vertical rhythm stays bottom-only.
+- Check the block inside list items as well. `li > * { margin-block: 0 }` flattens
+  every block inside an item, so a block that can also appear in a list item needs
+  its own rule, the way `li > ul` and `li > ol` get `margin-block: 0.5em`.
+- When Typography's default bottom spacing is wrong for the document, set it
+  explicitly — `hr` uses `margin-bottom: 1.5em` — rather than leaving the default.
+- When the right spacing is not obvious from an existing element or the reference
+  editor, ask the user before choosing, then pin the selector or rule in the
+  stylesheet test in `tests/dom/document-body-editor.test.tsx`.
+
 ## React Compiler — keep renderer code compilable
 
 `vite.config.ts` runs the React Compiler over `src/**` through
