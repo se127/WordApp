@@ -590,6 +590,8 @@ describe('routes', () => {
       'خط خورده',
       'رنگ متن',
       'رنگ پس زمینه',
+      'لیست نقطه ای',
+      'لیست نشانه دار',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement

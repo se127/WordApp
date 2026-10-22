@@ -63,3 +63,35 @@
 .document-body-editor .ProseMirror:focus-visible {
   outline: none;
 }
+
+.document-body-editor .ProseMirror ol ol {
+  list-style-type: lower-alpha;
+}
+
+.document-body-editor .ProseMirror ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.document-body-editor .ProseMirror ol ol ol ol {
+  list-style-type: decimal;
+}
+
+.document-body-editor .ProseMirror ol ol ol ol ol {
+  list-style-type: lower-alpha;
+}
+
+.document-body-editor .ProseMirror ol ol ol ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.document-body-editor .ProseMirror ol ol ol ol ol ol ol {
+  list-style-type: decimal;
+}
+
+.document-body-editor .ProseMirror ul ul {
+  list-style-type: circle;
+}
+
+.document-body-editor .ProseMirror ul ul ul {
+  list-style-type: square;
+}

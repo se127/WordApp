@@ -103,6 +103,8 @@ describe('DocumentBodyEditor', () => {
       'خط خورده',
       'رنگ متن',
       'رنگ پس زمینه',
+      'لیست نقطه ای',
+      'لیست نشانه دار',
     ])
 
     const [
@@ -115,6 +117,8 @@ describe('DocumentBodyEditor', () => {
       strikeButton,
       textColorButton,
       highlightColorButton,
+      bulletListButton,
+      orderedListButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -122,6 +126,7 @@ describe('DocumentBodyEditor', () => {
       underlineButton,
       strikeButton,
     ]
+    const listButtons = [bulletListButton, orderedListButton]
 
     for (const button of [
       undoButton,
@@ -139,7 +144,7 @@ describe('DocumentBodyEditor', () => {
     expect(redoButton).toBeDisabled()
     expect(directionButton).toBeEnabled()
 
-    for (const button of markButtons) {
+    for (const button of [...markButtons, ...listButtons]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
       expect(button).toHaveAttribute('aria-pressed', 'false')
@@ -158,7 +163,7 @@ describe('DocumentBodyEditor', () => {
     expect(fontSizeSelect).toHaveTextContent('۱۶px')
 
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
-    expect(separators).toHaveLength(2)
+    expect(separators).toHaveLength(3)
     for (const separator of separators) {
       expect(separator).toHaveAttribute('data-orientation', 'vertical')
     }
@@ -166,6 +171,8 @@ describe('DocumentBodyEditor', () => {
     expect(separators[0]?.nextElementSibling).toBe(directionButton)
     expect(separators[1]?.previousElementSibling).toBe(textStyleSelect)
     expect(separators[1]?.nextElementSibling).toBe(fontSizeSelect)
+    expect(separators[2]?.previousElementSibling).toBe(highlightColorButton)
+    expect(separators[2]?.nextElementSibling).toBe(bulletListButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -204,6 +211,32 @@ describe('DocumentBodyEditor', () => {
     expect(editorStyles).toMatch(
       /\[dir='ltr'\]\.is-editor-empty:first-child::before\s*\{[^}]*float: left;/,
     )
+  })
+
+  it('cycles nested list markers by depth', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+
+    const markerRules = [
+      ['ol ol', 'lower-alpha'],
+      ['ol ol ol', 'lower-roman'],
+      ['ol ol ol ol', 'decimal'],
+      ['ol ol ol ol ol', 'lower-alpha'],
+      ['ol ol ol ol ol ol', 'lower-roman'],
+      ['ol ol ol ol ol ol ol', 'decimal'],
+      ['ul ul', 'circle'],
+      ['ul ul ul', 'square'],
+    ]
+
+    for (const [selector, marker] of markerRules) {
+      expect(editorStyles).toMatch(
+        new RegExp(
+          `\\.document-body-editor\\s+\\.ProseMirror\\s+${selector}\\s*\\{\\s*list-style-type:\\s*${marker};`,
+        ),
+      )
+    }
   })
 
   it('keeps the placeholder when an empty body is switched to a heading', async () => {
@@ -278,6 +311,44 @@ describe('DocumentBodyEditor', () => {
     expect(body).toContain('<u>')
     expect(body).toContain('<s>')
     expect(body).toContain('متن')
+  })
+
+  it('applies bulleted and numbered lists and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const bulletListButton = screen.getByRole('button', {
+      name: 'لیست نقطه ای',
+    })
+    await user.click(bulletListButton)
+
+    expect(bulletListButton).toHaveAttribute('aria-pressed', 'true')
+    let body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0] ?? ''
+    expect(body).toContain('<ul')
+    expect(body).toContain('<li')
+    expect(body).toContain('متن')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(bulletListButton)
+
+    expect(bulletListButton).toHaveAttribute('aria-pressed', 'false')
+    body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0] ?? ''
+    expect(body).not.toContain('<ul')
+    expect(await editorTextbox()).toHaveFocus()
+
+    const orderedListButton = screen.getByRole('button', {
+      name: 'لیست نشانه دار',
+    })
+    await user.click(orderedListButton)
+
+    expect(orderedListButton).toHaveAttribute('aria-pressed', 'true')
+    body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0] ?? ''
+    expect(body).toContain('<ol')
+    expect(body).toContain('<li')
+    expect(body).toContain('متن')
+    expect(await editorTextbox()).toHaveFocus()
   })
 
   it('enables undo after an edit, enables redo after undoing, and reports each body', async () => {

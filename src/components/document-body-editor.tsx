@@ -51,6 +51,8 @@ import {
   Heading6,
   Highlighter,
   Italic,
+  List,
+  ListOrdered,
   Pilcrow,
   PilcrowLeft,
   PilcrowRight,
@@ -301,6 +303,8 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       italic: currentEditor?.isActive('italic') ?? false,
       underline: currentEditor?.isActive('underline') ?? false,
       strike: currentEditor?.isActive('strike') ?? false,
+      bulletList: currentEditor?.isActive('bulletList') ?? false,
+      orderedList: currentEditor?.isActive('orderedList') ?? false,
       canUndo: currentEditor?.can().undo() ?? false,
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
@@ -564,6 +568,25 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         }
         onReset={() => editor?.chain().focus().unsetHighlight().run()}
       />
+      <Separator orientation="vertical" />
+      <ToolbarButton
+        label="لیست نقطه ای"
+        disabled={editor === null}
+        isToggle
+        isActive={editorState?.bulletList ?? false}
+        onClick={() => editor?.chain().focus().toggleBulletList().run()}
+      >
+        <List />
+      </ToolbarButton>
+      <ToolbarButton
+        label="لیست نشانه دار"
+        disabled={editor === null}
+        isToggle
+        isActive={editorState?.orderedList ?? false}
+        onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+      >
+        <ListOrdered />
+      </ToolbarButton>
     </>
   )
 }
