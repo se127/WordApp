@@ -210,6 +210,35 @@ function fontSizeValue(editor: Editor | null): string {
   return `${snapFontSize(size)}px`
 }
 
+function useEditorFocusAfterToolbarSelection(editor: Editor | null) {
+  const focusEditorOnClose = useRef(false)
+
+  const markToolbarSelection = (): void => {
+    focusEditorOnClose.current = true
+  }
+
+  const handleCloseAutoFocus = (event: Event): void => {
+    if (!focusEditorOnClose.current) {
+      return
+    }
+
+    event.preventDefault()
+    focusEditorOnClose.current = false
+    editor?.chain().focus().run()
+  }
+
+  return { markToolbarSelection, handleCloseAutoFocus }
+}
+
+function handleSelectItemKeyDown(
+  event: KeyboardEvent<HTMLDivElement>,
+  markSelection: () => void,
+): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    markSelection()
+  }
+}
+
 function DocumentBodyEditor({
   body,
   onBodyChange,
@@ -284,6 +313,10 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     }),
   })
 
+  const directionFocus = useEditorFocusAfterToolbarSelection(editor)
+  const textStyleFocus = useEditorFocusAfterToolbarSelection(editor)
+  const fontSizeFocus = useEditorFocusAfterToolbarSelection(editor)
+
   const currentTextStyle =
     textStyleOptions.find(
       (option) => option.value === editorState?.textStyle,
@@ -298,6 +331,8 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       return
     }
 
+    textStyleFocus.markToolbarSelection()
+
     if (value === 'paragraph') {
       editor.chain().focus().setParagraph().run()
       return
@@ -308,15 +343,25 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   }
 
   const setTextDirection = (value: string): void => {
+    if (editor === null) {
+      return
+    }
+
+    directionFocus.markToolbarSelection()
     editor
-      ?.chain()
+      .chain()
       .focus()
       .setTextDirection(value as 'rtl' | 'ltr')
       .run()
   }
 
   const setFontSize = (value: string): void => {
-    editor?.chain().focus().setFontSize(value).run()
+    if (editor === null) {
+      return
+    }
+
+    fontSizeFocus.markToolbarSelection()
+    editor.chain().focus().setFontSize(value).run()
   }
 
   return (
@@ -361,17 +406,25 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         <DropdownMenuContent
           align="start"
           className="w-40"
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={directionFocus.handleCloseAutoFocus}
         >
           <DropdownMenuRadioGroup
             value={editorState?.textDirection ?? 'rtl'}
             onValueChange={setTextDirection}
           >
-            <DropdownMenuRadioItem value="rtl" className="whitespace-nowrap">
+            <DropdownMenuRadioItem
+              value="rtl"
+              className="whitespace-nowrap"
+              onSelect={directionFocus.markToolbarSelection}
+            >
               <PilcrowLeft />
               راست به چپ
             </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="ltr" className="whitespace-nowrap">
+            <DropdownMenuRadioItem
+              value="ltr"
+              className="whitespace-nowrap"
+              onSelect={directionFocus.markToolbarSelection}
+            >
               <PilcrowRight />
               چپ به راست
             </DropdownMenuRadioItem>
@@ -397,10 +450,20 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
           </TooltipTrigger>
           <TooltipContent>سبک متن</TooltipContent>
         </Tooltip>
-        <SelectContent onCloseAutoFocus={(event) => event.preventDefault()}>
+        <SelectContent onCloseAutoFocus={textStyleFocus.handleCloseAutoFocus}>
           <SelectGroup>
             {textStyleOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                onPointerUp={textStyleFocus.markToolbarSelection}
+                onKeyDown={(event) =>
+                  handleSelectItemKeyDown(
+                    event,
+                    textStyleFocus.markToolbarSelection,
+                  )
+                }
+              >
                 {option.icon}
                 {option.label}
               </SelectItem>
@@ -425,10 +488,20 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
           </TooltipTrigger>
           <TooltipContent>اندازه ی متن</TooltipContent>
         </Tooltip>
-        <SelectContent onCloseAutoFocus={(event) => event.preventDefault()}>
+        <SelectContent onCloseAutoFocus={fontSizeFocus.handleCloseAutoFocus}>
           <SelectGroup>
             {fontSizeOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                onPointerUp={fontSizeFocus.markToolbarSelection}
+                onKeyDown={(event) =>
+                  handleSelectItemKeyDown(
+                    event,
+                    fontSizeFocus.markToolbarSelection,
+                  )
+                }
+              >
                 {option.label}
               </SelectItem>
             ))}
@@ -581,16 +654,17 @@ function ToolbarColorPicker({
   onReset: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const focusEditorOnClose = useRef(false)
+  const { markToolbarSelection, handleCloseAutoFocus } =
+    useEditorFocusAfterToolbarSelection(editor)
 
   const pickColor = (color: string): void => {
-    focusEditorOnClose.current = true
+    markToolbarSelection()
     onPick(color)
     setOpen(false)
   }
 
   const resetColor = (): void => {
-    focusEditorOnClose.current = true
+    markToolbarSelection()
     onReset()
     setOpen(false)
   }
@@ -625,15 +699,7 @@ function ToolbarColorPicker({
       <DropdownMenuContent
         align="start"
         className="w-64"
-        onCloseAutoFocus={(event) => {
-          if (!focusEditorOnClose.current) {
-            return
-          }
-
-          event.preventDefault()
-          focusEditorOnClose.current = false
-          editor?.chain().focus().run()
-        }}
+        onCloseAutoFocus={handleCloseAutoFocus}
         onKeyDown={moveColorPickerFocus}
       >
         <DropdownMenuGroup>

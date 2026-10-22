@@ -269,6 +269,7 @@ describe('DocumentBodyEditor', () => {
         'hover:bg-primary/80',
       )
       expect(button).not.toHaveClass('hover:bg-gray-300')
+      expect(await editorTextbox()).toHaveFocus()
     }
 
     const body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0]
@@ -300,12 +301,14 @@ describe('DocumentBodyEditor', () => {
     expect(undoButton).toBeDisabled()
     expect(redoButton).toBeEnabled()
     expect(onBodyChange).toHaveBeenLastCalledWith('')
+    expect(await editorTextbox()).toHaveFocus()
 
     await user.click(redoButton)
 
     expect(undoButton).toBeEnabled()
     expect(redoButton).toBeDisabled()
     expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">م</p>')
+    expect(await editorTextbox()).toHaveFocus()
   })
 
   it('applies paragraph and heading styles from the text style select', async () => {
@@ -333,6 +336,15 @@ describe('DocumentBodyEditor', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith(
       '<p dir="rtl">عنوان</p><p dir="rtl"></p>',
     )
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(styleSelect)
+    await user.click(await screen.findByRole('option', { name: 'پاراگراف' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl">عنوان</p><p dir="rtl"></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
   })
 
   it('applies the four allowed font sizes and starts at 16px', async () => {
@@ -378,6 +390,30 @@ describe('DocumentBodyEditor', () => {
       )
       expect(await editorTextbox()).toHaveFocus()
     }
+
+    await user.click(fontSizeSelect)
+    await user.click(await screen.findByRole('option', { name: '۱۶px' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><span style="font-size: 16px;">متن</span></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('returns focus to the editor after a keyboard selection in a toolbar select', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const fontSizeSelect = screen.getByRole('combobox', {
+      name: 'اندازه ی متن',
+    })
+    await user.click(fontSizeSelect)
+    await screen.findByRole('option', { name: '۱۶px' })
+    await user.keyboard('{Enter}')
+
+    expect(await editorTextbox()).toHaveFocus()
   })
 
   it('snaps pasted font sizes into the allowed sizes', async () => {
@@ -538,6 +574,15 @@ describe('DocumentBodyEditor', () => {
     await user.click(screen.getByRole('menuitemradio', { name: 'راست به چپ' }))
 
     expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(directionButton)
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'راست به چپ' }),
+    )
+
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
   })
 
   it('reports an emptied editor as an empty body', async () => {

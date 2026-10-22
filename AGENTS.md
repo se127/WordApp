@@ -136,6 +136,21 @@ implementing it — never decide that on your own. If it should:
   familiar with how to use them: which components exist and their props, structure, and
   exports.
 
+## Editor toolbar — every action returns focus to the editor
+
+- Any toolbar action that changes the editor — a plain button, a dropdown menu item,
+  or an option in a select — must leave focus in the ProseMirror editor.
+- This includes choosing the option that is already active.
+- Do not rely only on `chain().focus()` while an overlay is open: Radix restores focus
+  when the overlay closes and can undo it. Mark the selection, then focus the editor
+  from `onCloseAutoFocus`; follow `useEditorFocusAfterToolbarSelection` in
+  `src/components/document-body-editor.tsx`.
+- Closing a menu or select without choosing an option returns focus to its trigger, not
+  the editor.
+- Pin the behavior in tests with
+  `expect(await editorTextbox()).toHaveFocus()` after each toolbar button and option,
+  including the already-active option and a keyboard selection.
+
 ## React Compiler — keep renderer code compilable
 
 `vite.config.ts` runs the React Compiler over `src/**` through
