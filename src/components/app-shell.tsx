@@ -1,12 +1,14 @@
 import { TitleBar } from '@/components/title-bar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
+import { listenForClose } from '@/lib/close-handshake'
 import {
-  flushDocumentSaves,
-  isDocumentSaving,
-  listenForClose,
-  subscribeToDocumentSaves,
-} from '@/lib/close-handshake'
+  applyDocumentChanges,
+  invalidateDocumentListsIfMissing,
+} from '@/lib/document-cache'
+import { hasDocumentSaveFailed } from '@/lib/document-save-state'
+import { pendingDocumentChanges } from '@/lib/pending-changes'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Link,
   Outlet,
@@ -14,12 +16,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
-import {
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type MouseEvent,
-} from 'react'
+import { useEffect, type MouseEvent } from 'react'
 
 function AppShell() {
   useEffect(() => listenForClose(), [])
@@ -48,30 +45,21 @@ function AppShell() {
 
 function DocumentBackLink() {
   const navigate = useNavigate()
-  const [isLeaving, setIsLeaving] = useState(false)
-  const isSaving = useSyncExternalStore(
-    subscribeToDocumentSaves,
-    isDocumentSaving,
-  )
+  const queryClient = useQueryClient()
 
   const openDocuments = (event: MouseEvent<HTMLAnchorElement>): void => {
     event.preventDefault()
 
-    if (isSaving || isLeaving) {
-      return
+    const pending = pendingDocumentChanges()
+    if (pending !== null) {
+      if (hasDocumentSaveFailed(queryClient, pending.documentId)) {
+        invalidateDocumentListsIfMissing(queryClient, pending.documentId)
+      } else {
+        applyDocumentChanges(queryClient, pending.documentId, pending.changes)
+      }
     }
 
-    setIsLeaving(true)
-    void flushDocumentSaves().then(() => navigate({ to: '/', replace: true }))
-  }
-
-  if (isSaving || isLeaving) {
-    return (
-      <Button variant="outline" dir="rtl" disabled>
-        <ArrowRight />
-        بازگشت به مستندات
-      </Button>
-    )
+    void navigate({ to: '/', replace: true })
   }
 
   return (

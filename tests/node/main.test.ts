@@ -530,7 +530,7 @@ describe('window close handshake', () => {
     vi.useFakeTimers()
     listenerOn(mocks.win, 'close')(closeEvent())
 
-    vi.advanceTimersByTime(16999)
+    vi.advanceTimersByTime(6999)
     expect(mocks.win.close).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(1)

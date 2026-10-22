@@ -1417,7 +1417,7 @@ describe('routes', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
-  it('disables the documents back button while a save is in flight and restores it afterwards', async () => {
+  it('keeps the documents back link usable while a save is in flight and leaves immediately', async () => {
     let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
@@ -1425,10 +1425,14 @@ describe('routes', () => {
           finishSave = resolve
         }),
     )
-    installBridge({ save })
+    installBridge({
+      save,
+      count: vi.fn(async () => 1),
+      list: vi.fn(async () => [storedDocument]),
+    })
     const user = userEvent.setup()
 
-    renderRoute('/documents/1')
+    const { queryClient } = renderRoute('/documents/1')
     await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
     await user.clear(input)
@@ -1441,21 +1445,19 @@ describe('routes', () => {
       { timeout: 1_500 },
     )
 
-    const disabledBack = screen.getByRole('button', {
-      name: 'بازگشت به مستندات',
-    })
-    expect(disabledBack).toBeDisabled()
+    const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
     expect(
-      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
+      screen.queryByRole('button', { name: 'بازگشت به مستندات' }),
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
-    await user.click(disabledBack)
+    await user.click(back)
 
-    expect(screen.getByRole('heading', { name: 'گزارش' })).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
-    ).not.toBeInTheDocument()
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(
+      queryClient.getQueryData<TestDocument>(documentQuery(1).queryKey)?.title,
+    ).toBe('گزارش')
 
     await act(() =>
       finishSave({
@@ -1465,12 +1467,13 @@ describe('routes', () => {
       }),
     )
 
+    expect(save).toHaveBeenCalledOnce()
     expect(
-      await screen.findByRole('link', { name: 'بازگشت به مستندات' }),
+      screen.getByRole('heading', { name: 'مستندات (۱)' }),
     ).toBeInTheDocument()
   })
 
-  it('disables the documents back link as soon as it flushes a pending debounce', async () => {
+  it('leaves immediately and saves a pending debounce after the page unmounts', async () => {
     let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
@@ -1495,23 +1498,16 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    const disabledBack = screen.getByRole('button', {
-      name: 'بازگشت به مستندات',
-    })
-    expect(disabledBack).toBeDisabled()
     expect(
-      screen.queryByRole('link', { name: 'بازگشت به مستندات' }),
-    ).not.toBeInTheDocument()
-    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
-      title: 'گزارش',
-      body: '',
-    })
-    expect(
-      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
-    ).not.toBeInTheDocument()
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
 
-    await user.click(disabledBack)
-    expect(save).toHaveBeenCalledOnce()
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+        title: 'گزارش',
+        body: '',
+      })
+    })
 
     await act(() =>
       finishSave({
@@ -1521,10 +1517,10 @@ describe('routes', () => {
       }),
     )
 
-    expect(
-      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
-    ).toBeInTheDocument()
     expect(save).toHaveBeenCalledOnce()
+    expect(
+      screen.getByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
   })
 
   it('saves once and shows one error toast when the back link save fails', async () => {
@@ -1540,7 +1536,7 @@ describe('routes', () => {
     })
     const user = userEvent.setup()
 
-    renderRoute('/documents/1')
+    const { queryClient } = renderRoute('/documents/1')
     await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
     const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
     await user.clear(input)
@@ -1563,9 +1559,155 @@ describe('routes', () => {
     expect(
       screen.getAllByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
     ).toHaveLength(1)
+    expect(queryClient.getQueryData(documentQuery(1).queryKey)).toBeUndefined()
   })
 
-  it('saves a pending title before leaving through the documents back link', async () => {
+  it('keeps the saved title when the back link follows a failed save', async () => {
+    const documents = [{ ...storedDocument, title: 'ذخیره شده' }]
+    const save = vi.fn(async () => {
+      throw new Error(
+        'The saveDocument operation failed (injected by --with-db-failure)',
+      )
+    })
+    const get = vi.fn(async (id: number) =>
+      documents.find((document) => document.id === id),
+    )
+    installBridge({
+      save,
+      count: vi.fn(async () => documents.length),
+      list: vi.fn(async (options: DocumentListOptions) =>
+        documentListPage(documents, options),
+      ),
+      get,
+    })
+    const user = userEvent.setup()
+
+    const { queryClient } = renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'ذخیره شده' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    const getCallsBeforeFailure = get.mock.calls.length
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    await vi.waitFor(() => {
+      expect(get.mock.calls.length).toBeGreaterThan(getCallsBeforeFailure)
+    })
+    expect(
+      queryClient.getQueryData<TestDocument>(documentQuery(1).queryKey)?.title,
+    ).toBe('ذخیره شده')
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByRole('link', { name: 'ذخیره شده' }),
+    ).toBeInTheDocument()
+    expect(
+      queryClient.getQueryData<TestDocument>(documentQuery(1).queryKey)?.title,
+    ).toBe('ذخیره شده')
+  })
+
+  it('shows a newly created document while its save is pending after a cancelled list read', async () => {
+    const documents: Array<TestDocument> = []
+    let finishCreate!: (document: TestDocument) => void
+    let finishSave!: (document: TestDocument | undefined) => void
+    let holdList = false
+    let listWasHeld = false
+    const create = vi.fn(
+      () =>
+        new Promise<TestDocument>((resolve) => {
+          finishCreate = resolve
+        }),
+    )
+    const list = vi.fn((options: DocumentListOptions) => {
+      if (holdList) {
+        holdList = false
+        listWasHeld = true
+        return new Promise<Array<TestDocument>>(() => {})
+      }
+      return Promise.resolve(documentListPage(documents, options))
+    })
+    const save = vi.fn(
+      () =>
+        new Promise<TestDocument | undefined>((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    installBridge({
+      create,
+      save,
+      count: vi.fn(async () => documents.length),
+      list,
+      get: vi.fn(async (id: number) =>
+        documents.find((document) => document.id === id),
+      ),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByText('هنوز سندی ثبت نشده است.')
+    await user.click(
+      within(screen.getByRole('main')).getByRole('button', {
+        name: 'افزودن سند',
+      }),
+    )
+
+    const created = {
+      ...storedDocument,
+      id: 1,
+      title: null,
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    } satisfies TestDocument
+
+    await act(() => {
+      documents.push(created)
+      holdList = true
+      finishCreate(created)
+    })
+    await screen.findByRole('heading', { name: 'عنوانی انتخاب نشده است.' })
+    await vi.waitFor(() => expect(listWasHeld).toBe(true))
+
+    await user.click(
+      screen.getByRole('heading', { name: 'عنوانی انتخاب نشده است.' }),
+    )
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+        title: 'گزارش',
+        body: '',
+      })
+    })
+    expect(
+      await screen.findByRole('link', { name: 'عنوانی انتخاب نشده است.' }),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      finishSave(undefined)
+    })
+
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'عنوانی انتخاب نشده است.' }),
+    ).toBeInTheDocument()
+  })
+
+  it('leaves immediately and saves a pending title in the background', async () => {
     let finishSave!: (document: TestDocument) => void
     const save = vi.fn(
       () =>
@@ -1588,13 +1730,16 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
-    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
-      title: 'پیگیری',
-      body: '',
-    })
     expect(
-      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
-    ).not.toBeInTheDocument()
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+        title: 'پیگیری',
+        body: '',
+      })
+    })
 
     await act(() =>
       finishSave({
@@ -1604,14 +1749,11 @@ describe('routes', () => {
       }),
     )
 
-    expect(
-      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
-    ).toBeInTheDocument()
     expect(closeReady).not.toHaveBeenCalled()
     expect(save).toHaveBeenCalledOnce()
   })
 
-  it('saves pending title and body changes before leaving through the documents back link', async () => {
+  it('saves pending title and body changes after leaving through the documents back link', async () => {
     const pendingSaves: Array<{
       changes: DocumentChanges
       resolve: (document: TestDocument) => void
@@ -1643,6 +1785,10 @@ describe('routes', () => {
 
     await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
 
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+
     await vi.waitFor(() => {
       expect(pendingSaves).toHaveLength(1)
     })
@@ -1650,9 +1796,6 @@ describe('routes', () => {
       title: 'گزارش',
       body: expect.stringContaining('متن'),
     })
-    expect(
-      screen.queryByRole('heading', { name: 'مستندات (۱)' }),
-    ).not.toBeInTheDocument()
 
     const [pending] = pendingSaves
     await act(() =>
@@ -1663,9 +1806,6 @@ describe('routes', () => {
       }),
     )
 
-    expect(
-      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
-    ).toBeInTheDocument()
     expect(save).toHaveBeenCalledOnce()
   })
 

@@ -1,5 +1,6 @@
 import { flushDocumentSaves } from '@/lib/close-handshake'
 import { documentSaveDebounceMs } from '@/lib/document-save'
+import { pendingDocumentChanges } from '@/lib/pending-changes'
 import { createQueryClient, documentQuery } from '@/lib/query'
 import { useDocumentAutosave } from '@/lib/use-document-autosave'
 import type { DocumentChanges, DocumentRecord } from '@/types/global'
@@ -137,6 +138,32 @@ describe('useDocumentAutosave', () => {
       title: 'قبلی',
       body: '<p>تازه</p>',
     })
+  })
+
+  it('exposes pending changes for navigation until they are saved', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, unmount } = renderAutosave(save)
+
+    expect(pendingDocumentChanges()).toBeNull()
+
+    act(() => result.current.updateTitle('گزارش'))
+
+    expect(pendingDocumentChanges()).toEqual({
+      documentId: 1,
+      changes: { title: 'گزارش', body: '<p>قبلی</p>' },
+    })
+
+    await advance(documentSaveDebounceMs)
+
+    expect(pendingDocumentChanges()).toBeNull()
+
+    unmount()
+    expect(pendingDocumentChanges()).toBeNull()
   })
 
   it('flushes pending changes immediately instead of waiting for the debounce', async () => {

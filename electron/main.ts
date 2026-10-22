@@ -62,7 +62,7 @@ function revealWindow(browserWindow: BrowserWindow): void {
 
 const errNetworkChanged = -106
 const maxLoadAttempts = 5
-const closeHandshakeGraceMs = 15000
+const closeHandshakeGraceMs = 5000
 
 function isSafeExternalUrl(url: string): boolean {
   try {

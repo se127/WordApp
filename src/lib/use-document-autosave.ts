@@ -1,5 +1,6 @@
 import { registerCloseSave } from '@/lib/close-handshake'
 import { documentSaveDebounceMs, useDocumentSave } from '@/lib/document-save'
+import { registerPendingChanges } from '@/lib/pending-changes'
 import type { DocumentChanges, DocumentRecord } from '@/types/global'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -175,6 +176,15 @@ function useDocumentAutosave(document: DocumentRecord) {
   }, [flush])
 
   useEffect(() => registerCloseSave(flush), [flush])
+
+  useEffect(
+    () =>
+      registerPendingChanges(() => {
+        const changes = pendingChanges()
+        return changes === null ? null : { documentId: document.id, changes }
+      }),
+    [document.id, pendingChanges],
+  )
 
   return {
     title,
