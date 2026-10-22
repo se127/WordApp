@@ -61,9 +61,11 @@ import {
   Italic,
   List,
   ListOrdered,
+  Minus,
   Pilcrow,
   PilcrowLeft,
   PilcrowRight,
+  Quote,
   Redo,
   Square,
   Strikethrough,
@@ -362,6 +364,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       strike: currentEditor?.isActive('strike') ?? false,
       bulletList: currentEditor?.isActive('bulletList') ?? false,
       orderedList: currentEditor?.isActive('orderedList') ?? false,
+      blockquote: currentEditor?.isActive('blockquote') ?? false,
       canUndo: currentEditor?.can().undo() ?? false,
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
@@ -770,6 +773,23 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Separator orientation="vertical" />
+      <ToolbarButton
+        label="نقل قول"
+        disabled={editor === null}
+        isToggle
+        isActive={editorState?.blockquote ?? false}
+        onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+      >
+        <Quote />
+      </ToolbarButton>
+      <ToolbarButton
+        label="خط افقی"
+        disabled={editor === null}
+        onClick={() => editor?.chain().focus().setHorizontalRule().run()}
+      >
+        <Minus />
+      </ToolbarButton>
     </>
   )
 }

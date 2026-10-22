@@ -594,6 +594,8 @@ describe('routes', () => {
       'لیست نشانه دار',
       'تراز متن',
       'موقعیت متن',
+      'نقل قول',
+      'خط افقی',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement

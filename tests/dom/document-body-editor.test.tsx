@@ -107,6 +107,8 @@ describe('DocumentBodyEditor', () => {
       'لیست نشانه دار',
       'تراز متن',
       'موقعیت متن',
+      'نقل قول',
+      'خط افقی',
     ])
 
     const [
@@ -123,6 +125,8 @@ describe('DocumentBodyEditor', () => {
       orderedListButton,
       textAlignButton,
       textPositionButton,
+      blockquoteButton,
+      horizontalRuleButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -131,6 +135,7 @@ describe('DocumentBodyEditor', () => {
       strikeButton,
     ]
     const listButtons = [bulletListButton, orderedListButton]
+    const blockButtons = [blockquoteButton]
 
     for (const button of [
       undoButton,
@@ -140,6 +145,7 @@ describe('DocumentBodyEditor', () => {
       highlightColorButton,
       textAlignButton,
       textPositionButton,
+      horizontalRuleButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
@@ -150,7 +156,7 @@ describe('DocumentBodyEditor', () => {
     expect(redoButton).toBeDisabled()
     expect(directionButton).toBeEnabled()
 
-    for (const button of [...markButtons, ...listButtons]) {
+    for (const button of [...markButtons, ...listButtons, ...blockButtons]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
       expect(button).toHaveAttribute('aria-pressed', 'false')
@@ -169,7 +175,7 @@ describe('DocumentBodyEditor', () => {
     expect(fontSizeSelect).toHaveTextContent('۱۶px')
 
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
-    expect(separators).toHaveLength(4)
+    expect(separators).toHaveLength(5)
     for (const separator of separators) {
       expect(separator).toHaveAttribute('data-orientation', 'vertical')
     }
@@ -182,6 +188,9 @@ describe('DocumentBodyEditor', () => {
     expect(separators[3]?.previousElementSibling).toBe(orderedListButton)
     expect(separators[3]?.nextElementSibling).toBe(textAlignButton)
     expect(textAlignButton.nextElementSibling).toBe(textPositionButton)
+    expect(textPositionButton.nextElementSibling).toBe(separators[4])
+    expect(separators[4]?.nextElementSibling).toBe(blockquoteButton)
+    expect(blockquoteButton.nextElementSibling).toBe(horizontalRuleButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -310,6 +319,17 @@ describe('DocumentBodyEditor', () => {
     )
     expect(compactStyles).toContain(
       '.document-body-editor .ProseMirror li > ul, .document-body-editor .ProseMirror li > ol { margin-block: 0.5em; }',
+    )
+  })
+
+  it('paints the blockquote border with the primary color', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+
+    expect(editorStyles.replace(/\s+/g, ' ')).toContain(
+      '.document-body-editor .ProseMirror blockquote { border-inline-start-color: var(--primary); }',
     )
   })
 
@@ -877,6 +897,50 @@ describe('DocumentBodyEditor', () => {
     )
 
     expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('toggles a blockquote after the text position menu and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const quoteButton = screen.getByRole('button', { name: 'نقل قول' })
+    expect(quoteButton).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(quoteButton)
+
+    expect(quoteButton).toHaveAttribute('aria-pressed', 'true')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<blockquote dir="rtl"><p dir="rtl">متن</p></blockquote><p dir="rtl"></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(quoteButton)
+
+    expect(quoteButton).toHaveAttribute('aria-pressed', 'false')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl">متن</p><p dir="rtl"></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('inserts a horizontal rule after the text position menu and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const ruleButton = screen.getByRole('button', { name: 'خط افقی' })
+    await user.hover(ruleButton)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('خط افقی')
+
+    await user.click(ruleButton)
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl">متن</p><hr dir="rtl"><p dir="rtl"></p>',
+    )
     expect(await editorTextbox()).toHaveFocus()
   })
 

@@ -78,6 +78,10 @@
   margin-bottom: 1.5em;
 }
 
+.document-body-editor .ProseMirror blockquote {
+  border-inline-start-color: var(--primary);
+}
+
 .document-body-editor .ProseMirror li > * {
   margin-block: 0;
 }
