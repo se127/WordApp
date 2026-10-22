@@ -37,12 +37,18 @@
   overflow-wrap: anywhere;
 }
 
-.document-body-editor .ProseMirror p.is-editor-empty:first-child::before {
+.document-body-editor .ProseMirror .is-editor-empty:first-child::before {
   color: var(--muted-foreground);
   content: attr(data-placeholder);
   float: right;
   height: 0;
   pointer-events: none;
+}
+
+.document-body-editor
+  .ProseMirror
+  [dir='ltr'].is-editor-empty:first-child::before {
+  float: left;
 }
 
 .document-body-editor .ProseMirror > :first-child {

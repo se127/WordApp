@@ -580,7 +580,15 @@ describe('routes', () => {
       within(toolbar)
         .getAllByRole('button')
         .map((button) => button.getAttribute('aria-label')),
-    ).toEqual(['توپر', 'کج', 'زیرخط دار', 'خط خورده'])
+    ).toEqual([
+      'برگرداندن',
+      'بازگرداندن',
+      'جهت متن',
+      'توپر',
+      'کج',
+      'زیرخط دار',
+      'خط خورده',
+    ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement
     expect(page).toHaveClass('flex', 'h-full', 'min-h-0', 'flex-col', 'py-6')
