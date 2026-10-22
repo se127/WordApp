@@ -239,6 +239,42 @@ describe('DocumentBodyEditor', () => {
     }
   })
 
+  it('takes vertical spacing from bottom margins and tightens list items', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+    const compactStyles = editorStyles.replace(/\s+/g, ' ')
+
+    const blockSelectors = [
+      'p',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'blockquote',
+      'ul',
+      'ol',
+      'li',
+      'pre',
+      'hr',
+    ].map((tag) => `.document-body-editor .ProseMirror ${tag}`)
+
+    expect(compactStyles).toContain(
+      `${blockSelectors.join(', ')} { margin-top: 0; }`,
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror hr { margin-bottom: 1.5em; }',
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror li > * { margin-block: 0; }',
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror li > ul, .document-body-editor .ProseMirror li > ol { margin-block: 0.5em; }',
+    )
+  })
+
   it('keeps the placeholder when an empty body is switched to a heading', async () => {
     renderEditor()
     const user = userEvent.setup()

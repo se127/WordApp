@@ -60,6 +60,34 @@
   margin-bottom: 0;
 }
 
+.document-body-editor .ProseMirror p,
+.document-body-editor .ProseMirror h2,
+.document-body-editor .ProseMirror h3,
+.document-body-editor .ProseMirror h4,
+.document-body-editor .ProseMirror h5,
+.document-body-editor .ProseMirror h6,
+.document-body-editor .ProseMirror blockquote,
+.document-body-editor .ProseMirror ul,
+.document-body-editor .ProseMirror ol,
+.document-body-editor .ProseMirror li,
+.document-body-editor .ProseMirror pre,
+.document-body-editor .ProseMirror hr {
+  margin-top: 0;
+}
+
+.document-body-editor .ProseMirror hr {
+  margin-bottom: 1.5em;
+}
+
+.document-body-editor .ProseMirror li > * {
+  margin-block: 0;
+}
+
+.document-body-editor .ProseMirror li > ul,
+.document-body-editor .ProseMirror li > ol {
+  margin-block: 0.5em;
+}
+
 .document-body-editor .ProseMirror:focus-visible {
   outline: none;
 }
