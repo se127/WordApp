@@ -1,7 +1,7 @@
 import { DocumentBodyEditor } from '@/components/document-body-editor'
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readFile } from 'node:fs/promises'
 import { StrictMode } from 'react'
@@ -101,10 +101,35 @@ describe('DocumentBodyEditor', () => {
       'کج',
       'زیرخط دار',
       'خط خورده',
+      'رنگ متن',
+      'رنگ پس زمینه',
     ])
 
-    const [undoButton, redoButton, directionButton, ...markButtons] = buttons
-    for (const button of [undoButton, redoButton, directionButton]) {
+    const [
+      undoButton,
+      redoButton,
+      directionButton,
+      boldButton,
+      italicButton,
+      underlineButton,
+      strikeButton,
+      textColorButton,
+      highlightColorButton,
+    ] = buttons
+    const markButtons = [
+      boldButton,
+      italicButton,
+      underlineButton,
+      strikeButton,
+    ]
+
+    for (const button of [
+      undoButton,
+      redoButton,
+      directionButton,
+      textColorButton,
+      highlightColorButton,
+    ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
       expect(button).toHaveClass('hover:bg-gray-300')
@@ -127,6 +152,11 @@ describe('DocumentBodyEditor', () => {
     })
     expect(textStyleSelect).toHaveTextContent('پاراگراف')
 
+    const fontSizeSelect = within(toolbar).getByRole('combobox', {
+      name: 'اندازه ی متن',
+    })
+    expect(fontSizeSelect).toHaveTextContent('۱۶px')
+
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
     expect(separators).toHaveLength(2)
     for (const separator of separators) {
@@ -135,7 +165,7 @@ describe('DocumentBodyEditor', () => {
     expect(separators[0]?.previousElementSibling).toBe(redoButton)
     expect(separators[0]?.nextElementSibling).toBe(directionButton)
     expect(separators[1]?.previousElementSibling).toBe(textStyleSelect)
-    expect(separators[1]?.nextElementSibling).toBe(markButtons[0])
+    expect(separators[1]?.nextElementSibling).toBe(fontSizeSelect)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -164,6 +194,7 @@ describe('DocumentBodyEditor', () => {
       'src/components/document-body-editor.css',
       'utf8',
     )
+    expect(editorStyles).toMatch(/\.ProseMirror\s*\{[^}]*font-size: 16px;/)
     expect(editorStyles).toMatch(
       /\.ProseMirror\s+\.is-editor-empty:first-child::before\s*\{[^}]*color: var\(--muted-foreground\);/,
     )
@@ -302,6 +333,171 @@ describe('DocumentBodyEditor', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith(
       '<p dir="rtl">عنوان</p><p dir="rtl"></p>',
     )
+  })
+
+  it('applies the four allowed font sizes and starts at 16px', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+    await user.keyboard('{Control>}a{/Control}')
+
+    const fontSizeSelect = screen.getByRole('combobox', {
+      name: 'اندازه ی متن',
+    })
+    expect(fontSizeSelect).toHaveTextContent('۱۶px')
+
+    await user.hover(fontSizeSelect)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('اندازه ی متن')
+
+    await user.click(fontSizeSelect)
+    expect(
+      (await screen.findAllByRole('option')).map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(['۱۶px', '۱۸px', '۲۰px', '۲۴px'])
+    await user.click(screen.getByRole('option', { name: '۱۸px' }))
+
+    expect(fontSizeSelect).toHaveTextContent('۱۸px')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><span style="font-size: 18px;">متن</span></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+
+    for (const [label, value] of [
+      ['۲۰px', '20px'],
+      ['۲۴px', '24px'],
+      ['۱۶px', '16px'],
+    ]) {
+      await user.click(fontSizeSelect)
+      await user.click(await screen.findByRole('option', { name: label }))
+
+      expect(fontSizeSelect).toHaveTextContent(label)
+      expect(onBodyChange).toHaveBeenLastCalledWith(
+        `<p dir="rtl"><span style="font-size: ${value};">متن</span></p>`,
+      )
+      expect(await editorTextbox()).toHaveFocus()
+    }
+  })
+
+  it('snaps pasted font sizes into the allowed sizes', async () => {
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData(
+      'text/html',
+      '<p><span style="font-size: 12px">کوچک</span><span style="font-size: 17px">میانه</span><span style="font-size: 40px">بزرگ</span></p>',
+    )
+
+    fireEvent.paste(editor, { clipboardData })
+
+    const body = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0] ?? ''
+    expect(body).toContain('font-size: 16px')
+    expect(body).toContain('font-size: 18px')
+    expect(body).toContain('font-size: 24px')
+    expect(body).not.toContain('12px')
+    expect(body).not.toContain('17px')
+    expect(body).not.toContain('40px')
+  })
+
+  it('applies text and highlight colors and clears them back to default', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+    await user.keyboard('{Control>}a{/Control}')
+
+    await user.click(screen.getByRole('button', { name: 'رنگ متن' }))
+    const redSwatch = await screen.findByRole('button', { name: '#dc2626' })
+    expect(redSwatch).toHaveClass(
+      'hover:ring-2',
+      'hover:ring-black',
+      'hover:ring-offset-1',
+      'hover:ring-offset-background',
+      'focus-visible:ring-2',
+      'focus-visible:ring-black',
+      'focus-visible:ring-offset-1',
+      'focus-visible:ring-offset-background',
+      'dark:hover:ring-white',
+      'dark:focus-visible:ring-white',
+    )
+    expect(redSwatch).not.toHaveClass('ring-2')
+    await user.click(redSwatch)
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><span style="color: #dc2626;">متن</span></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'رنگ پس زمینه' }))
+    await user.click(await screen.findByRole('button', { name: '#dcfce7' }))
+
+    const highlighted = vi.mocked(onBodyChange).mock.calls.at(-1)?.[0]
+    expect(highlighted).toContain('data-color="#dcfce7"')
+    expect(highlighted).toContain('background-color: #dcfce7')
+    expect(highlighted).toContain('color: #dc2626')
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'رنگ پس زمینه' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'پیش فرض' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl"><span style="color: #dc2626;">متن</span></p>',
+    )
+    expect(await editorTextbox()).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'رنگ متن' }))
+    const activeRedSwatch = await screen.findByRole('button', {
+      name: '#dc2626',
+    })
+    expect(activeRedSwatch).toHaveClass(
+      'ring-2',
+      'ring-foreground',
+      'ring-offset-background',
+    )
+    expect(activeRedSwatch).not.toHaveClass('hover:ring-black')
+    expect(activeRedSwatch).not.toHaveClass('dark:hover:ring-white')
+    expect(activeRedSwatch).not.toHaveClass('focus-visible:ring-black')
+    expect(activeRedSwatch).not.toHaveClass('dark:focus-visible:ring-white')
+    await user.click(await screen.findByRole('menuitem', { name: 'پیش فرض' }))
+
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن</p>')
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('traps tab focus inside the color menu and cycles through every swatch', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'رنگ متن' }))
+
+    const noColorItem = await screen.findByRole('menuitem', {
+      name: 'پیش فرض',
+    })
+    const firstColor = screen.getByRole('button', { name: '#000000' })
+    const secondColor = screen.getByRole('button', { name: '#262626' })
+    const lastColor = screen.getByRole('button', { name: '#fdf4ff' })
+
+    await user.tab()
+    expect(noColorItem).toHaveFocus()
+
+    await user.tab()
+    expect(firstColor).toHaveFocus()
+
+    await user.tab()
+    expect(secondColor).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(firstColor).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(noColorItem).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(lastColor).toHaveFocus()
+
+    await user.tab()
+    expect(noColorItem).toHaveFocus()
   })
 
   it('applies right-to-left and left-to-right directions from the direction menu', async () => {

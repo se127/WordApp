@@ -2,8 +2,11 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -21,8 +24,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  fontSizes,
+  normalizePastedFontSizes,
+  parseFontSize,
+  snapFontSize,
+} from '@/lib/font-size'
 import { formatNumber } from '@/lib/number'
+import { cn } from '@/lib/utils'
+import { Highlight } from '@tiptap/extension-highlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { Color, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import {
   EditorContent,
   useEditor,
@@ -37,20 +49,27 @@ import {
   Heading4,
   Heading5,
   Heading6,
+  Highlighter,
   Italic,
   Pilcrow,
   PilcrowLeft,
   PilcrowRight,
   Redo,
+  Square,
   Strikethrough,
+  Type,
   Underline,
   Undo,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import './document-body-editor.css'
 
 const documentBodyExtensions = [
   StarterKit,
+  TextStyle,
+  Color,
+  FontSize,
+  Highlight.configure({ multicolor: true }),
   Placeholder.configure({ placeholder: 'متن سند را اینجا بنویسید...' }),
 ]
 const documentBodyEditorProps = {
@@ -59,6 +78,7 @@ const documentBodyEditorProps = {
     'aria-label': 'متن سند',
     'aria-multiline': 'true',
   },
+  transformPastedHTML: (html: string): string => normalizePastedFontSizes(html),
 }
 
 const paragraphTextStyle = {
@@ -95,6 +115,100 @@ const textStyleOptions = [
     icon: <Heading6 />,
   },
 ]
+
+const fontSizeOptions = fontSizes.map((size) => ({
+  value: `${size}px`,
+  label: `${formatNumber(size, { group: false })}px`,
+}))
+
+const defaultFontSize = fontSizeOptions[0]
+
+const colorGrid = [
+  [
+    '#000000',
+    '#262626',
+    '#404040',
+    '#595959',
+    '#737373',
+    '#8c8c8c',
+    '#a6a6a6',
+    '#bfbfbf',
+    '#d9d9d9',
+    '#ffffff',
+  ],
+  [
+    '#7f1d1d',
+    '#991b1b',
+    '#b91c1c',
+    '#dc2626',
+    '#ef4444',
+    '#f87171',
+    '#fca5a5',
+    '#fecaca',
+    '#fee2e2',
+    '#fef2f2',
+  ],
+  [
+    '#7c2d12',
+    '#9a3412',
+    '#c2410c',
+    '#ea580c',
+    '#f97316',
+    '#fb923c',
+    '#fdba74',
+    '#fed7aa',
+    '#ffedd5',
+    '#fff7ed',
+  ],
+  [
+    '#14532d',
+    '#166534',
+    '#15803d',
+    '#16a34a',
+    '#22c55e',
+    '#4ade80',
+    '#86efac',
+    '#bbf7d0',
+    '#dcfce7',
+    '#f0fdf4',
+  ],
+  [
+    '#1e3a8a',
+    '#1e40af',
+    '#1d4ed8',
+    '#2563eb',
+    '#3b82f6',
+    '#60a5fa',
+    '#93c5fd',
+    '#bfdbfe',
+    '#dbeafe',
+    '#eff6ff',
+  ],
+  [
+    '#581c87',
+    '#6b21a8',
+    '#7e22ce',
+    '#9333ea',
+    '#a855f7',
+    '#c084fc',
+    '#d8b4fe',
+    '#e9d5ff',
+    '#f3e8ff',
+    '#fdf4ff',
+  ],
+]
+
+function fontSizeValue(editor: Editor | null): string {
+  if (editor === null) {
+    return defaultFontSize.value
+  }
+
+  const current = editor.getAttributes('textStyle').fontSize as
+    string | undefined
+  const size = parseFontSize(current) ?? fontSizes[0]
+
+  return `${snapFontSize(size)}px`
+}
 
 function DocumentBodyEditor({
   body,
@@ -162,6 +276,11 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
       textDirection: currentEditor?.isActive({ dir: 'ltr' }) ? 'ltr' : 'rtl',
+      fontSize: fontSizeValue(currentEditor),
+      textColor: currentEditor?.getAttributes('textStyle').color as
+        string | undefined,
+      highlightColor: currentEditor?.getAttributes('highlight').color as
+        string | undefined,
     }),
   })
 
@@ -169,6 +288,10 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     textStyleOptions.find(
       (option) => option.value === editorState?.textStyle,
     ) ?? paragraphTextStyle
+
+  const currentFontSize =
+    fontSizeOptions.find((option) => option.value === editorState?.fontSize) ??
+    defaultFontSize
 
   const setTextStyle = (value: string): void => {
     if (editor === null) {
@@ -190,6 +313,10 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       .focus()
       .setTextDirection(value as 'rtl' | 'ltr')
       .run()
+  }
+
+  const setFontSize = (value: string): void => {
+    editor?.chain().focus().setFontSize(value).run()
   }
 
   return (
@@ -282,6 +409,32 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         </SelectContent>
       </Select>
       <Separator orientation="vertical" />
+      <Select
+        value={editorState?.fontSize ?? defaultFontSize.value}
+        onValueChange={setFontSize}
+        disabled={editor === null}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SelectTrigger
+              aria-label="اندازه ی متن"
+              className="w-24 border-transparent bg-transparent hover:bg-gray-300 dark:bg-transparent dark:hover:bg-muted/50"
+            >
+              <SelectValue>{currentFontSize.label}</SelectValue>
+            </SelectTrigger>
+          </TooltipTrigger>
+          <TooltipContent>اندازه ی متن</TooltipContent>
+        </Tooltip>
+        <SelectContent onCloseAutoFocus={(event) => event.preventDefault()}>
+          <SelectGroup>
+            {fontSizeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
       <ToolbarButton
         label="توپر"
         disabled={editor === null}
@@ -318,6 +471,26 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <Strikethrough />
       </ToolbarButton>
+      <ToolbarColorPicker
+        editor={editor}
+        label="رنگ متن"
+        icon={<Type />}
+        currentColor={editorState?.textColor}
+        defaultColor="currentColor"
+        onPick={(color) => editor?.chain().focus().setColor(color).run()}
+        onReset={() => editor?.chain().focus().unsetColor().run()}
+      />
+      <ToolbarColorPicker
+        editor={editor}
+        label="رنگ پس زمینه"
+        icon={<Highlighter />}
+        currentColor={editorState?.highlightColor}
+        defaultColor="#fef08a"
+        onPick={(color) =>
+          editor?.chain().focus().setHighlight({ color }).run()
+        }
+        onReset={() => editor?.chain().focus().unsetHighlight().run()}
+      />
     </>
   )
 }
@@ -356,6 +529,151 @@ function ToolbarButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  )
+}
+
+function moveColorPickerFocus(event: KeyboardEvent<HTMLDivElement>): void {
+  if (event.key !== 'Tab') {
+    return
+  }
+
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      '[data-color-picker-item]',
+    ),
+  )
+
+  if (items.length === 0) {
+    return
+  }
+
+  event.preventDefault()
+
+  const currentIndex = items.findIndex(
+    (item) => item === document.activeElement,
+  )
+  const step = event.shiftKey ? -1 : 1
+  const nextIndex =
+    currentIndex === -1
+      ? event.shiftKey
+        ? items.length - 1
+        : 0
+      : (currentIndex + step + items.length) % items.length
+
+  items[nextIndex]?.focus()
+}
+
+function ToolbarColorPicker({
+  editor,
+  label,
+  icon,
+  currentColor,
+  defaultColor,
+  onPick,
+  onReset,
+}: {
+  editor: Editor | null
+  label: string
+  icon: ReactNode
+  currentColor: string | undefined
+  defaultColor: string
+  onPick: (color: string) => void
+  onReset: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const focusEditorOnClose = useRef(false)
+
+  const pickColor = (color: string): void => {
+    focusEditorOnClose.current = true
+    onPick(color)
+    setOpen(false)
+  }
+
+  const resetColor = (): void => {
+    focusEditorOnClose.current = true
+    onReset()
+    setOpen(false)
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={label}
+              disabled={editor === null}
+              className="hover:bg-gray-300"
+            >
+              <span className="flex flex-col items-center justify-center gap-0.5">
+                {icon}
+                <span
+                  className="h-0.5 w-full"
+                  style={{
+                    backgroundColor: currentColor ?? defaultColor,
+                  }}
+                />
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="start"
+        className="w-64"
+        onCloseAutoFocus={(event) => {
+          if (!focusEditorOnClose.current) {
+            return
+          }
+
+          event.preventDefault()
+          focusEditorOnClose.current = false
+          editor?.chain().focus().run()
+        }}
+        onKeyDown={moveColorPickerFocus}
+      >
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            className="justify-center"
+            data-color-picker-item
+            onSelect={resetColor}
+          >
+            <span className="relative size-4">
+              <Square className="size-4" />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="h-full w-0.5 rotate-45 bg-destructive" />
+              </span>
+            </span>
+            پیش فرض
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup className="grid grid-cols-10 gap-1 p-2">
+          {colorGrid.flat().map((color) => (
+            <button
+              key={color}
+              type="button"
+              title={color}
+              data-color-picker-item
+              className={cn(
+                'size-5 shrink-0 appearance-none rounded border border-border outline-none',
+                currentColor === color
+                  ? 'ring-2 ring-foreground ring-offset-1 ring-offset-background'
+                  : 'hover:ring-2 hover:ring-black hover:ring-offset-1 hover:ring-offset-background focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:hover:ring-white dark:focus-visible:ring-white',
+              )}
+              style={{ backgroundColor: color }}
+              onClick={() => {
+                pickColor(color)
+              }}
+            />
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

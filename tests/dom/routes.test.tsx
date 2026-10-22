@@ -588,6 +588,8 @@ describe('routes', () => {
       'کج',
       'زیرخط دار',
       'خط خورده',
+      'رنگ متن',
+      'رنگ پس زمینه',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement
