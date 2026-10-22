@@ -323,7 +323,7 @@ function DocumentBodyEditor({
         role="toolbar"
         aria-label="ابزارهای ویرایش متن"
         dir="rtl"
-        className="flex w-full shrink-0 items-center gap-1 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-700"
+        className="flex w-full shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-700"
       >
         <EditorToolbar editor={editor} />
       </div>

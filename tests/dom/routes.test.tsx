@@ -569,7 +569,11 @@ describe('routes', () => {
     })
     expect(toolbar).toHaveAttribute('dir', 'rtl')
     expect(toolbar).toHaveClass(
+      'flex',
+      'flex-wrap',
       'w-full',
+      'gap-x-1',
+      'gap-y-2',
       'border-y',
       'bg-gray-100',
       'px-6',
