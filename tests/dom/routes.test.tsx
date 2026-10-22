@@ -1684,9 +1684,18 @@ describe('routes', () => {
   it('keeps the window open and restores the unsaved changes when the close retry fails', async () => {
     const stored: TestDocument = { ...storedDocument }
     const save = vi.fn(async () => undefined)
+    let finishExists!: (document: TestDocument | undefined) => void
+    let holdExists = false
+    const get = vi.fn(() =>
+      holdExists
+        ? new Promise<TestDocument | undefined>((resolve) => {
+            finishExists = resolve
+          })
+        : Promise.resolve(stored),
+    )
     const { triggerBeforeClose, closeReady, closeCancelled } = installBridge({
       save,
-      get: vi.fn(async () => stored),
+      get,
       count: vi.fn(async () => 1),
       list: vi.fn(async (options: DocumentListOptions) =>
         documentListPage([stored], options),
@@ -1708,19 +1717,29 @@ describe('routes', () => {
       timeout: 1_500,
     })
 
+    holdExists = true
     await act(async () => {
       triggerBeforeClose()
       await Promise.resolve()
     })
 
     await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => expect(closeCancelled).toHaveBeenCalledOnce())
-    expect(closeReady).not.toHaveBeenCalled()
     expect(
       await screen.findByText('ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.'),
     ).toBeInTheDocument()
+    await vi.waitFor(() => expect(closeCancelled).toHaveBeenCalledOnce())
+    expect(closeReady).not.toHaveBeenCalled()
 
-    const openDocument = await screen.findByRole('button', {
+    await act(async () => {
+      holdExists = false
+      finishExists(stored)
+      await Promise.resolve()
+    })
+    expect(
+      screen.getByText('ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+
+    const openDocument = screen.getByRole('button', {
       name: 'باز کردن سند',
     })
     expect(openDocument).toHaveClass('w-full')

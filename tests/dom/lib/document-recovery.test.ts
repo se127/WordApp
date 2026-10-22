@@ -152,7 +152,45 @@ describe('document recovery', () => {
     expect(onOpenDocument).toHaveBeenCalledWith(1)
   })
 
-  it('forgets remembered changes when the document no longer exists', async () => {
+  it('shows the failure toast and returns before the existence check finishes', async () => {
+    let finishGet!: (document: DocumentRecord | undefined) => void
+    const save = vi.fn(async () => undefined)
+    installBridge(
+      save,
+      () =>
+        new Promise<DocumentRecord | undefined>((resolve) => {
+          finishGet = resolve
+        }),
+    )
+    const queryClient = createQueryClient()
+    rememberDocumentChanges(
+      queryClient,
+      1,
+      { title: 'گزارش', body: '<p>تازه</p>' },
+      2,
+    )
+    const errorToast = vi.spyOn(toast, 'error')
+    const dismissToast = vi.spyOn(toast, 'dismiss')
+
+    await expect(retryRememberedDocumentChanges(queryClient)).resolves.toBe(
+      false,
+    )
+
+    expect(errorToast).toHaveBeenCalledWith(
+      'ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.',
+      { description: undefined },
+    )
+    expect(rememberedDocumentChanges(queryClient, 1)).not.toBeNull()
+
+    finishGet(documentRecord)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(rememberedDocumentChanges(queryClient, 1)).not.toBeNull()
+    expect(dismissToast).not.toHaveBeenCalled()
+  })
+
+  it('shows and dismisses the failure toast when the document no longer exists', async () => {
     const save = vi.fn(async () => undefined)
     installBridge(save, async () => undefined)
     const queryClient = createQueryClient()
@@ -163,12 +201,48 @@ describe('document recovery', () => {
       2,
     )
     const errorToast = vi.spyOn(toast, 'error')
+    const dismissToast = vi.spyOn(toast, 'dismiss')
 
     await expect(retryRememberedDocumentChanges(queryClient)).resolves.toBe(
-      true,
+      false,
     )
 
-    expect(rememberedDocumentChanges(queryClient, 1)).toBeNull()
-    expect(errorToast).not.toHaveBeenCalled()
+    await vi.waitFor(() =>
+      expect(rememberedDocumentChanges(queryClient, 1)).toBeNull(),
+    )
+    expect(errorToast).toHaveBeenCalledWith(
+      'ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.',
+      { description: undefined },
+    )
+    expect(dismissToast).toHaveBeenCalledWith(errorToast.mock.results[0]?.value)
+  })
+
+  it('keeps newer changes when an older existence check finds the document missing', async () => {
+    let finishGet!: (document: DocumentRecord | undefined) => void
+    const save = vi.fn(async () => undefined)
+    installBridge(
+      save,
+      () =>
+        new Promise<DocumentRecord | undefined>((resolve) => {
+          finishGet = resolve
+        }),
+    )
+    const queryClient = createQueryClient()
+    rememberDocumentChanges(queryClient, 1, { title: 'قدیمی' }, 2)
+    const dismissToast = vi.spyOn(toast, 'dismiss')
+
+    await expect(retryRememberedDocumentChanges(queryClient)).resolves.toBe(
+      false,
+    )
+
+    rememberDocumentChanges(queryClient, 1, { title: 'تازه' }, 3)
+    finishGet(undefined)
+
+    await vi.waitFor(() => expect(dismissToast).toHaveBeenCalledOnce())
+    expect(rememberedDocumentChanges(queryClient, 1)).toMatchObject({
+      changes: { title: 'تازه' },
+      revision: 3,
+    })
+    expect(hasDocumentSaveFailed(queryClient, 1)).toBe(true)
   })
 })

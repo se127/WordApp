@@ -113,76 +113,10 @@ async function documentExists(documentId: number): Promise<boolean | null> {
     )
 }
 
-async function retryRememberedDocumentChanges(
-  queryClient: QueryClient,
+function showRecoveryFailureToast(
+  documentId: number,
   onOpenDocument?: (documentId: number) => void,
-): Promise<boolean> {
-  let firstFailedId: number | null = null
-
-  while (firstFailedId === null) {
-    const entries = rememberedDocumentChangeList(queryClient).filter(
-      (entry) => !hasPendingDocumentChanges(entry.documentId),
-    )
-    if (entries.length === 0) {
-      break
-    }
-
-    let processed = false
-    for (const entry of entries) {
-      if (hasPendingDocumentChanges(entry.documentId)) {
-        continue
-      }
-
-      if (entry.waitFor !== null) {
-        await entry.waitFor.catch(() => {})
-      }
-
-      const current = rememberedDocumentChanges(queryClient, entry.documentId)
-      if (current === null || hasPendingDocumentChanges(current.documentId)) {
-        continue
-      }
-
-      processed = true
-      const saved = await trackDocumentSave(
-        saveDocumentWithTimeout(current.documentId, current.changes),
-      )
-      if (saved === undefined) {
-        const exists = await documentExists(current.documentId)
-        if (exists === false) {
-          forgetDocumentChanges(queryClient, current.documentId)
-          markDocumentSaveSucceeded(queryClient, current.documentId)
-          continue
-        }
-
-        markDocumentSaveFailed(queryClient, current.documentId)
-        firstFailedId ??= current.documentId
-        continue
-      }
-
-      forgetDocumentChanges(queryClient, current.documentId, current.revision)
-      markDocumentSaveSucceeded(queryClient, current.documentId)
-      queryClient.setQueryData<DocumentRecord | undefined>(
-        documentQuery(current.documentId).queryKey,
-        (existing) =>
-          existing === undefined ||
-          existing === null ||
-          existing.updatedAt <= saved.updatedAt
-            ? saved
-            : existing,
-      )
-      void queryClient.invalidateQueries({ queryKey: documentsQueryKey })
-    }
-
-    if (!processed) {
-      break
-    }
-  }
-
-  const failedId = firstFailedId
-  if (failedId === null) {
-    return true
-  }
-
+): string | number {
   let toastId: string | number | undefined
   toastId = toast.error('ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.', {
     description:
@@ -196,14 +130,90 @@ async function retryRememberedDocumentChanges(
             if (toastId !== undefined) {
               toast.dismiss(toastId)
             }
-            onOpenDocument(failedId)
+            onOpenDocument(documentId)
           }}
         >
           باز کردن سند
         </Button>
       ),
   })
-  return false
+  return toastId
+}
+
+function checkDocumentExistenceAfterFailure(
+  queryClient: QueryClient,
+  entry: RememberedDocumentChanges,
+  toastId: string | number,
+): void {
+  void documentExists(entry.documentId).then((exists) => {
+    if (exists !== false) {
+      return
+    }
+
+    const current = rememberedDocumentChanges(queryClient, entry.documentId)
+    if (current !== null && current !== entry) {
+      toast.dismiss(toastId)
+      return
+    }
+
+    if (current !== null) {
+      forgetDocumentChanges(queryClient, entry.documentId, entry.revision)
+      markDocumentSaveSucceeded(queryClient, entry.documentId)
+    }
+    toast.dismiss(toastId)
+  })
+}
+
+async function retryRememberedDocumentChanges(
+  queryClient: QueryClient,
+  onOpenDocument?: (documentId: number) => void,
+): Promise<boolean> {
+  const entries = rememberedDocumentChangeList(queryClient).filter(
+    (entry) => !hasPendingDocumentChanges(entry.documentId),
+  )
+
+  for (const entry of entries) {
+    if (hasPendingDocumentChanges(entry.documentId)) {
+      continue
+    }
+
+    if (entry.waitFor !== null) {
+      await entry.waitFor.catch(() => {})
+    }
+
+    const current = rememberedDocumentChanges(queryClient, entry.documentId)
+    if (current === null || hasPendingDocumentChanges(current.documentId)) {
+      continue
+    }
+
+    const saved = await trackDocumentSave(
+      saveDocumentWithTimeout(current.documentId, current.changes),
+    )
+    if (saved === undefined) {
+      markDocumentSaveFailed(queryClient, current.documentId)
+      const toastId = showRecoveryFailureToast(
+        current.documentId,
+        onOpenDocument,
+      )
+      checkDocumentExistenceAfterFailure(queryClient, current, toastId)
+      return false
+    }
+
+    forgetDocumentChanges(queryClient, current.documentId, current.revision)
+    markDocumentSaveSucceeded(queryClient, current.documentId)
+    queryClient.setQueryData<DocumentRecord | undefined>(
+      documentQuery(current.documentId).queryKey,
+      (existing) =>
+        existing === undefined ||
+        existing === null ||
+        existing.updatedAt <= saved.updatedAt
+          ? saved
+          : existing,
+    )
+    void queryClient.invalidateQueries({ queryKey: documentsQueryKey })
+  }
+
+  return true
 }
 
 export {
