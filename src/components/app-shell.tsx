@@ -1,11 +1,12 @@
 import { TitleBar } from '@/components/title-bar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
-import { listenForClose } from '@/lib/close-handshake'
+import { listenForClose, registerCloseSave } from '@/lib/close-handshake'
 import {
   applyDocumentChanges,
   invalidateDocumentListsIfMissing,
 } from '@/lib/document-cache'
+import { retryRememberedDocumentChanges } from '@/lib/document-recovery'
 import { hasDocumentSaveFailed } from '@/lib/document-save-state'
 import { pendingDocumentChanges } from '@/lib/pending-changes'
 import { useQueryClient } from '@tanstack/react-query'
@@ -20,6 +21,20 @@ import { useEffect, type MouseEvent } from 'react'
 
 function AppShell() {
   useEffect(() => listenForClose(), [])
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  useEffect(
+    () =>
+      registerCloseSave(() =>
+        retryRememberedDocumentChanges(queryClient, (documentId) => {
+          void navigate({
+            to: '/documents/$documentId',
+            params: { documentId: String(documentId) },
+          })
+        }),
+      ),
+    [navigate, queryClient],
+  )
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })

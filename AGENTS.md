@@ -176,6 +176,16 @@ treat every skip as a bug:
   directly under its primary counterpart, the way an `AlertDialogDescription` sits
   lighter under its `AlertDialogTitle`. When in doubt, use the primary color.
 
+## Toast actions — full width below the message
+
+- Never use Sonner's inline `action` option for an actionable toast: it renders a small
+  label beside the message.
+- Put the action in the toast's `description` as a full-width `Button` below the
+  message, using `variant="outline"`, `size="sm"`, and
+  `className="mt-1 w-full text-foreground"`. Dismiss the toast in the click handler
+  before running the action.
+- Pin the full-width button with `w-full` together with its label in a test.
+
 ## Loading icons — always `size-4`
 
 - Every loading icon in the app renders at 16px: write `size-4` on the icon itself

@@ -1,16 +1,43 @@
 import { registerCloseSave } from '@/lib/close-handshake'
+import {
+  forgetDocumentChanges,
+  rememberedDocumentChanges,
+  rememberDocumentChanges,
+  setRememberedDocumentWait,
+} from '@/lib/document-recovery'
 import { documentSaveDebounceMs, useDocumentSave } from '@/lib/document-save'
 import { registerPendingChanges } from '@/lib/pending-changes'
 import type { DocumentChanges, DocumentRecord } from '@/types/global'
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 function useDocumentAutosave(document: DocumentRecord) {
+  const queryClient = useQueryClient()
+  const [recovered] = useState(() =>
+    rememberedDocumentChanges(queryClient, document.id),
+  )
   const saveDocument = useDocumentSave(document.id)
-  const [title, setTitle] = useState(document.title ?? '')
+  const recoveredTitle = recovered?.changes.title
+  const recoveredBody = recovered?.changes.body
+  const initialTitle =
+    recoveredTitle === undefined ? document.title : recoveredTitle
+  const initialBody =
+    recoveredBody === undefined ? document.body : recoveredBody
+  const [title, setTitle] = useState(initialTitle ?? '')
+  const body = initialBody
   const savedTitleRef = useRef<string | null>(document.title)
   const savedBodyRef = useRef(document.body)
-  const pendingTitleRef = useRef<string | null | undefined>(undefined)
-  const pendingBodyRef = useRef<string | null>(null)
+  const pendingTitleRef = useRef<string | null | undefined>(
+    recoveredTitle !== undefined && recoveredTitle !== document.title
+      ? recoveredTitle
+      : undefined,
+  )
+  const pendingBodyRef = useRef<string | null>(
+    recoveredBody !== undefined && recoveredBody !== document.body
+      ? recoveredBody
+      : null,
+  )
+  const revisionRef = useRef(recovered?.revision ?? 0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveLoopRef = useRef<Promise<boolean> | null>(null)
   const suspendedRef = useRef(false)
@@ -79,6 +106,7 @@ function useDocumentAutosave(document: DocumentRecord) {
             return true
           }
 
+          const nextRevision = revisionRef.current
           const saved = await saveDocument(
             nextChanges,
             () => suspendedRef.current,
@@ -87,8 +115,20 @@ function useDocumentAutosave(document: DocumentRecord) {
             return true
           }
           if (!saved) {
+            const latestChanges = pendingChanges()
+            if (latestChanges !== null) {
+              rememberDocumentChanges(
+                queryClient,
+                document.id,
+                latestChanges,
+                revisionRef.current,
+                null,
+              )
+            }
             return false
           }
+
+          forgetDocumentChanges(queryClient, document.id, nextRevision)
 
           if (nextChanges.title !== undefined) {
             savedTitleRef.current = nextChanges.title
@@ -120,7 +160,7 @@ function useDocumentAutosave(document: DocumentRecord) {
         return false
       }
     }
-  }, [clearTimer, pendingChanges, saveDocument])
+  }, [clearTimer, document.id, pendingChanges, queryClient, saveDocument])
 
   const scheduleSave = useCallback((): void => {
     clearTimer()
@@ -138,17 +178,33 @@ function useDocumentAutosave(document: DocumentRecord) {
     (nextTitle: string): void => {
       setTitle(nextTitle)
       pendingTitleRef.current = nextTitle.trim() === '' ? null : nextTitle
+      revisionRef.current += 1
+      if (pendingChanges() === null) {
+        forgetDocumentChanges(queryClient, document.id)
+        if (saveLoopRef.current === null) {
+          clearTimer()
+          return
+        }
+      }
       scheduleSave()
     },
-    [scheduleSave],
+    [clearTimer, document.id, pendingChanges, queryClient, scheduleSave],
   )
 
   const updateBody = useCallback(
     (nextBody: string): void => {
       pendingBodyRef.current = nextBody
+      revisionRef.current += 1
+      if (pendingChanges() === null) {
+        forgetDocumentChanges(queryClient, document.id)
+        if (saveLoopRef.current === null) {
+          clearTimer()
+          return
+        }
+      }
       scheduleSave()
     },
-    [scheduleSave],
+    [clearTimer, document.id, pendingChanges, queryClient, scheduleSave],
   )
 
   const pauseAutosave = useCallback((): void => {
@@ -168,12 +224,34 @@ function useDocumentAutosave(document: DocumentRecord) {
   }, [pendingChanges, scheduleSave])
 
   useEffect(() => {
+    if (pendingChanges() === null) {
+      forgetDocumentChanges(queryClient, document.id)
+    }
+  }, [document.id, pendingChanges, queryClient])
+
+  useEffect(() => {
     return () => {
+      if (suspendedRef.current) {
+        return
+      }
+
+      const changes = pendingChanges()
+      if (changes !== null) {
+        rememberDocumentChanges(
+          queryClient,
+          document.id,
+          changes,
+          revisionRef.current,
+          saveLoopRef.current,
+        )
+      }
+
       if (timerRef.current !== null) {
-        void flush()
+        const flushing = flush()
+        setRememberedDocumentWait(queryClient, document.id, flushing)
       }
     }
-  }, [flush])
+  }, [document.id, flush, pendingChanges, queryClient])
 
   useEffect(() => registerCloseSave(flush), [flush])
 
@@ -188,6 +266,7 @@ function useDocumentAutosave(document: DocumentRecord) {
 
   return {
     title,
+    body,
     updateTitle,
     updateBody,
     pauseAutosave,

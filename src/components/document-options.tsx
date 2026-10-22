@@ -20,6 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { forgetDocumentChanges } from '@/lib/document-recovery'
 import {
   documentQuery,
   documentsCountQuery,
@@ -85,6 +86,7 @@ function DocumentOptions({
       queryClient.removeQueries({
         queryKey: documentQuery(documentId).queryKey,
       })
+      forgetDocumentChanges(queryClient, documentId)
     })().finally(() => {
       setIsDeleting(false)
     })

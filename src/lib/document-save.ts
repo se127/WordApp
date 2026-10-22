@@ -153,4 +153,9 @@ function useDocumentSave(documentId: number) {
   )
 }
 
-export { documentSaveDebounceMs, documentSaveTimeoutMs, useDocumentSave }
+export {
+  documentSaveDebounceMs,
+  documentSaveTimeoutMs,
+  saveDocumentWithTimeout,
+  useDocumentSave,
+}

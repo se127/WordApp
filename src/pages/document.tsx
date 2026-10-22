@@ -2,10 +2,11 @@ import { DocumentBodyEditor } from '@/components/document-body-editor'
 import { DocumentOptions } from '@/components/document-options'
 import { Button } from '@/components/ui/button'
 import { documentTitleLabel } from '@/lib/documents'
+import { forgetDocumentChanges } from '@/lib/document-recovery'
 import { documentQuery } from '@/lib/query'
 import { useDocumentAutosave } from '@/lib/use-document-autosave'
 import type { DocumentRecord } from '@/types/global'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { LoaderCircle, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -15,11 +16,19 @@ const documentRouteApi = getRouteApi('/documents/$documentId')
 function DocumentPage() {
   const { documentId } = documentRouteApi.useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const numericDocumentId = Number(documentId)
   const {
     data: document,
     isError,
     refetch,
-  } = useQuery(documentQuery(Number(documentId)))
+  } = useQuery(documentQuery(numericDocumentId))
+
+  useEffect(() => {
+    if (document === null) {
+      forgetDocumentChanges(queryClient, numericDocumentId)
+    }
+  }, [document, numericDocumentId, queryClient])
 
   return (
     <div className="flex h-full min-h-0 flex-col py-6">
@@ -47,8 +56,14 @@ function DocumentEditor({
   document: DocumentRecord
   onDocumentDeleted: () => void
 }) {
-  const { title, updateTitle, updateBody, pauseAutosave, resumeAutosave } =
-    useDocumentAutosave(document)
+  const {
+    title,
+    body,
+    updateTitle,
+    updateBody,
+    pauseAutosave,
+    resumeAutosave,
+  } = useDocumentAutosave(document)
 
   return (
     <>
@@ -62,7 +77,7 @@ function DocumentEditor({
           onDocumentDeleted={onDocumentDeleted}
         />
       </div>
-      <DocumentBodyEditor body={document.body} onBodyChange={updateBody} />
+      <DocumentBodyEditor body={body} onBodyChange={updateBody} />
     </>
   )
 }

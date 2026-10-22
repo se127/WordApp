@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { forgetDocumentChanges } from '@/lib/document-recovery'
 import { formatNumber } from '@/lib/number'
 import {
   documentQuery,
@@ -80,6 +81,7 @@ function DocumentsSelectionToolbar({
 
       for (const id of ids) {
         queryClient.removeQueries({ queryKey: documentQuery(id).queryKey })
+        forgetDocumentChanges(queryClient, id)
       }
     })().finally(() => {
       setIsDeleting(false)

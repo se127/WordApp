@@ -1,4 +1,8 @@
 import { flushDocumentSaves } from '@/lib/close-handshake'
+import {
+  rememberedDocumentChanges,
+  rememberDocumentChanges,
+} from '@/lib/document-recovery'
 import { documentSaveDebounceMs } from '@/lib/document-save'
 import { pendingDocumentChanges } from '@/lib/pending-changes'
 import { createQueryClient, documentQuery } from '@/lib/query'
@@ -56,9 +60,11 @@ function renderAutosave(
     id: number,
     changes: DocumentChanges,
   ) => Promise<DocumentRecord | undefined>,
+  prepare?: (queryClient: ReturnType<typeof createQueryClient>) => void,
 ) {
   installBridge(save)
   const queryClient = createQueryClient()
+  prepare?.(queryClient)
   const hook = renderHook(() => useDocumentAutosave(documentRecord), {
     wrapper: createWrapper(queryClient),
   })
@@ -164,6 +170,99 @@ describe('useDocumentAutosave', () => {
 
     unmount()
     expect(pendingDocumentChanges()).toBeNull()
+  })
+
+  it('restores remembered changes with the document and keeps them pending', () => {
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, queryClient, unmount } = renderAutosave(save, (client) => {
+      rememberDocumentChanges(
+        client,
+        1,
+        { title: 'بازیابی', body: '<p>بازیابی</p>' },
+        3,
+      )
+    })
+
+    expect(result.current.title).toBe('بازیابی')
+    expect(result.current.body).toBe('<p>بازیابی</p>')
+    expect(pendingDocumentChanges()).toEqual({
+      documentId: 1,
+      changes: { title: 'بازیابی', body: '<p>بازیابی</p>' },
+    })
+    expect(save).not.toHaveBeenCalled()
+
+    unmount()
+    expect(rememberedDocumentChanges(queryClient, 1)?.changes).toEqual({
+      title: 'بازیابی',
+      body: '<p>بازیابی</p>',
+    })
+  })
+
+  it('clears remembered changes after a successful save', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, queryClient } = renderAutosave(save, (client) => {
+      rememberDocumentChanges(
+        client,
+        1,
+        { title: 'بازیابی', body: '<p>قبلی</p>' },
+        2,
+      )
+    })
+
+    act(() => result.current.updateBody('<p>تازه</p>'))
+    await advance(documentSaveDebounceMs)
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(1, {
+      title: 'بازیابی',
+      body: '<p>تازه</p>',
+    })
+    expect(rememberedDocumentChanges(queryClient, 1)).toBeNull()
+  })
+
+  it('keeps the latest pending changes when a save fails', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async () => undefined)
+    const { result, queryClient } = renderAutosave(save)
+
+    act(() => result.current.updateTitle('گزارش'))
+    await advance(documentSaveDebounceMs)
+
+    expect(rememberedDocumentChanges(queryClient, 1)).toMatchObject({
+      documentId: 1,
+      changes: { title: 'گزارش', body: '<p>قبلی</p>' },
+      revision: 1,
+    })
+  })
+
+  it('forgets remembered changes when the editor returns to the saved values', () => {
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, queryClient } = renderAutosave(save, (client) => {
+      rememberDocumentChanges(
+        client,
+        1,
+        { title: 'بازیابی', body: '<p>قبلی</p>' },
+        2,
+      )
+    })
+
+    act(() => result.current.updateTitle('قبلی'))
+
+    expect(rememberedDocumentChanges(queryClient, 1)).toBeNull()
+    expect(pendingDocumentChanges()).toBeNull()
+    expect(save).not.toHaveBeenCalled()
   })
 
   it('flushes pending changes immediately instead of waiting for the debounce', async () => {

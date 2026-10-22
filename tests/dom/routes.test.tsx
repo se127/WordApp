@@ -1612,6 +1612,108 @@ describe('routes', () => {
     ).toBe('ذخیره شده')
   })
 
+  it('retries a remembered change when the window closes after the back link', async () => {
+    let stored: TestDocument = { ...storedDocument }
+    let attempts = 0
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => {
+      attempts += 1
+      if (attempts === 1) {
+        return undefined
+      }
+      stored = { ...stored, ...changes, updatedAt: 2_000 }
+      return stored
+    })
+    const { triggerBeforeClose, closeReady, closeCancelled } = installBridge({
+      save,
+      get: vi.fn(async () => stored),
+      count: vi.fn(async () => 1),
+      list: vi.fn(async (options: DocumentListOptions) =>
+        documentListPage([stored], options),
+      ),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce(), {
+      timeout: 1_500,
+    })
+    expect(
+      await screen.findByText('ذخیره ی سند ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(closeReady).toHaveBeenCalledOnce())
+    expect(closeCancelled).not.toHaveBeenCalled()
+    expect(save).toHaveBeenLastCalledWith(1, {
+      title: 'گزارش',
+      body: '',
+    })
+  })
+
+  it('keeps the window open and restores the unsaved changes when the close retry fails', async () => {
+    const stored: TestDocument = { ...storedDocument }
+    const save = vi.fn(async () => undefined)
+    const { triggerBeforeClose, closeReady, closeCancelled } = installBridge({
+      save,
+      get: vi.fn(async () => stored),
+      count: vi.fn(async () => 1),
+      list: vi.fn(async (options: DocumentListOptions) =>
+        documentListPage([stored], options),
+      ),
+    })
+    const user = userEvent.setup()
+
+    renderRoute('/documents/1')
+    await user.click(await screen.findByRole('heading', { name: 'بدون عنوان' }))
+    const input = await screen.findByRole('textbox', { name: 'عنوان سند' })
+    await user.clear(input)
+    await user.type(input, 'گزارش')
+    await user.click(screen.getByRole('link', { name: 'بازگشت به مستندات' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'مستندات (۱)' }),
+    ).toBeInTheDocument()
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce(), {
+      timeout: 1_500,
+    })
+
+    await act(async () => {
+      triggerBeforeClose()
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(closeCancelled).toHaveBeenCalledOnce())
+    expect(closeReady).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('ذخیره ی تغییرات ناموفق بود. دوباره تلاش کنید.'),
+    ).toBeInTheDocument()
+
+    const openDocument = await screen.findByRole('button', {
+      name: 'باز کردن سند',
+    })
+    expect(openDocument).toHaveClass('w-full')
+    await user.click(openDocument)
+
+    expect(
+      await screen.findByRole('heading', { name: 'گزارش' }),
+    ).toBeInTheDocument()
+  })
+
   it('shows a newly created document while its save is pending after a cancelled list read', async () => {
     const documents: Array<TestDocument> = []
     let finishCreate!: (document: TestDocument) => void

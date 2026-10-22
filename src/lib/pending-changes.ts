@@ -27,4 +27,19 @@ function pendingDocumentChanges(): PendingDocumentChanges | null {
   return null
 }
 
-export { pendingDocumentChanges, registerPendingChanges }
+function hasPendingDocumentChanges(documentId: number): boolean {
+  for (const provider of pendingChangeProviders) {
+    const pending = provider()
+    if (pending !== null && pending.documentId === documentId) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export {
+  hasPendingDocumentChanges,
+  pendingDocumentChanges,
+  registerPendingChanges,
+}
