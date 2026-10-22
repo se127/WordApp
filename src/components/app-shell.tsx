@@ -1,3 +1,4 @@
+import { DocumentSaveStatus } from '@/components/document-save-status'
 import { TitleBar } from '@/components/title-bar'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -42,7 +43,10 @@ function AppShell() {
 
   return (
     <div className="flex h-screen flex-col bg-emerald-50 dark:bg-zinc-900">
-      <TitleBar trailing={isDocumentPage ? <DocumentBackLink /> : undefined} />
+      <TitleBar
+        center={<DocumentSaveStatus />}
+        trailing={isDocumentPage ? <DocumentBackLink /> : undefined}
+      />
 
       <main className="mx-4 mb-4 min-h-0 flex-1 rounded-lg border border-border bg-white dark:border-input dark:bg-zinc-800">
         <Outlet />

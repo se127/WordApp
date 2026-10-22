@@ -1,8 +1,22 @@
 const closeSaveHandlers = new Set<() => Promise<boolean>>()
 const pendingSaves = new Set<Promise<unknown>>()
+const documentSaveListeners = new Set<() => void>()
 
 function isDocumentSaving(): boolean {
   return pendingSaves.size > 0
+}
+
+function notifyDocumentSaveListeners(): void {
+  for (const listener of documentSaveListeners) {
+    listener()
+  }
+}
+
+function subscribeToDocumentSaves(listener: () => void): () => void {
+  documentSaveListeners.add(listener)
+  return () => {
+    documentSaveListeners.delete(listener)
+  }
 }
 
 function registerCloseSave(handler: () => Promise<boolean>): () => void {
@@ -14,12 +28,15 @@ function registerCloseSave(handler: () => Promise<boolean>): () => void {
 
 function trackDocumentSave<T>(promise: Promise<T>): Promise<T> {
   pendingSaves.add(promise)
+  notifyDocumentSaveListeners()
   void promise.then(
     () => {
       pendingSaves.delete(promise)
+      notifyDocumentSaveListeners()
     },
     () => {
       pendingSaves.delete(promise)
+      notifyDocumentSaveListeners()
     },
   )
   return promise
@@ -61,5 +78,6 @@ export {
   isDocumentSaving,
   listenForClose,
   registerCloseSave,
+  subscribeToDocumentSaves,
   trackDocumentSave,
 }

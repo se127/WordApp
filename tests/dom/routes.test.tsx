@@ -1105,7 +1105,7 @@ describe('routes', () => {
     expect(input).toHaveFocus()
   })
 
-  it('saves the title in the background without disabling the input or showing a loading state', async () => {
+  it('saves the title in the background without disabling the input', async () => {
     let storedRow = storedDocument
     const get = vi.fn(async () => storedRow)
     let finishSave!: (document: TestDocument) => void
@@ -1140,7 +1140,15 @@ describe('routes', () => {
     expect(pending).toHaveFocus()
     expect(pending).not.toHaveClass('pe-8')
     expect(pending.parentElement?.querySelector('.animate-spin')).toBeNull()
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    const saving = screen.getByRole('status', { name: 'در حال ذخیره...' })
+    expect(saving).toHaveTextContent('در حال ذخیره...')
+    expect(saving.closest('[data-slot="title-bar"]')).not.toBeNull()
+    expect(saving.parentElement).toHaveClass(
+      'absolute',
+      'left-1/2',
+      '-translate-x-1/2',
+    )
+    expect(saving.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
 
     storedRow = {
       ...storedRow,
@@ -1149,6 +1157,11 @@ describe('routes', () => {
     }
     await act(() => finishSave(storedRow))
 
+    await vi.waitFor(() => {
+      expect(
+        screen.queryByRole('status', { name: 'در حال ذخیره...' }),
+      ).not.toBeInTheDocument()
+    })
     expect(pending).toHaveValue('پیگیری')
     expect(pending).not.toBeDisabled()
     await user.tab()
@@ -1257,7 +1270,9 @@ describe('routes', () => {
       },
       { timeout: 1_500 },
     )
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'در حال ذخیره...' }),
+    ).toHaveTextContent('در حال ذخیره...')
     expect(editor).toHaveTextContent('متن')
 
     await act(() =>
@@ -1397,7 +1412,9 @@ describe('routes', () => {
       },
       { timeout: 1_500 },
     )
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'در حال ذخیره...' }),
+    ).toHaveTextContent('در حال ذخیره...')
 
     await act(async () => {
       triggerBeforeClose()
@@ -1843,6 +1860,10 @@ describe('routes', () => {
       })
     })
 
+    const saving = screen.getByRole('status', { name: 'در حال ذخیره...' })
+    expect(saving.closest('[data-slot="title-bar"]')).not.toBeNull()
+    expect(saving).toHaveTextContent('در حال ذخیره...')
+
     await act(() =>
       finishSave({
         ...storedDocument,
@@ -1851,6 +1872,11 @@ describe('routes', () => {
       }),
     )
 
+    await vi.waitFor(() => {
+      expect(
+        screen.queryByRole('status', { name: 'در حال ذخیره...' }),
+      ).not.toBeInTheDocument()
+    })
     expect(closeReady).not.toHaveBeenCalled()
     expect(save).toHaveBeenCalledOnce()
   })

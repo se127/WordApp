@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { trackDocumentSave } from '@/lib/close-handshake'
 import { saveDocumentWithTimeout } from '@/lib/document-save'
 import {
   markDocumentSaveFailed,
@@ -142,9 +143,8 @@ async function retryRememberedDocumentChanges(
       }
 
       processed = true
-      const saved = await saveDocumentWithTimeout(
-        current.documentId,
-        current.changes,
+      const saved = await trackDocumentSave(
+        saveDocumentWithTimeout(current.documentId, current.changes),
       )
       if (saved === undefined) {
         const exists = await documentExists(current.documentId)

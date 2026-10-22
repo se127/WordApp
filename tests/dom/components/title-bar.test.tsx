@@ -59,6 +59,27 @@ describe('TitleBar', () => {
     expect(trailing).toHaveClass('pe-4')
   })
 
+  it('centers content between the theme picker and trailing content', () => {
+    render(
+      <TooltipProvider>
+        <TitleBar
+          center={<span>در حال ذخیره...</span>}
+          trailing={<span>بازگشت به مستندات</span>}
+        />
+      </TooltipProvider>,
+    )
+
+    const bar = titleBar()
+    const center = within(bar).getByText('در حال ذخیره...').parentElement
+
+    expect(bar).toHaveClass('relative')
+    expect(center).toHaveClass('absolute', 'left-1/2', '-translate-x-1/2')
+    expect(bar?.firstElementChild).toContainElement(
+      screen.getByRole('button', { name: 'تغییر پوسته' }),
+    )
+    expect(center?.nextElementSibling).toBe(bar.lastElementChild)
+  })
+
   it('holds no document tabs, add button, or home link', () => {
     renderTitleBar()
 
