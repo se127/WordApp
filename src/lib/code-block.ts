@@ -74,6 +74,7 @@ const italic = 1
 const bold = 2
 const underline = 4
 const lightCodeBlockBackground = 'var(--color-gray-100)'
+const darkCodeBlockBackground = 'var(--color-zinc-800)'
 
 let highlighter: ReturnType<typeof createHighlighterCoreSync> | null = null
 let codeBlockThemeStyle = ''
@@ -121,7 +122,7 @@ function getHighlighter(): ReturnType<typeof createHighlighterCoreSync> {
 
   codeBlockThemeStyle = [
     `--wordapp-shiki-light-bg:${lightCodeBlockBackground}`,
-    `--wordapp-shiki-dark-bg:${dark.bg}`,
+    `--wordapp-shiki-dark-bg:${darkCodeBlockBackground}`,
     `--wordapp-shiki-light-fg:${light.fg}`,
     `--wordapp-shiki-dark-fg:${dark.fg}`,
   ].join(';')

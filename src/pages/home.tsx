@@ -1,8 +1,10 @@
 import { DocumentOptions } from '@/components/document-options'
+import { DocumentSaveStatus } from '@/components/document-save-status'
 import { DocumentsPagination } from '@/components/documents-pagination'
 import { DocumentsSearch } from '@/components/documents-search'
 import { DocumentsSelectionToolbar } from '@/components/documents-selection'
 import { DocumentsSort } from '@/components/documents-sort'
+import { TitleBar } from '@/components/title-bar'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -66,13 +68,17 @@ function HomePage() {
     saveHomeSearch(nextSearch)
     setSearch(nextSearch)
   }, [])
-
   return (
-    <div className="flex h-full flex-col items-start gap-3 p-6">
-      <h1 className="flex h-8 items-center gap-1.5 text-2xl font-semibold">
-        {'مستندات '}
-        <DocumentCount search={debouncedSearch} />
-      </h1>
+    <div className="flex h-full flex-col items-start gap-3">
+      <TitleBar
+        center={<DocumentSaveStatus />}
+        trailing={
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            {'مستندات '}
+            <DocumentCount search={debouncedSearch} />
+          </h1>
+        }
+      />
       <Button disabled={isCreating} onClick={createDocument}>
         {isCreating ? (
           <>
@@ -578,16 +584,9 @@ function DocumentsRetry({
 }) {
   return (
     <div className="flex min-h-32 w-full flex-1 flex-col items-center justify-center gap-3">
-      <p className="text-sm text-destructive">
-        بارگذاری سندها ناموفق بود. دوباره تلاش کنید.
-      </p>
+      <p className="text-sm text-destructive">بارگذاری سندها ناموفق بود.</p>
       <Button variant="outline" disabled={isRetrying} onClick={onRetry}>
-        <RefreshCw
-          className={cn(
-            'size-4 text-destructive',
-            isRetrying && 'animate-spin',
-          )}
-        />
+        <RefreshCw className={cn('size-4', isRetrying && 'animate-spin')} />
         تلاش دوباره
       </Button>
     </div>
@@ -628,34 +627,25 @@ function CountRetry({
   isRetrying: boolean
   onRetry: () => void
 }) {
-  const retryLabel = 'تلاش دوباره برای دریافت تعداد سندها'
-
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="outline"
-          size="icon"
-          className="text-destructive hover:text-destructive"
-          aria-label={retryLabel}
-          disabled={isRetrying}
-          onClick={onRetry}
-        >
-          <RefreshCw className={cn('size-4', isRetrying && 'animate-spin')} />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{retryLabel}</TooltipContent>
-    </Tooltip>
+    <span className="flex items-center gap-3">
+      <span className="text-sm text-destructive">
+        بارگذاری تعداد سندها ناموفق بود.
+      </span>
+      <Button variant="outline" disabled={isRetrying} onClick={onRetry}>
+        <RefreshCw className={cn('size-4', isRetrying && 'animate-spin')} />
+        تلاش دوباره
+      </Button>
+    </span>
   )
 }
 
 function CountPending() {
   return (
-    <LoaderCircle
-      role="status"
-      aria-label="در حال بارگذاری"
-      className="size-4 animate-spin"
-    />
+    <span role="status" className="flex items-center gap-2 text-sm">
+      <LoaderCircle className="size-4 animate-spin" />
+      در حال بارگذاری تعداد سندها...
+    </span>
   )
 }
 

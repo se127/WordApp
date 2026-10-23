@@ -93,18 +93,20 @@ describe('DocumentBodyEditor', () => {
     })
     expect(toolbar).toHaveAttribute('dir', 'rtl')
     expect(toolbar).toHaveClass(
+      '-mx-6',
       'flex',
       'flex-wrap',
-      'w-full',
       'gap-x-1',
       'gap-y-2',
       'border-y',
       'bg-gray-100',
       'px-6',
-      'dark:bg-zinc-700',
+      'dark:bg-zinc-800',
     )
+    expect(toolbar).not.toHaveClass('w-full')
     expect(toolbar).not.toHaveClass('border-x')
     expect(toolbar).not.toHaveClass('px-2')
+    expect(toolbar).not.toHaveClass('px-4')
     expect(editor.closest('.document-body-editor')).not.toHaveClass('mt-2')
 
     const buttons = within(toolbar).getAllByRole('button')
@@ -167,7 +169,7 @@ describe('DocumentBodyEditor', () => {
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
-      expect(button).toHaveClass('hover:bg-gray-300')
+      expect(button).toHaveClass('hover:bg-gray-200', 'dark:hover:bg-zinc-700')
       expect(button).not.toHaveAttribute('aria-pressed')
     }
     expect(undoButton).toBeDisabled()
@@ -178,7 +180,7 @@ describe('DocumentBodyEditor', () => {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
       expect(button).toHaveAttribute('aria-pressed', 'false')
-      expect(button).toHaveClass('hover:bg-gray-300')
+      expect(button).toHaveClass('hover:bg-gray-200', 'dark:hover:bg-zinc-700')
       expect(button).not.toHaveClass('bg-primary')
     }
 
@@ -186,11 +188,27 @@ describe('DocumentBodyEditor', () => {
       name: 'سبک متن',
     })
     expect(textStyleSelect).toHaveTextContent('پاراگراف')
+    expect(textStyleSelect).toHaveClass(
+      'bg-white',
+      'hover:bg-white',
+      'dark:bg-zinc-800',
+      'dark:hover:bg-zinc-800',
+    )
+    expect(textStyleSelect).not.toHaveClass('hover:bg-gray-200')
+    expect(textStyleSelect).not.toHaveClass('dark:hover:bg-zinc-700')
 
     const fontSizeSelect = within(toolbar).getByRole('combobox', {
       name: 'اندازه ی متن',
     })
     expect(fontSizeSelect).toHaveTextContent('۱۶px')
+    expect(fontSizeSelect).toHaveClass(
+      'bg-white',
+      'hover:bg-white',
+      'dark:bg-zinc-800',
+      'dark:hover:bg-zinc-800',
+    )
+    expect(fontSizeSelect).not.toHaveClass('hover:bg-gray-200')
+    expect(fontSizeSelect).not.toHaveClass('dark:hover:bg-zinc-700')
 
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
     expect(separators).toHaveLength(5)
@@ -426,7 +444,7 @@ describe('DocumentBodyEditor', () => {
       /--wordapp-shiki-light-bg:\s*var\(--color-gray-100\)/,
     )
     expect(frame?.getAttribute('style')).toMatch(
-      /--wordapp-shiki-light-bg:\s*var\(--color-gray-100\);\s*--wordapp-shiki-dark-bg:\s*#[0-9a-f]{6};\s*--wordapp-shiki-light-fg:\s*#[0-9a-f]{6};\s*--wordapp-shiki-dark-fg:\s*#[0-9a-f]{6}/i,
+      /--wordapp-shiki-light-bg:\s*var\(--color-gray-100\);\s*--wordapp-shiki-dark-bg:\s*var\(--color-zinc-800\);\s*--wordapp-shiki-light-fg:\s*#[0-9a-f]{6};\s*--wordapp-shiki-dark-fg:\s*#[0-9a-f]{6}/i,
     )
     expect(frame?.getAttribute('style')).not.toMatch(/line-number/)
     expect(pre).toHaveAttribute('dir', 'ltr')
@@ -693,7 +711,14 @@ describe('DocumentBodyEditor', () => {
       'top-2',
       'right-3',
       'border-border',
-      'bg-background',
+      'bg-white',
+      'text-zinc-900',
+      'hover:bg-white',
+      'hover:text-zinc-900',
+      'dark:bg-zinc-900',
+      'dark:text-white',
+      'dark:hover:bg-zinc-900',
+      'dark:hover:text-white',
       'shadow-sm',
     )
     expect(copyButton).toBeEnabled()
@@ -718,6 +743,9 @@ describe('DocumentBodyEditor', () => {
       () => expect(copyButton.querySelector('svg.lucide-check')).not.toBeNull(),
       { timeout: 2000 },
     )
+    const check = copyButton.querySelector('svg.lucide-check')
+    expect(check).not.toHaveClass('text-emerald-600')
+    expect(check).not.toHaveClass('dark:text-emerald-400')
     expect(copyButton).toBeDisabled()
     expect(copyButton).toHaveAttribute('aria-busy', 'false')
 
@@ -848,6 +876,12 @@ describe('DocumentBodyEditor', () => {
     expect(editorStyles).toMatch(
       /\.document-body-editor \.document-body-prose \{[^}]*flex: 1;[^}]*color: var\(--foreground\);/,
     )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \{[^}]*padding: 1\.5rem 0;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.is-editor-empty:first-child:not\(pre\):not\(\.code-block-frame\)::before \{[^}]*inset-inline: 0;/,
+    )
   })
 
   it('lays out code blocks with a sticky line-number gutter', async () => {
@@ -920,7 +954,8 @@ describe('DocumentBodyEditor', () => {
         'text-primary-foreground',
         'hover:bg-primary/80',
       )
-      expect(button).not.toHaveClass('hover:bg-gray-300')
+      expect(button).not.toHaveClass('hover:bg-gray-200')
+      expect(button).not.toHaveClass('dark:hover:bg-zinc-700')
       expect(await editorTextbox()).toHaveFocus()
     }
 

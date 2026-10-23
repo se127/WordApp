@@ -21,7 +21,6 @@ import {
   documentsCountQuery,
   documentsQueryKey,
 } from '@/lib/query'
-import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { ListChecks, LoaderCircle, Trash } from 'lucide-react'
 import { useState } from 'react'
@@ -94,16 +93,14 @@ function DocumentsSelectionToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              variant="outline"
+              variant={isSelecting ? 'default' : 'outline'}
               size="icon"
               aria-label={toggleSelectionLabel}
               aria-pressed={isSelecting}
               disabled={isDisabled}
               onClick={onToggleSelecting}
             >
-              <ListChecks
-                className={cn(isSelecting && 'text-sidebar-primary')}
-              />
+              <ListChecks />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

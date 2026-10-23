@@ -87,6 +87,59 @@ describe('App', () => {
     ).toBeInTheDocument()
   })
 
+  it('puts the home heading on the title row before the theme picker', async () => {
+    installBridge()
+
+    renderApp()
+
+    const heading = await screen.findByRole('heading', {
+      name: 'مستندات (۰)',
+    })
+    const bar = document.querySelector<HTMLElement>('[data-slot="title-bar"]')
+    if (bar === null) {
+      throw new Error('the title bar is missing')
+    }
+    const picker = screen.getByRole('button', { name: 'تغییر پوسته' })
+    const addButton = screen.getByRole('button', { name: 'افزودن سند' })
+
+    expect(bar).toHaveClass('relative', 'flex', 'w-full', 'items-center')
+    expect(bar).not.toHaveClass('absolute', 'pointer-events-none')
+    expect(bar).toContainElement(heading)
+    expect(bar.firstElementChild).toContainElement(heading)
+    expect(bar.lastElementChild).toContainElement(picker)
+    expect(screen.getByRole('main')).toContainElement(bar)
+    expect(addButton.previousElementSibling).toBe(bar)
+  })
+
+  it('renders the content box flat and transparent on the page background', async () => {
+    installBridge()
+
+    renderApp()
+
+    const main = await screen.findByRole('main')
+    expect(main).toHaveClass('min-h-0', 'flex-1')
+    expect(main).not.toHaveClass('mx-4')
+    expect(main).not.toHaveClass('mb-4')
+    expect(main).not.toHaveClass('rounded-lg')
+    expect(main).not.toHaveClass('border')
+    expect(main).not.toHaveClass('bg-white')
+    expect(main).not.toHaveClass('dark:bg-zinc-800')
+    expect(main.parentElement).toHaveClass(
+      'bg-white',
+      'dark:bg-zinc-900',
+      'p-6',
+    )
+  })
+
+  it('uses the neutral shadcn palette for the primary color in both themes', async () => {
+    const styles = await readFile('src/index.css', 'utf8')
+
+    expect(styles).toMatch(/:root \{[\s\S]*?--primary: oklch\(0\.205 0 0\);/)
+    expect(styles).toMatch(/\.dark \{[\s\S]*?--primary: oklch\(0\.922 0 0\);/)
+    expect(styles).not.toContain('oklch(0.508 0.118 165.612)')
+    expect(styles).not.toContain('oklch(0.432 0.095 166.913)')
+  })
+
   it('hosts toasts at the bottom left, expanded, for eight seconds each', async () => {
     installBridge()
 

@@ -80,6 +80,86 @@
 - `bun run build` and `bun run test` are the only exceptions: they compile or test the
   code without launching Electron, and they are required by the pre-commit checks below.
 
+## App frame and title bar — pages own their chrome
+
+- `src/components/app-shell.tsx` is only the frame: `flex h-screen flex-col bg-white
+p-6 dark:bg-zinc-900`, a `min-h-0 flex-1` `main`, the toaster, and the close-save
+  wiring. It must not render the title bar, the save status, or the document back link.
+- Every page renders its own `TitleBar` in normal flow at the top: `HomePage`,
+  `DocumentPage`, `RouteError`, and `RouteNotFound`. The home `h1`/`DocumentCount` and
+  the document `DocumentBackLink` are `TitleBar` `trailing` content; the
+  `DocumentSaveStatus` is `center`.
+- Keep the bar in flow: `relative flex w-full shrink-0 items-center justify-between`,
+  `dir="rtl"`, and no `h-16`. Do not make it absolute/floating or add `ps-4`/`pe-4`;
+  the shell's `p-6` is the only horizontal inset.
+- The shell inset and the page spacing are coupled: the home root uses `gap-3`; the
+  document content wrapper uses `pt-6`; route fallback content sits in a `flex-1`
+  centered block with `p-6`. The document title row and editor content carry no
+  horizontal padding of their own.
+
+## RTL tab order — DOM order is the tab order
+
+- The title bar renders `trailing` first (the right side in RTL), then `center`, then
+  the theme picker wrapper (`ms-auto`, the left side). Do not put the picker before the
+  trailing slot.
+- Home: with a count, Tab goes theme picker → add button. When the count read fails,
+  the retry button inside the heading (the `trailing` slot) comes before the picker,
+  then the add button.
+- Document: Tab goes back link → theme picker → title heading → toolbar/editor.
+- Pin the sequence with `user.tab()` in `tests/dom/routes.test.tsx` and pin the bar's
+  child order in `tests/dom/App.test.tsx` and
+  `tests/dom/components/title-bar.test.tsx`.
+
+## Route fallback pages — keep the title bar
+
+- `RouteError` and `RouteNotFound` render their own `TitleBar`; their outer wrapper is
+  `flex h-full min-h-0 flex-col` and the message/action block is `flex min-h-32 w-full
+flex-1 ... p-6` so the theme picker stays available outside the pages.
+- Keep the copy short: «نمایش این صفحه ناموفق بود.» and «صفحه ی مورد نظر پیدا نشد.».
+  The retry/back actions are neutral `outline` buttons (see the retry rule below).
+
+## Document page — full-bleed toolbar
+
+- The shell's `p-6` is the page inset. The document title row and editor content have
+  no horizontal padding (`px-*`) of their own.
+- The editor toolbar is full-bleed with `-mx-6 px-6` and must not use `w-full`:
+  negative margins plus `width: 100%` leave the left edge short in RTL. Its surface is
+  `bg-gray-100 dark:bg-zinc-800`.
+- `.document-body-editor .ProseMirror` uses `padding: 1.5rem 0`; the toolbar's `px-6`
+  and the shell's `p-6` provide the horizontal inset. Do not restore horizontal
+  padding on the ProseMirror.
+- The toolbar's `-mx-6` is coupled to the shell's `p-6`: changing one requires changing
+  the other. Pin the classes in `tests/dom/document-body-editor.test.tsx` and
+  `tests/dom/routes.test.tsx`.
+- Editor toolbar hovers use `hover:bg-gray-200 dark:hover:bg-zinc-700`; the document
+  title uses `hover:bg-gray-100` and `dark:hover:bg-zinc-800`, with the same colors on
+  focus.
+
+## Neutral surfaces — palette, code blocks, and selection toggle
+
+- The app uses the neutral shadcn palette: `--primary` is `oklch(0.205 0 0)` in light
+  and `oklch(0.922 0 0)` in dark; `--secondary`, `--muted`, `--accent`, and the charts
+  are grayscale. Do not reintroduce the old green primary
+  (`oklch(0.508 0.118 165.612)` / `oklch(0.432 0.095 166.913)`).
+- `index.html` pre-mount background is `oklch(100% 0 0)` to match the light theme; the
+  dark background stays `oklch(21% 0.006 285.885)`. There must be no green flash before
+  React mounts.
+- Code blocks use neutral surfaces: Shiki's dark background is fixed to
+  `var(--color-zinc-800)`. The copy button is `bg-white text-zinc-900` with matching
+  hover in light and `bg-zinc-900 text-white` in dark. The copied check icon inherits
+  the button color — never emerald (`text-emerald-600` / `dark:text-emerald-400`).
+- The multi-row selection toggle is a pressed toggle:
+  `variant={isSelecting ? 'default' : 'outline'}` and
+  `aria-pressed={isSelecting}`. The filled default variant flips the `ListChecks` icon
+  to `primary-foreground`; do not put a color class on the icon or use
+  `text-sidebar-primary`.
+- Only `--destructive` and the dark `--sidebar-primary` keep a hue; do not use
+  `--sidebar-primary` for selected/active UI states.
+- Pin the palette, pre-mount background, code-block surfaces, and selection-toggle
+  variant in `tests/dom/App.test.tsx`, `tests/node/index-html.test.ts`,
+  `tests/dom/document-body-editor.test.tsx`, and
+  `tests/dom/components/documents-selection.test.tsx`.
+
 ## Database features — account for `--db-delay`
 
 The dev script's `--db-delay=<milliseconds>ms` flag (e.g. `bun dev --db-delay=2000ms`)
@@ -172,8 +252,8 @@ implementing it — never decide that on your own. If it should:
 reaches the components the compiler actually compiles, so keep that wiring intact and
 treat every skip as a bug:
 
-- After changing anything under `src/`, run `bun run check:react-compiler`. It
-  transforms every renderer file with the same preset as the build (it imports
+- The compiler check runs in the end-of-batch pre-commit (see below), not after every
+  edit. It transforms every renderer file with the same preset as the build (it imports
   `reactCompiler` from `vite.config.ts`) and reports, per file, every function the
   compiler compiled — with memo slot counts — and every failure or skip. It exits
   non-zero on unexpected failures, so it is the gate.
@@ -204,6 +284,20 @@ treat every skip as a bug:
 - `text-muted-foreground` (gray) is only for deliberately secondary text placed
   directly under its primary counterpart, the way an `AlertDialogDescription` sits
   lighter under its `AlertDialogTitle`. When in doubt, use the primary color.
+
+## Failure and retry copy — short sentence, neutral retry
+
+- Failure sentences stay short: «بارگذاری سندها ناموفق بود.»,
+  «بارگذاری سند ناموفق بود.», «بارگذاری تعداد سندها ناموفق بود.», and
+  «نمایش این صفحه ناموفق بود.». The retry button carries the action; do not append
+  «دوباره تلاش کنید.» to the sentence.
+- The sentence uses `text-destructive`; the retry button is a neutral `outline` button
+  and its `RefreshCw` icon has no color class (no `text-destructive`). This is the
+  pattern for the count, list, document, and route-error retries.
+- The heading's count states stay on the title row: loading is a `role="status"` span
+  with a `size-4 animate-spin` loader and «در حال بارگذاری تعداد سندها...»; failure
+  places the destructive sentence and the neutral retry inside the heading.
+- Pin the copy and classes in `tests/dom/routes.test.tsx`.
 
 ## Toast actions — full width below the message
 
@@ -260,8 +354,8 @@ treat every skip as a bug:
 
 ## Tests — always in step with the code
 
-- Always write tests for the code you add or change, in the same commit. When you remove
-  code, check whether its tests are now redundant and remove them too.
+- Always write tests for the code you add or change as part of the same change. When
+  you remove code, check whether its tests are now redundant and remove them too.
 - Tests live in `tests/`, split by runtime: `tests/dom/` for renderer code (`src/**`,
   runs under happy-dom) and `tests/node/` for main/preload code (`electron/**`, runs
   under plain Node). Run them with `bun run test`; use `bun run test:watch` while
@@ -270,10 +364,16 @@ treat every skip as a bug:
   HTML report to `coverage/`.
 - Do not write tests for the vendored shadcn components in `src/components/ui` — they
   are installed code, not ours. Test the app's own behavior around them.
+- Pin layout changes structurally, not only by visible text: the title bar's child
+  order, the RTL tab sequence with `user.tab()`, the page wrapper classes, and the
+  full-bleed toolbar classes.
 
-## Pre-commit checks — mandatory, in this order
+## Pre-commit checks — once per request batch
 
-Before any commit, run all five and fix whatever they report:
+Do not run the full pre-commit sequence after every edit. Implement all the changes
+the user asked for (with their tests) first, then ask whether any request is left to
+implement. If the user says no, run all five checks in this order and fix whatever
+they report:
 
 1. Lint: `bun run lint` — fix all reported problems.
 2. Format: `bun run format` (Prettier) — fix all reported problems.
@@ -282,8 +382,13 @@ Before any commit, run all five and fix whatever they report:
    fix what it reports, and never pin a new accepted skip without asking.
 5. Build: `bun run build` — must finish successfully.
 
-If any check fails, you are not allowed to commit. Fix the problems first, then re-run
-all five checks, and repeat until everything passes.
+If any check fails, fix the problem, then re-run all five from the start and repeat
+until everything passes. Only then tell the user the work is ready to stage. Never
+commit without explicit permission (see below).
+
+The checks are still mandatory before a commit; they run once per request batch, after
+the user confirms nothing is left, instead of after every small edit. If the user asks
+for a specific check earlier, run that check then.
 
 ## Commit messages — always detailed
 

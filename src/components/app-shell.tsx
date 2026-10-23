@@ -1,24 +1,9 @@
-import { DocumentSaveStatus } from '@/components/document-save-status'
-import { TitleBar } from '@/components/title-bar'
-import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { listenForClose, registerCloseSave } from '@/lib/close-handshake'
-import {
-  applyDocumentChanges,
-  invalidateDocumentListsIfMissing,
-} from '@/lib/document-cache'
 import { retryRememberedDocumentChanges } from '@/lib/document-recovery'
-import { hasDocumentSaveFailed } from '@/lib/document-save-state'
-import { pendingDocumentChanges } from '@/lib/pending-changes'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Link,
-  Outlet,
-  useNavigate,
-  useRouterState,
-} from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
-import { useEffect, type MouseEvent } from 'react'
+import { Outlet, useNavigate } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 function AppShell() {
   useEffect(() => listenForClose(), [])
@@ -36,19 +21,10 @@ function AppShell() {
       ),
     [navigate, queryClient],
   )
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  const isDocumentPage = pathname.startsWith('/documents/')
 
   return (
-    <div className="flex h-screen flex-col bg-emerald-50 dark:bg-zinc-900">
-      <TitleBar
-        center={<DocumentSaveStatus />}
-        trailing={isDocumentPage ? <DocumentBackLink /> : undefined}
-      />
-
-      <main className="mx-4 mb-4 min-h-0 flex-1 rounded-lg border border-border bg-white dark:border-input dark:bg-zinc-800">
+    <div className="flex h-screen flex-col bg-white p-6 dark:bg-zinc-900">
+      <main className="min-h-0 flex-1">
         <Outlet />
       </main>
       <Toaster
@@ -59,35 +35,6 @@ function AppShell() {
         closeButton
       />
     </div>
-  )
-}
-
-function DocumentBackLink() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-
-  const openDocuments = (event: MouseEvent<HTMLAnchorElement>): void => {
-    event.preventDefault()
-
-    const pending = pendingDocumentChanges()
-    if (pending !== null) {
-      if (hasDocumentSaveFailed(queryClient, pending.documentId)) {
-        invalidateDocumentListsIfMissing(queryClient, pending.documentId)
-      } else {
-        applyDocumentChanges(queryClient, pending.documentId, pending.changes)
-      }
-    }
-
-    void navigate({ to: '/', replace: true })
-  }
-
-  return (
-    <Button variant="outline" asChild>
-      <Link to="/" replace dir="rtl" onClick={openDocuments}>
-        <ArrowRight />
-        بازگشت به مستندات
-      </Link>
-    </Button>
   )
 }
 

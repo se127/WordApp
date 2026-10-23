@@ -370,7 +370,7 @@ function DocumentBodyEditor({
         role="toolbar"
         aria-label="ابزارهای ویرایش متن"
         dir="rtl"
-        className="flex w-full shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-700"
+        className="-mx-6 flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-800"
       >
         <EditorToolbar editor={editor} />
       </div>
@@ -589,7 +589,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
                 size="icon"
                 aria-label="جهت متن"
                 disabled={editor === null}
-                className="hover:bg-gray-300"
+                className="hover:bg-gray-200 dark:hover:bg-zinc-700"
               >
                 {editorState?.textDirection === 'ltr' ? (
                   <PilcrowRight />
@@ -792,7 +792,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
                 size="icon"
                 aria-label="تراز متن"
                 disabled={editor === null}
-                className="hover:bg-gray-300"
+                className="hover:bg-gray-200 dark:hover:bg-zinc-700"
               >
                 {currentTextAlign.icon}
               </Button>
@@ -833,7 +833,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
                 size="icon"
                 aria-label="موقعیت متن"
                 disabled={editor === null}
-                className="hover:bg-gray-300"
+                className="hover:bg-gray-200 dark:hover:bg-zinc-700"
               >
                 {currentTextPosition.icon}
               </Button>
@@ -876,7 +876,9 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
                 aria-label="کد"
                 disabled={editor === null}
                 className={
-                  editorState?.codeBlock ? undefined : 'hover:bg-gray-300'
+                  editorState?.codeBlock
+                    ? undefined
+                    : 'hover:bg-gray-200 dark:hover:bg-zinc-700'
                 }
               >
                 <Code2 />
@@ -955,7 +957,9 @@ function ToolbarButton({
           aria-label={label}
           aria-pressed={isToggle ? isActive : undefined}
           disabled={disabled}
-          className={isActive ? undefined : 'hover:bg-gray-300'}
+          className={
+            isActive ? undefined : 'hover:bg-gray-200 dark:hover:bg-zinc-700'
+          }
           onMouseDown={(event) => event.preventDefault()}
           onClick={onClick}
         >
@@ -1042,7 +1046,7 @@ function ToolbarColorPicker({
               size="icon"
               aria-label={label}
               disabled={editor === null}
-              className="hover:bg-gray-300"
+              className="hover:bg-gray-200 dark:hover:bg-zinc-700"
             >
               <span className="flex flex-col items-center justify-center gap-0.5">
                 {icon}

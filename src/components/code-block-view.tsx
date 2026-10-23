@@ -174,7 +174,7 @@ export function CodeBlockView({ node, editor, getPos }: NodeViewProps) {
             type="button"
             variant="ghost"
             size="icon"
-            className="absolute top-2 right-3 z-10 border border-border bg-background text-foreground shadow-sm disabled:opacity-100"
+            className="absolute top-2 right-3 z-10 border border-border bg-white text-zinc-900 shadow-sm hover:bg-white hover:text-zinc-900 disabled:opacity-100 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-900 dark:hover:text-white"
             aria-label="کپی"
             aria-busy={copyState === 'copying'}
             disabled={!isIdle}
@@ -183,7 +183,7 @@ export function CodeBlockView({ node, editor, getPos }: NodeViewProps) {
             {copyState === 'copying' ? (
               <LoaderCircle className="size-4 animate-spin" />
             ) : copyState === 'copied' ? (
-              <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+              <Check className="size-4" />
             ) : (
               <Copy className="size-4" />
             )}

@@ -285,9 +285,9 @@ describe('routes', () => {
       name: 'مستندات (۰)',
     })
     expect(heading).toBeInTheDocument()
-    expect(heading).toHaveClass('flex', 'h-8', 'items-center')
+    expect(heading).toHaveClass('flex', 'items-center', 'gap-2')
     expect(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     ).toBeInTheDocument()
@@ -318,12 +318,12 @@ describe('routes', () => {
     renderRoute('/')
 
     const heading = await screen.findByRole('heading')
-    expect(within(heading).getByRole('status')).toHaveClass(
-      'size-4',
-      'animate-spin',
-    )
+    const status = within(heading).getByRole('status')
+    expect(status).toHaveTextContent('در حال بارگذاری تعداد سندها...')
+    expect(status.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
+    expect(status.parentElement).toBe(heading)
     expect(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     ).toBeInTheDocument()
@@ -355,7 +355,7 @@ describe('routes', () => {
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -372,7 +372,23 @@ describe('routes', () => {
     expect(await screen.findByText('(۱)')).not.toHaveClass('animate-pulse')
   })
 
-  it('shows a destructive retry button when the count read fails and recovers the count when pressed', async () => {
+  it('tabs from the theme picker to the add button on the home title row', async () => {
+    installBridge()
+    const user = userEvent.setup()
+
+    renderRoute('/')
+    await screen.findByRole('heading', { name: 'مستندات (۰)' })
+
+    await user.tab()
+
+    expect(screen.getByRole('button', { name: 'تغییر پوسته' })).toHaveFocus()
+
+    await user.tab()
+
+    expect(screen.getByRole('button', { name: 'افزودن سند' })).toHaveFocus()
+  })
+
+  it('shows an outline count retry beside the destructive failure text on the heading line and recovers the count when pressed', async () => {
     let attempts = 0
     const count = vi.fn((): Promise<number> => {
       attempts += 1
@@ -385,11 +401,29 @@ describe('routes', () => {
 
     renderRoute('/')
 
-    const retry = await screen.findByRole('button', {
-      name: 'تلاش دوباره برای دریافت تعداد سندها',
+    const message = await screen.findByText('بارگذاری تعداد سندها ناموفق بود.')
+    expect(message).toHaveClass('text-destructive')
+    const retry = screen.getByRole('button', {
+      name: 'تلاش دوباره',
     })
-    expect(retry).toHaveClass('text-destructive', 'hover:text-destructive')
-    expect(retry).not.toHaveClass('hover:text-foreground')
+    expect(retry).toHaveAttribute('data-variant', 'outline')
+    expect(retry).toHaveAttribute('data-size', 'default')
+    expect(retry).not.toHaveClass('text-destructive')
+    expect(retry.querySelector('svg')).not.toHaveClass('text-destructive')
+    expect(retry).toHaveTextContent('تلاش دوباره')
+
+    const heading = screen.getByRole('heading')
+    expect(heading).toHaveClass('flex', 'items-center', 'gap-2')
+    expect(heading).toContainElement(message)
+    expect(heading).toContainElement(retry)
+    expect(message.parentElement).toBe(retry.parentElement)
+    expect(message.parentElement).toHaveClass('flex', 'items-center')
+    expect(message.nextElementSibling).toBe(retry)
+
+    retry.focus()
+    await user.tab()
+
+    expect(screen.getByRole('button', { name: 'تغییر پوسته' })).toHaveFocus()
 
     await user.click(retry)
 
@@ -399,29 +433,9 @@ describe('routes', () => {
     expect(count).toHaveBeenCalledTimes(2)
     expect(
       screen.queryByRole('button', {
-        name: 'تلاش دوباره برای دریافت تعداد سندها',
+        name: 'تلاش دوباره',
       }),
     ).not.toBeInTheDocument()
-  })
-
-  it('explains the retry button with a tooltip', async () => {
-    const count = vi.fn(async (): Promise<number> => {
-      throw new Error('count read failed')
-    })
-    installBridge({ count })
-    const user = userEvent.setup()
-
-    renderRoute('/')
-
-    await user.hover(
-      await screen.findByRole('button', {
-        name: 'تلاش دوباره برای دریافت تعداد سندها',
-      }),
-    )
-
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'تلاش دوباره برای دریافت تعداد سندها',
-    )
   })
 
   it('shows the heading loader while a retry from a failed count is in flight', async () => {
@@ -443,7 +457,7 @@ describe('routes', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'تلاش دوباره برای دریافت تعداد سندها',
+        name: 'تلاش دوباره',
       }),
     )
 
@@ -451,7 +465,7 @@ describe('routes', () => {
     expect(await within(heading).findByRole('status')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', {
-        name: 'تلاش دوباره برای دریافت تعداد سندها',
+        name: 'تلاش دوباره',
       }),
     ).not.toBeInTheDocument()
 
@@ -491,12 +505,12 @@ describe('routes', () => {
     })
 
     const retry = await screen.findByRole('button', {
-      name: 'تلاش دوباره برای دریافت تعداد سندها',
+      name: 'تلاش دوباره',
     })
 
     await user.click(retry)
     const busy = screen.getByRole('button', {
-      name: 'تلاش دوباره برای دریافت تعداد سندها',
+      name: 'تلاش دوباره',
     })
     expect(busy).toBeDisabled()
     expect(busy.querySelector('svg')).toHaveClass('size-4', 'animate-spin')
@@ -509,7 +523,7 @@ describe('routes', () => {
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', {
-        name: 'تلاش دوباره برای دریافت تعداد سندها',
+        name: 'تلاش دوباره',
       }),
     ).not.toBeInTheDocument()
   })
@@ -569,17 +583,19 @@ describe('routes', () => {
     })
     expect(toolbar).toHaveAttribute('dir', 'rtl')
     expect(toolbar).toHaveClass(
+      '-mx-6',
       'flex',
       'flex-wrap',
-      'w-full',
       'gap-x-1',
       'gap-y-2',
       'border-y',
       'bg-gray-100',
       'px-6',
-      'dark:bg-zinc-700',
+      'dark:bg-zinc-800',
     )
+    expect(toolbar).not.toHaveClass('w-full')
     expect(toolbar).not.toHaveClass('border-x')
+    expect(toolbar).not.toHaveClass('px-4')
     expect(
       within(toolbar)
         .getAllByRole('button')
@@ -604,8 +620,11 @@ describe('routes', () => {
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement
-    expect(page).toHaveClass('flex', 'h-full', 'min-h-0', 'flex-col', 'py-6')
-    expect(page).not.toHaveClass('overflow-auto', 'p-6', 'px-6')
+    expect(page).toHaveClass('flex', 'min-h-0', 'flex-1', 'flex-col', 'pt-6')
+    expect(page).not.toHaveClass('overflow-auto')
+    expect(page).not.toHaveClass('p-6')
+    expect(page).not.toHaveClass('px-6')
+    expect(page).not.toHaveClass('py-6')
     expect(document.querySelector('.document-body-editor')).not.toHaveClass(
       'mt-2',
     )
@@ -613,13 +632,23 @@ describe('routes', () => {
     const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
     const titleBar = document.querySelector('[data-slot="title-bar"]')
     expect(back.closest('[data-slot="title-bar"]')).toBe(titleBar)
-    expect(back.parentElement).toHaveClass('pe-4')
-    expect(titleBar).toHaveClass('justify-between')
-    expect(titleBar?.firstElementChild).toContainElement(
+    expect(titleBar?.parentElement).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'flex-col',
+    )
+    expect(titleBar?.parentElement).not.toHaveClass('p-6')
+    expect(back.parentElement).not.toHaveClass('pe-4')
+    expect(titleBar).toHaveClass('justify-between', 'relative')
+    expect(titleBar).not.toHaveClass('absolute', 'pointer-events-none')
+    expect(titleBar?.firstElementChild).toContainElement(back)
+    expect(titleBar?.lastElementChild).toContainElement(
       screen.getByRole('button', { name: 'تغییر پوسته' }),
     )
-    expect(titleBar?.lastElementChild).toContainElement(back)
-    expect(heading.parentElement).toHaveClass('mb-5', 'px-6')
+    expect(heading.parentElement).toHaveClass('mb-5')
+    expect(heading.parentElement).not.toHaveClass('px-4')
+    expect(heading.parentElement).not.toHaveClass('px-6')
   })
 
   it('reports a failed document read with an error and a retry button, and recovers the document when pressed', async () => {
@@ -639,9 +668,7 @@ describe('routes', () => {
 
     renderRoute('/documents/1')
 
-    const message = await screen.findByText(
-      'بارگذاری سند ناموفق بود. دوباره تلاش کنید.',
-    )
+    const message = await screen.findByText('بارگذاری سند ناموفق بود.')
     expect(message.parentElement).toHaveClass(
       'items-center',
       'justify-center',
@@ -656,9 +683,9 @@ describe('routes', () => {
     const retry = screen.getByRole('button', {
       name: 'تلاش دوباره',
     })
-    expect(retry).not.toHaveClass('text-destructive')
-    expect(retry).not.toHaveClass('hover:text-destructive')
-    expect(retry.querySelector('svg')).toHaveClass('text-destructive')
+    expect(retry).toHaveAttribute('data-variant', 'outline')
+    expect(retry).toHaveAttribute('data-size', 'default')
+    expect(retry.querySelector('svg')).not.toHaveClass('text-destructive')
 
     await user.click(retry)
 
@@ -666,7 +693,7 @@ describe('routes', () => {
       await screen.findByRole('heading', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سند ناموفق بود.'),
     ).not.toBeInTheDocument()
     expect(get).toHaveBeenCalledTimes(2)
   })
@@ -698,7 +725,7 @@ describe('routes', () => {
       await screen.findByRole('status', { name: 'در حال بارگذاری سند' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سند ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سند ناموفق بود.'),
     ).not.toBeInTheDocument()
 
     await vi.waitFor(() => expect(finishRetry).toBeTypeOf('function'))
@@ -780,7 +807,7 @@ describe('routes', () => {
     renderRoute('/')
 
     expect(
-      await screen.findByText('نمایش این صفحه ناموفق بود. دوباره تلاش کنید.'),
+      await screen.findByText('نمایش این صفحه ناموفق بود.'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Something went wrong!')).not.toBeInTheDocument()
 
@@ -806,8 +833,8 @@ describe('routes', () => {
       'transition-colors',
       'hover:bg-gray-100',
       'focus:bg-gray-100',
-      'dark:hover:bg-zinc-700',
-      'dark:focus:bg-zinc-700',
+      'dark:hover:bg-zinc-800',
+      'dark:focus:bg-zinc-800',
       'focus:border-input',
     )
   })
@@ -836,8 +863,13 @@ describe('routes', () => {
     renderRoute('/documents/1')
     const heading = await screen.findByRole('heading', { name: 'بدون عنوان' })
     const back = screen.getByRole('link', { name: 'بازگشت به مستندات' })
+    const picker = screen.getByRole('button', { name: 'تغییر پوسته' })
 
     back.focus()
+    await user.tab()
+
+    expect(picker).toHaveFocus()
+
     await user.tab()
 
     expect(heading).toHaveFocus()
@@ -1884,7 +1916,7 @@ describe('routes', () => {
     renderRoute('/')
     await screen.findByText('هنوز سندی ثبت نشده است.')
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2059,9 +2091,8 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    const main = await screen.findByRole('main')
     await user.click(
-      await within(main).findByRole('button', {
+      await screen.findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2087,14 +2118,13 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    const main = await screen.findByRole('main')
     await user.click(
-      await within(main).findByRole('button', {
+      await screen.findByRole('button', {
         name: 'افزودن سند',
       }),
     )
 
-    const button = within(screen.getByRole('main')).getByRole('button', {
+    const button = screen.getByRole('button', {
       name: 'در حال ساخت سند...',
     })
     expect(button).toBeDisabled()
@@ -2448,7 +2478,7 @@ describe('routes', () => {
     await screen.findByRole('heading', { name: 'مستندات (۰)' })
 
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2473,9 +2503,8 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    const main = await screen.findByRole('main')
     await user.click(
-      await within(main).findByRole('button', {
+      await screen.findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2493,7 +2522,7 @@ describe('routes', () => {
       screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     ).toBeEnabled()
@@ -2505,9 +2534,8 @@ describe('routes', () => {
     const user = userEvent.setup()
 
     renderRoute('/')
-    const main = await screen.findByRole('main')
     await user.click(
-      await within(main).findByRole('button', {
+      await screen.findByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -2837,7 +2865,7 @@ describe('routes', () => {
     expect(status).toHaveClass('items-center', 'justify-center')
     expect(status).toHaveTextContent('در حال بارگذاری سندها...')
     expect(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     ).toBeEnabled()
@@ -2893,7 +2921,7 @@ describe('routes', () => {
       name: 'ترتیب بر اساس تاریخ ایجاد',
     })
     expect(orderSelect).toBeEnabled()
-    const addButton = within(screen.getByRole('main')).getByRole('button', {
+    const addButton = screen.getByRole('button', {
       name: 'افزودن سند',
     })
     const selectionToggle = screen.getByRole('button', {
@@ -3476,9 +3504,7 @@ describe('routes', () => {
 
     renderRoute('/')
 
-    const message = await screen.findByText(
-      'بارگذاری سندها ناموفق بود. دوباره تلاش کنید.',
-    )
+    const message = await screen.findByText('بارگذاری سندها ناموفق بود.')
     expect(message.parentElement).toHaveClass(
       'items-center',
       'justify-center',
@@ -3493,7 +3519,7 @@ describe('routes', () => {
       screen.getByRole('heading', { name: 'مستندات (۰)' }),
     ).toBeInTheDocument()
     expect(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     ).toBeEnabled()
@@ -3501,9 +3527,9 @@ describe('routes', () => {
     const retry = screen.getByRole('button', {
       name: 'تلاش دوباره',
     })
-    expect(retry).not.toHaveClass('text-destructive')
-    expect(retry).not.toHaveClass('hover:text-destructive')
-    expect(retry.querySelector('svg')).toHaveClass('text-destructive')
+    expect(retry).toHaveAttribute('data-variant', 'outline')
+    expect(retry).toHaveAttribute('data-size', 'default')
+    expect(retry.querySelector('svg')).not.toHaveClass('text-destructive')
 
     await user.click(retry)
 
@@ -3511,7 +3537,7 @@ describe('routes', () => {
       await screen.findByRole('link', { name: 'بدون عنوان' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سندها ناموفق بود.'),
     ).not.toBeInTheDocument()
     expect(list).toHaveBeenCalledTimes(2)
   })
@@ -3521,16 +3547,16 @@ describe('routes', () => {
 
     renderRoute('/')
 
-    const message = await screen.findByText(
-      'بارگذاری سندها ناموفق بود. دوباره تلاش کنید.',
-    )
+    const message = await screen.findByText('بارگذاری سندها ناموفق بود.')
     expect(message.parentElement).toHaveClass(
       'items-center',
       'justify-center',
       'flex-col',
     )
     expect(
-      screen.getByRole('button', { name: 'تلاش دوباره' }),
+      within(message.parentElement as HTMLElement).getByRole('button', {
+        name: 'تلاش دوباره',
+      }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
@@ -3564,7 +3590,7 @@ describe('routes', () => {
       await screen.findByRole('status', { name: 'در حال بارگذاری سندها' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سندها ناموفق بود.'),
     ).not.toBeInTheDocument()
 
     await act(() => finishRetry([storedDocument]))
@@ -3841,7 +3867,7 @@ describe('routes', () => {
     await user.click(paginationPageLink(2))
 
     expect(
-      await screen.findByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      await screen.findByText('بارگذاری سندها ناموفق بود.'),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'سند 1' }),
@@ -3911,19 +3937,24 @@ describe('routes', () => {
     })
 
     expect(
-      await screen.findByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      await screen.findByText('بارگذاری سندها ناموفق بود.'),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('status', { name: 'در حال بارگذاری سندها' }),
     ).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'تلاش دوباره' }))
+    const listFailure = screen.getByText('بارگذاری سندها ناموفق بود.')
+    await user.click(
+      within(listFailure.parentElement as HTMLElement).getByRole('button', {
+        name: 'تلاش دوباره',
+      }),
+    )
 
     expect(
       await screen.findByRole('link', { name: 'سند 1' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سندها ناموفق بود.'),
     ).not.toBeInTheDocument()
     expect(
       screen.getByRole('heading', {
@@ -3983,7 +4014,7 @@ describe('routes', () => {
       })
     })
     expect(
-      await screen.findByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      await screen.findByText('بارگذاری سندها ناموفق بود.'),
     ).toBeInTheDocument()
 
     holdFirstPage = true
@@ -3999,7 +4030,7 @@ describe('routes', () => {
       screen.getByRole('status', { name: 'در حال بارگذاری سندها' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سندها ناموفق بود.'),
     ).not.toBeInTheDocument()
 
     await act(() => finishFirstPage(documents.slice(0, documentPageSize)))
@@ -4013,7 +4044,7 @@ describe('routes', () => {
       }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('بارگذاری سندها ناموفق بود. دوباره تلاش کنید.'),
+      screen.queryByText('بارگذاری سندها ناموفق بود.'),
     ).not.toBeInTheDocument()
   })
 
@@ -4107,7 +4138,7 @@ describe('routes', () => {
     await screen.findByRole('link', { name: `سند ${documentPageSize + 1}` })
 
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -4165,7 +4196,7 @@ describe('routes', () => {
     saveHomeScrollPosition({ page: 1, scrollTop: 400 })
 
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )
@@ -4628,7 +4659,8 @@ describe('routes', () => {
     expect(toggle).toHaveAttribute('data-variant', 'outline')
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
     expect(toggle.querySelector('svg')).toHaveClass('lucide-list-checks')
-    expect(toggle.querySelector('svg')).not.toHaveClass('text-sidebar-primary')
+    expect(toggle).not.toHaveClass('bg-primary')
+    expect(toggle).not.toHaveClass('text-primary-foreground')
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
@@ -4641,9 +4673,10 @@ describe('routes', () => {
 
     await user.click(toggle)
 
-    expect(toggle).toHaveAttribute('data-variant', 'outline')
+    expect(toggle).toHaveAttribute('data-variant', 'default')
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    expect(toggle.querySelector('svg')).toHaveClass('text-sidebar-primary')
+    expect(toggle).toHaveClass('bg-primary', 'text-primary-foreground')
+    expect(toggle).not.toHaveClass('text-sidebar-primary')
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
     expect(
       screen.getByRole('checkbox', { name: 'انتخاب سند یادداشت' }),
@@ -5052,7 +5085,7 @@ describe('routes', () => {
     ).toBeInTheDocument()
 
     await user.click(
-      within(screen.getByRole('main')).getByRole('button', {
+      screen.getByRole('button', {
         name: 'افزودن سند',
       }),
     )

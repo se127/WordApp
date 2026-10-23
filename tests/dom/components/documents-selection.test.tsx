@@ -85,9 +85,10 @@ describe('DocumentsSelectionToolbar', () => {
     const toggle = screen.getByRole('button', {
       name: 'انتخاب گروهی اسناد',
     })
-    expect(toggle).toHaveAttribute('data-variant', 'outline')
+    expect(toggle).toHaveAttribute('data-variant', 'default')
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    expect(toggle.querySelector('svg')).toHaveClass('text-sidebar-primary')
+    expect(toggle).toHaveClass('bg-primary', 'text-primary-foreground')
+    expect(toggle).not.toHaveClass('text-sidebar-primary')
 
     await user.click(
       screen.getByRole('button', { name: 'حذف اسناد انتخاب شده (۱٬۰۰۰)' }),
@@ -142,7 +143,8 @@ describe('DocumentsSelectionToolbar', () => {
     })
     expect(toggle).toHaveAttribute('data-variant', 'outline')
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    expect(toggle.querySelector('svg')).not.toHaveClass('text-sidebar-primary')
+    expect(toggle).not.toHaveClass('bg-primary')
+    expect(toggle).not.toHaveClass('text-primary-foreground')
     expect(
       screen.queryByRole('button', { name: /^حذف اسناد انتخاب شده/ }),
     ).not.toBeInTheDocument()
