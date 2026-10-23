@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -24,6 +24,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  CodeBlockSelectAll,
+  codeBlockLanguages,
+  resolveCodeBlockLanguage,
+  ShikiCodeBlock,
+  type CodeBlockLanguage,
+} from '@/lib/code-block'
 import {
   fontSizes,
   normalizePastedFontSizes,
@@ -45,6 +52,7 @@ import {
   type Editor,
 } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
+import { ScrollArea as ScrollAreaPrimitive } from 'radix-ui'
 import {
   AlignCenter,
   AlignJustify,
@@ -52,6 +60,9 @@ import {
   AlignRight,
   Baseline,
   Bold,
+  Check,
+  ChevronLeft,
+  Code2,
   Heading2,
   Heading3,
   Heading4,
@@ -79,7 +90,9 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import './document-body-editor.css'
 
 const documentBodyExtensions = [
-  StarterKit,
+  StarterKit.configure({ codeBlock: false }),
+  ShikiCodeBlock,
+  CodeBlockSelectAll,
   TextStyle,
   Color,
   FontSize,
@@ -152,6 +165,25 @@ const textPositionOptions = [
   { value: 'superscript', label: 'بالا نویس', icon: <Superscript /> },
   { value: 'subscript', label: 'پایین نویس', icon: <Subscript /> },
 ]
+
+const codeBlockLanguageLabels: Record<CodeBlockLanguage, string> = {
+  plaintext: 'کد ساده',
+  html: 'HTML',
+  css: 'CSS',
+  javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  php: 'PHP',
+  python: 'Python',
+  json: 'JSON',
+  bash: 'Bash',
+  sql: 'SQL',
+  markdown: 'Markdown',
+}
+
+const codeBlockLanguageOptions = codeBlockLanguages.map((value) => ({
+  value,
+  label: codeBlockLanguageLabels[value],
+}))
 
 const colorGrid = [
   [
@@ -271,6 +303,21 @@ function textPositionValue(
   return 'baseline'
 }
 
+function codeBlockLanguageValue(editor: Editor | null): string | null {
+  if (editor === null) {
+    return null
+  }
+
+  const language = editor.getAttributes('codeBlock').language
+  const resolved = resolveCodeBlockLanguage(language)
+
+  if (resolved !== null) {
+    return resolved
+  }
+
+  return typeof language === 'string' ? language : null
+}
+
 function useEditorFocusAfterToolbarSelection(editor: Editor | null) {
   const focusEditorOnClose = useRef(false)
 
@@ -328,15 +375,37 @@ function DocumentBodyEditor({
         <EditorToolbar editor={editor} />
       </div>
 
-      <ScrollArea type="auto" className="min-h-0 flex-1">
+      <EditorScrollArea>
         <div
           dir="rtl"
           className="document-body-prose prose min-h-full max-w-none text-foreground prose-neutral dark:text-white dark:prose-invert"
         >
           <EditorContent editor={editor} className="min-h-full" />
         </div>
-      </ScrollArea>
+      </EditorScrollArea>
     </div>
+  )
+}
+
+function EditorScrollArea({ children }: { children: ReactNode }) {
+  return (
+    <ScrollAreaPrimitive.Root
+      data-slot="scroll-area"
+      type="auto"
+      className="relative min-h-0 flex-1"
+    >
+      <ScrollAreaPrimitive.Viewport
+        data-slot="scroll-area-viewport"
+        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        disableImplicitContentElement
+      >
+        <ScrollAreaPrimitive.Content data-slot="scroll-area-content">
+          {children}
+        </ScrollAreaPrimitive.Content>
+      </ScrollAreaPrimitive.Viewport>
+      <ScrollBar />
+      <ScrollAreaPrimitive.Corner />
+    </ScrollAreaPrimitive.Root>
   )
 }
 
@@ -365,6 +434,8 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       bulletList: currentEditor?.isActive('bulletList') ?? false,
       orderedList: currentEditor?.isActive('orderedList') ?? false,
       blockquote: currentEditor?.isActive('blockquote') ?? false,
+      codeBlock: currentEditor?.isActive('codeBlock') ?? false,
+      codeBlockLanguage: codeBlockLanguageValue(currentEditor),
       canUndo: currentEditor?.can().undo() ?? false,
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
@@ -384,6 +455,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const fontSizeFocus = useEditorFocusAfterToolbarSelection(editor)
   const textAlignFocus = useEditorFocusAfterToolbarSelection(editor)
   const textPositionFocus = useEditorFocusAfterToolbarSelection(editor)
+  const codeBlockFocus = useEditorFocusAfterToolbarSelection(editor)
 
   const currentTextStyle =
     textStyleOptions.find(
@@ -469,6 +541,25 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     }
 
     editor.chain().focus().unsetSuperscript().unsetSubscript().run()
+  }
+
+  const setCodeBlockLanguage = (value: CodeBlockLanguage): void => {
+    if (editor === null) {
+      return
+    }
+
+    codeBlockFocus.markToolbarSelection()
+
+    if (editor.isActive('codeBlock')) {
+      editor
+        .chain()
+        .focus()
+        .updateAttributes('codeBlock', { language: value })
+        .run()
+      return
+    }
+
+    editor.chain().focus().setCodeBlock({ language: value }).run()
   }
 
   return (
@@ -774,6 +865,51 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         </DropdownMenuContent>
       </DropdownMenu>
       <Separator orientation="vertical" />
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant={editorState?.codeBlock ? 'default' : 'ghost'}
+                size="icon"
+                aria-label="کد"
+                disabled={editor === null}
+                className={
+                  editorState?.codeBlock ? undefined : 'hover:bg-gray-300'
+                }
+              >
+                <Code2 />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>کد</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="start"
+          className="w-48"
+          onCloseAutoFocus={codeBlockFocus.handleCloseAutoFocus}
+        >
+          <ScrollArea type="auto" className="h-48 pe-3">
+            <DropdownMenuGroup>
+              {codeBlockLanguageOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  className="whitespace-nowrap"
+                  onSelect={() => setCodeBlockLanguage(option.value)}
+                >
+                  <ChevronLeft />
+                  {option.label}
+                  {editorState?.codeBlock &&
+                  editorState.codeBlockLanguage === option.value ? (
+                    <Check className="ms-auto" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </ScrollArea>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <ToolbarButton
         label="نقل قول"
         disabled={editor === null}

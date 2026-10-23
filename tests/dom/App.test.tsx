@@ -147,6 +147,17 @@ describe('App', () => {
     )
   })
 
+  it('shows the default cursor over scroll areas', async () => {
+    const styles = await readFile('src/index.css', 'utf8')
+
+    expect(styles).toMatch(
+      /\[data-slot='scroll-area-scrollbar'\],\s*\[data-slot='scroll-area-thumb'\]\s*\{[^}]*cursor: default;/,
+    )
+    expect(styles).toMatch(
+      /\[data-slot='scroll-area'\]:has\(\[data-slot='scroll-area-thumb'\]:active\)\s*\{[^}]*cursor: default;/,
+    )
+  })
+
   it('mounts without the preload bridge', async () => {
     Reflect.deleteProperty(window, 'WordApp')
 

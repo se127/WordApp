@@ -130,6 +130,13 @@
   [role='button']:not(:disabled) {
     cursor: pointer;
   }
+  [data-slot='scroll-area-scrollbar'],
+  [data-slot='scroll-area-thumb'] {
+    cursor: default;
+  }
+  [data-slot='scroll-area']:has([data-slot='scroll-area-thumb']:active) {
+    cursor: default;
+  }
   html {
     @apply font-sans;
   }

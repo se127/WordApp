@@ -1,7 +1,13 @@
 import { DocumentBodyEditor } from '@/components/document-body-editor'
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readFile } from 'node:fs/promises'
 import { StrictMode } from 'react'
@@ -75,7 +81,12 @@ describe('DocumentBodyEditor', () => {
       'max-w-none',
     )
     expect(editor.closest('[data-slot="scroll-area"]')).not.toBeNull()
-    expect(editor.closest('[data-slot="scroll-area-viewport"]')).not.toBeNull()
+    const editorViewport = editor.closest('[data-slot="scroll-area-viewport"]')
+    const editorContent = editorViewport?.firstElementChild
+    expect(editorContent).toHaveAttribute('data-slot', 'scroll-area-content')
+    expect(editorContent?.firstElementChild).toBe(
+      editor.closest('.document-body-prose'),
+    )
 
     const toolbar = screen.getByRole('toolbar', {
       name: 'ابزارهای ویرایش متن',
@@ -111,6 +122,7 @@ describe('DocumentBodyEditor', () => {
       'لیست نشانه دار',
       'تراز متن',
       'موقعیت متن',
+      'کد',
       'نقل قول',
       'خط افقی',
     ])
@@ -129,6 +141,7 @@ describe('DocumentBodyEditor', () => {
       orderedListButton,
       textAlignButton,
       textPositionButton,
+      codeBlockButton,
       blockquoteButton,
       horizontalRuleButton,
     ] = buttons
@@ -149,6 +162,7 @@ describe('DocumentBodyEditor', () => {
       highlightColorButton,
       textAlignButton,
       textPositionButton,
+      codeBlockButton,
       horizontalRuleButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
@@ -193,7 +207,8 @@ describe('DocumentBodyEditor', () => {
     expect(separators[3]?.nextElementSibling).toBe(textAlignButton)
     expect(textAlignButton.nextElementSibling).toBe(textPositionButton)
     expect(textPositionButton.nextElementSibling).toBe(separators[4])
-    expect(separators[4]?.nextElementSibling).toBe(blockquoteButton)
+    expect(separators[4]?.nextElementSibling).toBe(codeBlockButton)
+    expect(codeBlockButton.nextElementSibling).toBe(blockquoteButton)
     expect(blockquoteButton.nextElementSibling).toBe(horizontalRuleButton)
 
     const user = userEvent.setup()
@@ -253,13 +268,13 @@ describe('DocumentBodyEditor', () => {
     )
     expect(editorStyles).toMatch(/\.ProseMirror\s*\{[^}]*font-size: 16px;/)
     expect(editorStyles).toMatch(
-      /\.is-editor-empty:first-child\s*\{[^}]*position: relative;/,
+      /\.is-editor-empty:first-child:not\(pre\):not\(\.code-block-frame\)\s*\{[^}]*position: relative;/,
     )
     expect(editorStyles).toMatch(
-      /\.is-editor-empty:first-child::before\s*\{[^}]*position: absolute;[^}]*inset-inline: 0;[^}]*color: var\(--muted-foreground\);[^}]*content: attr\(data-placeholder\);[^}]*text-align: inherit;/,
+      /\.is-editor-empty:first-child:not\(pre\):not\(\.code-block-frame\)::before\s*\{[^}]*position: absolute;[^}]*inset-inline: 0;[^}]*color: var\(--muted-foreground\);[^}]*content: attr\(data-placeholder\);[^}]*text-align: inherit;/,
     )
     expect(editorStyles).not.toMatch(
-      /\.is-editor-empty:first-child::before\s*\{[^}]*float:/,
+      /\.is-editor-empty:first-child:not\(pre\):not\(\.code-block-frame\)::before\s*\{[^}]*float:/,
     )
     expect(editorStyles).not.toMatch(/\[dir='ltr'\]\.is-editor-empty/)
   })
@@ -351,6 +366,512 @@ describe('DocumentBodyEditor', () => {
     expect(emptyHeading).toHaveAttribute(
       'data-placeholder',
       'متن سند را اینجا بنویسید...',
+    )
+  })
+
+  it('opens the code menu with the same languages as the reference editor', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+
+    const menu = await screen.findByRole('menu')
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((item) => item.textContent?.trim())).toEqual([
+      'کد ساده',
+      'HTML',
+      'CSS',
+      'JavaScript',
+      'TypeScript',
+      'PHP',
+      'Python',
+      'JSON',
+      'Bash',
+      'SQL',
+      'Markdown',
+    ])
+
+    const scrollArea = menu.querySelector('[data-slot="scroll-area"]')
+    expect(scrollArea).toHaveClass('h-48')
+    const viewport = scrollArea?.querySelector(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    expect(viewport).not.toBeNull()
+    expect(items.every((item) => viewport?.contains(item))).toBe(true)
+  })
+
+  it('inserts a highlighted code block and keeps shiki styles out of the saved body', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+
+    const editor = await editorTextbox()
+    expect(editor).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'کد' })).toHaveAttribute(
+      'data-variant',
+      'default',
+    )
+
+    await user.keyboard('const value = 1')
+
+    const frame = editor.querySelector('.code-block-frame')
+    const pre = frame?.querySelector('.code-block-content')
+    expect(frame).toHaveAttribute('dir', 'ltr')
+    expect(frame).toHaveClass('shiki')
+    expect(frame?.getAttribute('style')).toMatch(
+      /--wordapp-shiki-light-bg:\s*var\(--color-gray-100\)/,
+    )
+    expect(frame?.getAttribute('style')).toMatch(
+      /--wordapp-shiki-light-bg:\s*var\(--color-gray-100\);\s*--wordapp-shiki-dark-bg:\s*#[0-9a-f]{6};\s*--wordapp-shiki-light-fg:\s*#[0-9a-f]{6};\s*--wordapp-shiki-dark-fg:\s*#[0-9a-f]{6}/i,
+    )
+    expect(frame?.getAttribute('style')).not.toMatch(/line-number/)
+    expect(pre).toHaveAttribute('dir', 'ltr')
+    expect(pre?.querySelector('code')).toHaveTextContent('const value = 1')
+
+    const gutter = frame?.querySelector('.code-block-gutter')
+    expect(gutter?.textContent).toBe('۱')
+    expect(gutter).toHaveAttribute('aria-hidden', 'true')
+    expect(gutter).toHaveAttribute('contenteditable', 'false')
+    expect(pre?.querySelector('.code-block-gutter')).toBeNull()
+
+    const token = Array.from(
+      frame?.querySelectorAll('code span[style]') ?? [],
+    ).find((span) => span.textContent === 'const')
+    expect(token).toBeDefined()
+    expect(token?.getAttribute('style')).toContain('--wordapp-shiki-light:')
+    expect(token?.getAttribute('style')).toContain('--wordapp-shiki-dark:')
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<pre dir="ltr"><code class="language-javascript">const value = 1</code></pre><p dir="rtl"></p>',
+    )
+  })
+
+  it('numbers code block lines and updates the gutter while typing', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ onBodyChange })
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector('.code-block-frame')
+    const pre = frame?.querySelector('.code-block-content')
+    const gutter = frame?.querySelector('.code-block-gutter')
+    expect(gutter?.textContent).toBe('۱')
+
+    await user.keyboard('const a = 1{Enter}const b = 2')
+    expect(gutter?.textContent).toBe('۱\n۲')
+
+    await user.keyboard('{Enter}{Enter}const c = 3')
+    expect(gutter?.textContent).toBe('۱\n۲\n۳\n۴')
+    expect(pre?.querySelector('code')?.textContent).toBe(
+      'const a = 1\nconst b = 2\n\nconst c = 3',
+    )
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<pre dir="ltr"><code class="language-javascript">const a = 1\nconst b = 2\n\nconst c = 3</code></pre><p dir="rtl"></p>',
+    )
+  })
+
+  it('does not group code line numbers', async () => {
+    const lines = Array.from(
+      { length: 1000 },
+      (_, index) => `line ${index + 1}`,
+    ).join('\n')
+    renderEditor({ body: `<pre><code>${lines}</code></pre>` })
+
+    const editor = await editorTextbox()
+    const gutter = editor.querySelector('.code-block-gutter')
+    const numbers = gutter?.textContent?.split('\n') ?? []
+
+    expect(numbers).toHaveLength(1000)
+    expect(numbers.at(-1)).toBe('۱۰۰۰')
+  })
+
+  it('resets the code block horizontal scroll when enter starts a new line', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+
+    const editor = await editorTextbox()
+    await user.keyboard(
+      "const someVeryLongVariableName = 'this line is long enough to overflow the code block width'",
+    )
+
+    const viewport = editor.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+
+    if (viewport === null) {
+      throw new Error('Code block viewport is missing')
+    }
+
+    Object.defineProperty(viewport, 'scrollLeft', {
+      configurable: true,
+      writable: true,
+      value: 480,
+    })
+
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => expect(viewport.scrollLeft).toBe(0))
+    expect(editor.querySelector('.code-block-gutter')?.textContent).toBe('۱\n۲')
+  })
+
+  it('selects only the code block text when pressing control+a', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ body: '<p>before</p>', onBodyChange })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    placeCursorAtEnd(editor)
+    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1{Enter}const b = 2')
+    await user.keyboard('{Control>}a{/Control}')
+    await user.keyboard('x')
+
+    const body = onBodyChange.mock.calls.at(-1)?.[0] ?? ''
+    expect(body).toMatch(/<p[^>]*>before<\/p>/)
+    expect(body).toContain('<code class="language-javascript">x</code>')
+    expect(body).not.toContain('const a = 1')
+  })
+
+  it('updates the current code block language and marks the active option', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ onBodyChange })
+    const user = userEvent.setup()
+    const codeButton = screen.getByRole('button', { name: 'کد' })
+
+    await user.click(codeButton)
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const value = 1')
+
+    await user.click(codeButton)
+    const currentItem = await screen.findByRole('menuitem', {
+      name: 'JavaScript',
+    })
+    expect(currentItem.querySelector('svg.lucide-check')).not.toBeNull()
+
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'TypeScript' }),
+    )
+
+    const editor = await editorTextbox()
+    expect(editor).toHaveFocus()
+    expect(editor.querySelector('code')).toHaveTextContent('const value = 1')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<pre dir="ltr"><code class="language-typescript">const value = 1</code></pre><p dir="rtl"></p>',
+    )
+  })
+
+  it('applies every language option and returns focus for each choice', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ onBodyChange })
+    const user = userEvent.setup()
+    const codeButton = screen.getByRole('button', { name: 'کد' })
+
+    await user.click(codeButton)
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const value = 1')
+
+    for (const [label, language] of [
+      ['کد ساده', 'plaintext'],
+      ['HTML', 'html'],
+      ['CSS', 'css'],
+      ['JavaScript', 'javascript'],
+      ['TypeScript', 'typescript'],
+      ['PHP', 'php'],
+      ['Python', 'python'],
+      ['JSON', 'json'],
+      ['Bash', 'bash'],
+      ['SQL', 'sql'],
+      ['Markdown', 'markdown'],
+    ]) {
+      await user.click(codeButton)
+      await user.click(await screen.findByRole('menuitem', { name: label }))
+
+      const editor = await editorTextbox()
+      expect(editor).toHaveFocus()
+      expect(onBodyChange).toHaveBeenLastCalledWith(
+        `<pre dir="ltr"><code class="language-${language}">const value = 1</code></pre><p dir="rtl"></p>`,
+      )
+    }
+  })
+
+  it('returns focus for keyboard selection and keeps the active language unchanged', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ onBodyChange })
+    const user = userEvent.setup()
+    const codeButton = screen.getByRole('button', { name: 'کد' })
+
+    await user.click(codeButton)
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'TypeScript' }),
+    )
+    await user.keyboard('const value: number = 1')
+
+    const bodyBefore = onBodyChange.mock.calls.at(-1)?.[0]
+
+    codeButton.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('menu')
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}')
+
+    const editor = await editorTextbox()
+    expect(editor).toHaveFocus()
+    expect(editor.querySelector('code')).toHaveTextContent(
+      'const value: number = 1',
+    )
+    expect(onBodyChange).toHaveBeenLastCalledWith(bodyBefore)
+  })
+
+  it('highlights stored code blocks and recognizes language aliases', async () => {
+    renderEditor({
+      body: '<pre><code class="language-ts">const value: number = 1\nconst next = 2</code></pre>',
+    })
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector('.code-block-frame')
+    const pre = frame?.querySelector('.code-block-content')
+    expect(pre).toHaveAttribute('dir', 'ltr')
+    expect(frame).toHaveClass('shiki')
+    expect(
+      frame?.querySelectorAll('code span[style]').length ?? 0,
+    ).toBeGreaterThan(0)
+    expect(frame?.querySelector('.code-block-gutter')?.textContent).toBe('۱\n۲')
+    expect(screen.getByRole('button', { name: 'کد' })).toHaveAttribute(
+      'data-variant',
+      'default',
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    const item = await screen.findByRole('menuitem', { name: 'TypeScript' })
+    expect(item.querySelector('svg.lucide-check')).not.toBeNull()
+  })
+
+  it('copies code from a ghost button with loading and success feedback', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText')
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1{Enter}const b = 2')
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector('.code-block-frame')
+    expect(frame).not.toBeNull()
+    const copyButton = within(frame as HTMLElement).getByRole('button', {
+      name: 'کپی',
+    })
+
+    expect(copyButton).toHaveAttribute('data-variant', 'ghost')
+    expect(copyButton).toHaveClass(
+      'absolute',
+      'top-2',
+      'right-3',
+      'border-border',
+      'bg-background',
+      'shadow-sm',
+    )
+    expect(copyButton).toBeEnabled()
+    expect(copyButton.querySelector('svg.lucide-copy')).not.toBeNull()
+
+    await user.hover(copyButton)
+    expect(
+      await screen.findByText('کپی', {
+        selector: '[data-slot="tooltip-content"]',
+      }),
+    ).toBeVisible()
+
+    await user.click(copyButton)
+    expect(copyButton).toBeDisabled()
+    expect(copyButton).toHaveAttribute('aria-busy', 'true')
+    const loader = copyButton.querySelector('svg.lucide-loader-circle')
+    expect(loader).not.toBeNull()
+    expect(loader).toHaveClass('size-4', 'animate-spin')
+    expect(writeText).toHaveBeenCalledWith('const a = 1\nconst b = 2')
+
+    await waitFor(
+      () => expect(copyButton.querySelector('svg.lucide-check')).not.toBeNull(),
+      { timeout: 2000 },
+    )
+    expect(copyButton).toBeDisabled()
+    expect(copyButton).toHaveAttribute('aria-busy', 'false')
+
+    await waitFor(
+      () => expect(copyButton.querySelector('svg.lucide-copy')).not.toBeNull(),
+      { timeout: 2000 },
+    )
+    expect(copyButton).toBeEnabled()
+    expect(await navigator.clipboard.readText()).toBe(
+      'const a = 1\nconst b = 2',
+    )
+    writeText.mockRestore()
+  })
+
+  it('wraps code blocks in a capped two-axis scroll area', async () => {
+    const resizeCallbacks: Array<{
+      target: Element
+      callback: () => void
+    }> = []
+
+    class TestResizeObserver {
+      private readonly callback: () => void
+
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+
+      observe(target: Element) {
+        resizeCallbacks.push({ target, callback: this.callback })
+      }
+
+      unobserve() {}
+
+      disconnect() {}
+    }
+
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const value = 1')
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector('.code-block-frame')
+    const scrollArea = frame?.querySelector('[data-slot="scroll-area"]')
+    const viewport = scrollArea?.querySelector(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    expect(scrollArea).toHaveClass('code-block-scroll')
+    expect(viewport).not.toBeNull()
+    expect(viewport?.querySelector('.code-block-row')).not.toBeNull()
+    expect(viewport?.querySelector('.code-block-gutter')).not.toBeNull()
+    expect(viewport?.querySelector('.code-block-content')).not.toBeNull()
+
+    Object.defineProperties(viewport as HTMLElement, {
+      offsetHeight: { configurable: true, value: 120 },
+      offsetWidth: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 480 },
+      scrollWidth: { configurable: true, value: 480 },
+    })
+
+    for (const { target, callback } of resizeCallbacks) {
+      if (frame?.contains(target)) {
+        callback()
+      }
+    }
+
+    await waitFor(() => {
+      expect(
+        frame?.querySelector(
+          '[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]',
+        ),
+      ).not.toBeNull()
+      expect(
+        frame?.querySelector(
+          '[data-slot="scroll-area-scrollbar"][data-orientation="horizontal"]',
+        ),
+      ).not.toBeNull()
+    })
+
+    const editorStyles = (
+      await readFile('src/components/document-body-editor.css', 'utf8')
+    ).replace(/\s+/g, ' ')
+    expect(editorStyles).toMatch(
+      /\.code-block-scroll \[data-slot='scroll-area-viewport'\] \{[^}]*max-height: 24rem;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.code-block-scrollbar \[data-slot='scroll-area-thumb'\] \{[^}]*background-color: color-mix\(in srgb, currentColor 25%, transparent\);/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-scrollbar \{[^}]*z-index: 2;/,
+    )
+
+    vi.unstubAllGlobals()
+  })
+
+  it('themes and borders code blocks for light and dark modes', async () => {
+    const editorStyles = (
+      await readFile('src/components/document-body-editor.css', 'utf8')
+    ).replace(/\s+/g, ' ')
+
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-frame \{[^}]*border: 1px solid var\(--border\);[^}]*border-radius: var\(--radius-md\);[^}]*background-color: var\(--wordapp-shiki-light-bg\);[^}]*color: var\(--wordapp-shiki-light-fg\);[^}]*caret-color: var\(--wordapp-shiki-light-fg\);/,
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .code-block-frame { background-color: var(--wordapp-shiki-dark-bg); color: var(--wordapp-shiki-dark-fg); caret-color: var(--wordapp-shiki-dark-fg); }',
+    )
+    expect(editorStyles).toContain(
+      '.document-body-editor .ProseMirror .code-block-frame span[style] { color: var(--wordapp-shiki-light); caret-color: var(--wordapp-shiki-light); }',
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .code-block-frame span[style] { color: var(--wordapp-shiki-dark); caret-color: var(--wordapp-shiki-dark); }',
+    )
+  })
+
+  it('constrains the editor column so long code lines scroll inside their block', async () => {
+    const editorStyles = (
+      await readFile('src/components/document-body-editor.css', 'utf8')
+    ).replace(/\s+/g, ' ')
+
+    expect(editorStyles).toMatch(
+      /\.document-body-editor > \[data-slot='scroll-area'\] > \[data-slot='scroll-area-viewport'\] > div \{[^}]*display: flex !important;[^}]*flex-direction: column;[^}]*width: 100%;[^}]*min-height: 100%;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.document-body-prose \{[^}]*flex: 1;[^}]*color: var\(--foreground\);/,
+    )
+  })
+
+  it('lays out code blocks with a sticky line-number gutter', async () => {
+    const editorStyles = (
+      await readFile('src/components/document-body-editor.css', 'utf8')
+    ).replace(/\s+/g, ' ')
+
+    expect(editorStyles).toContain(
+      "@import '@fontsource/jetbrains-mono/300.css';",
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-frame \{[^}]*font-family: 'JetBrains Mono',[^}]*font-weight: 300;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-row \{[^}]*display: flex;[^}]*align-items: stretch;[^}]*width: max-content;[^}]*min-width: 100%;[^}]*padding: 0\.8571429em 0;[^}]*white-space: pre;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-content \{[^}]*flex: 1 0 auto;[^}]*width: max-content;[^}]*margin: 0;[^}]*padding: 0 3rem 0 0\.75em;[^}]*font: inherit;[^}]*white-space: pre;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-gutter \{[^}]*position: sticky;[^}]*left: 0;[^}]*background-color: var\(--wordapp-shiki-light-bg\);[^}]*color: inherit;[^}]*text-align: right;[^}]*user-select: none;[^}]*white-space: pre;/,
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .code-block-gutter { background-color: var(--wordapp-shiki-dark-bg); }',
     )
   })
 
