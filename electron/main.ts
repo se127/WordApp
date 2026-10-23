@@ -49,6 +49,46 @@ const devDbDelay = app.isPackaged ? undefined : process.env.DEV_DB_DELAY
 const devDbFailures = app.isPackaged ? undefined : process.env.DEV_DB_FAILURE
 
 const revealedWindows = new WeakSet<BrowserWindow>()
+const windowsPendingClose = new WeakSet<BrowserWindow>()
+const windowSaveCounts = new WeakMap<BrowserWindow, number>()
+
+function syncWindowClosable(browserWindow: BrowserWindow): void {
+  if (browserWindow.isDestroyed()) {
+    return
+  }
+
+  browserWindow.setClosable(
+    !windowsPendingClose.has(browserWindow) &&
+      (windowSaveCounts.get(browserWindow) ?? 0) === 0,
+  )
+}
+
+function beginWindowSave(browserWindow: BrowserWindow | null): void {
+  if (browserWindow === null) {
+    return
+  }
+
+  windowSaveCounts.set(
+    browserWindow,
+    (windowSaveCounts.get(browserWindow) ?? 0) + 1,
+  )
+  syncWindowClosable(browserWindow)
+}
+
+function endWindowSave(browserWindow: BrowserWindow | null): void {
+  if (browserWindow === null) {
+    return
+  }
+
+  const remainingSaves = (windowSaveCounts.get(browserWindow) ?? 1) - 1
+  if (remainingSaves > 0) {
+    windowSaveCounts.set(browserWindow, remainingSaves)
+  } else {
+    windowSaveCounts.delete(browserWindow)
+  }
+
+  syncWindowClosable(browserWindow)
+}
 
 function revealWindow(browserWindow: BrowserWindow): void {
   if (browserWindow.isDestroyed() || revealedWindows.has(browserWindow)) {
@@ -94,7 +134,6 @@ function createWindow(closeTimeoutMs: number): void {
     },
   })
 
-  let closeRequested = false
   let isClosing = false
   let closeTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -109,6 +148,9 @@ function createWindow(closeTimeoutMs: number): void {
     }
 
     isClosing = true
+    windowsPendingClose.delete(mainWindow)
+    windowSaveCounts.delete(mainWindow)
+    mainWindow.setClosable(true)
     mainWindow.close()
   }
 
@@ -116,7 +158,7 @@ function createWindow(closeTimeoutMs: number): void {
     if (
       isClosing ||
       event.sender !== mainWindow.webContents ||
-      !closeRequested
+      !windowsPendingClose.has(mainWindow)
     ) {
       return
     }
@@ -128,16 +170,17 @@ function createWindow(closeTimeoutMs: number): void {
     if (
       isClosing ||
       event.sender !== mainWindow.webContents ||
-      !closeRequested
+      !windowsPendingClose.has(mainWindow)
     ) {
       return
     }
 
-    closeRequested = false
+    windowsPendingClose.delete(mainWindow)
     if (closeTimer !== undefined) {
       clearTimeout(closeTimer)
       closeTimer = undefined
     }
+    syncWindowClosable(mainWindow)
   }
 
   mainWindow.on('close', (event) => {
@@ -146,11 +189,12 @@ function createWindow(closeTimeoutMs: number): void {
     }
 
     event.preventDefault()
-    if (closeRequested) {
+    if (windowsPendingClose.has(mainWindow)) {
       return
     }
 
-    closeRequested = true
+    windowsPendingClose.add(mainWindow)
+    syncWindowClosable(mainWindow)
     try {
       mainWindow.webContents.send(appBeforeCloseChannel)
     } catch {
@@ -546,12 +590,32 @@ async function startApp(): Promise<void> {
   )
   ipcMain.handle(
     documentsSaveChannel,
-    (_event, id: unknown, changes: unknown) =>
-      typeof id === 'number' &&
-      Number.isSafeInteger(id) &&
-      isDocumentChanges(changes)
-        ? database.saveDocument(id, changes)
-        : undefined,
+    (event, id: unknown, changes: unknown) => {
+      if (
+        typeof id !== 'number' ||
+        !Number.isSafeInteger(id) ||
+        !isDocumentChanges(changes)
+      ) {
+        return undefined
+      }
+
+      const browserWindow = BrowserWindow.fromWebContents(event.sender)
+      beginWindowSave(browserWindow)
+
+      let saved: ReturnType<WordAppDatabase['saveDocument']>
+      try {
+        saved = database.saveDocument(id, changes)
+      } catch (error) {
+        endWindowSave(browserWindow)
+        throw error
+      }
+
+      void Promise.resolve(saved).then(
+        () => endWindowSave(browserWindow),
+        () => endWindowSave(browserWindow),
+      )
+      return saved
+    },
   )
 
   app.on('will-quit', () => {

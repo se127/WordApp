@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     isFullScreen: vi.fn(() => false),
     maximize: vi.fn(),
     restore: vi.fn(),
+    setClosable: vi.fn(),
     setFullScreen: vi.fn(),
     show: vi.fn(),
     close: vi.fn(),
@@ -87,6 +88,7 @@ const mocks = vi.hoisted(() => {
     }),
     {
       getAllWindows: vi.fn(() => created),
+      fromWebContents: vi.fn(() => created.at(-1) ?? win),
     },
   )
 
@@ -501,12 +503,23 @@ describe('window close handshake', () => {
     expect(mocks.win.webContents.send).toHaveBeenCalledWith(
       appBeforeCloseChannel,
     )
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    const repeated = closeEvent()
+    listenerOn(mocks.win, 'close')(repeated)
+    expect(repeated.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.send).toHaveBeenCalledOnce()
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
 
     ready({ sender: {} })
     expect(mocks.win.close).not.toHaveBeenCalled()
 
     ready({ sender: mocks.win.webContents })
     ready({ sender: mocks.win.webContents })
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
+    expect(mocks.win.setClosable.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.win.close.mock.invocationCallOrder[0] ?? 0,
+    )
     expect(mocks.win.close).toHaveBeenCalledOnce()
   })
 
@@ -544,9 +557,11 @@ describe('window close handshake', () => {
 
     vi.useFakeTimers()
     listenerOn(mocks.win, 'close')(closeEvent())
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
 
     const cancelled = handlerFor('on', appCloseCancelledChannel)
     cancelled({ sender: mocks.win.webContents })
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
 
     vi.advanceTimersByTime(60_000)
     expect(mocks.win.close).not.toHaveBeenCalled()
@@ -554,9 +569,93 @@ describe('window close handshake', () => {
     const retry = closeEvent()
     listenerOn(mocks.win, 'close')(retry)
     expect(retry.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
 
     const ready = handlerFor('on', appCloseReadyChannel)
     ready({ sender: mocks.win.webContents })
+    expect(mocks.win.close).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the close button disabled when a save settles while the window is closing', async () => {
+    stubPlatform('win32')
+    await importMain()
+    listenerOn(mocks.win, 'ready-to-show')()
+
+    let finishSave!: (document: unknown) => void
+    mocks.database.saveDocument.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const request = handlerFor('handle', documentsSaveChannel)(
+      { sender: mocks.win.webContents },
+      1,
+      { title: 'گزارش' },
+    )
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    listenerOn(mocks.win, 'close')(closeEvent())
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    finishSave({
+      id: 1,
+      title: 'گزارش',
+      body: '',
+      createdAt: 1,
+      updatedAt: 2,
+    })
+    await request
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    handlerFor(
+      'on',
+      appCloseCancelledChannel,
+    )({
+      sender: mocks.win.webContents,
+    })
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
+  })
+
+  it('closes after a save that was in flight when the window was asked to close', async () => {
+    stubPlatform('win32')
+    await importMain()
+    listenerOn(mocks.win, 'ready-to-show')()
+
+    let finishSave!: (document: unknown) => void
+    mocks.database.saveDocument.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve
+        }),
+    )
+    const request = handlerFor('handle', documentsSaveChannel)(
+      { sender: mocks.win.webContents },
+      1,
+      { title: 'گزارش' },
+    )
+    listenerOn(mocks.win, 'close')(closeEvent())
+
+    finishSave({
+      id: 1,
+      title: 'گزارش',
+      body: '',
+      createdAt: 1,
+      updatedAt: 2,
+    })
+    await request
+
+    handlerFor(
+      'on',
+      appCloseReadyChannel,
+    )({
+      sender: mocks.win.webContents,
+    })
+
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
+    expect(mocks.win.setClosable.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.win.close.mock.invocationCallOrder[0] ?? 0,
+    )
     expect(mocks.win.close).toHaveBeenCalledOnce()
   })
 })
@@ -935,9 +1034,99 @@ describe('documents database', () => {
     expect(save({}, 1, { title: 7 })).toBeUndefined()
     expect(save({}, 1, { body: ['متن'] })).toBeUndefined()
     expect(mocks.database.saveDocument).not.toHaveBeenCalled()
+    expect(mocks.win.setClosable).not.toHaveBeenCalled()
 
     save({}, 1, {})
     expect(mocks.database.saveDocument).toHaveBeenCalledWith(1, {})
+  })
+
+  it('disables the window close button while a document save is in flight', async () => {
+    await importMain()
+    const record = {
+      id: 1,
+      title: 'گزارش',
+      body: '',
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    let finishSave!: (document: unknown) => void
+    mocks.database.saveDocument.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = resolve
+        }),
+    )
+
+    const request = handlerFor('handle', documentsSaveChannel)(
+      { sender: mocks.win.webContents },
+      1,
+      { title: 'گزارش' },
+    )
+
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    finishSave(record)
+    await expect(request).resolves.toEqual(record)
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
+  })
+
+  it('keeps the close button disabled until every in-flight save settles', async () => {
+    await importMain()
+    const record = {
+      id: 1,
+      title: 'گزارش',
+      body: '',
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    const pendingSaves: Array<(document: unknown) => void> = []
+    mocks.database.saveDocument
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            pendingSaves.push(resolve)
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            pendingSaves.push(resolve)
+          }),
+      )
+    const save = handlerFor('handle', documentsSaveChannel)
+
+    const first = save({ sender: mocks.win.webContents }, 1, {
+      title: 'اول',
+    })
+    const second = save({ sender: mocks.win.webContents }, 2, {
+      title: 'دوم',
+    })
+
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    pendingSaves[0](record)
+    await first
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    pendingSaves[1](record)
+    await second
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
+  })
+
+  it('enables the close button again when a save fails', async () => {
+    await importMain()
+    mocks.database.saveDocument.mockRejectedValueOnce(new Error('save failed'))
+
+    const request = handlerFor('handle', documentsSaveChannel)(
+      { sender: mocks.win.webContents },
+      1,
+      { title: 'گزارش' },
+    )
+
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(false)
+
+    await expect(request).rejects.toThrow('save failed')
+    expect(mocks.win.setClosable).toHaveBeenLastCalledWith(true)
   })
 
   it('closes the database when the app is about to quit', async () => {
