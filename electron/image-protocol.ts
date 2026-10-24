@@ -1,7 +1,11 @@
 import { net, protocol } from 'electron'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { imageFileNameFromUrl, imageScheme } from './images.ts'
+import {
+  imageDocumentDirectoryPath,
+  imageReference,
+  imageScheme,
+} from './images.ts'
 
 function notFound(): Response {
   return new Response(null, { status: 404 })
@@ -23,16 +27,25 @@ export function registerImageSchemePrivileges(): void {
 
 export function handleImageProtocol(imageDirectory: string): void {
   protocol.handle(imageScheme, (request) => {
-    const fileName = imageFileNameFromUrl(request.url)
+    const reference = imageReference(request.url)
 
-    if (fileName === null) {
+    if (reference === null) {
       return notFound()
     }
 
     const fileUrl = pathToFileURL(
-      path.join(imageDirectory, fileName),
+      path.join(
+        imageDocumentDirectoryPath(imageDirectory, reference.documentId),
+        reference.fileName,
+      ),
     ).toString()
 
-    return net.fetch(fileUrl).catch(notFound)
+    return net.fetch(fileUrl).catch(() => {
+      const legacyFileUrl = pathToFileURL(
+        path.join(imageDirectory, reference.fileName),
+      ).toString()
+
+      return net.fetch(legacyFileUrl).catch(notFound)
+    })
   })
 }

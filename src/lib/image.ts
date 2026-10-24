@@ -7,6 +7,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 const imageMimePattern = /^image\//
 const imageExtensionPattern = /\.(avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$/i
+const storedImagePrefix = 'wordapp-image://image/'
 
 export const DocumentImage = Image.configure({ allowBase64: false })
 
@@ -33,137 +34,23 @@ export function saveDocumentImage(
   })
 }
 
-const removedImageBytes = new Map<string, ArrayBuffer>()
-const imageFileOperations = new Map<string, Promise<void>>()
-
-function queueImageFileOperation(
-  src: string,
-  operation: () => Promise<void>,
-): Promise<void> {
-  const previous = imageFileOperations.get(src) ?? Promise.resolve()
-  const next = previous.then(operation).catch(() => {})
-  imageFileOperations.set(src, next)
-  void next.finally(() => {
-    if (imageFileOperations.get(src) === next) {
-      imageFileOperations.delete(src)
-    }
-  })
-  return next
-}
-
-function removeDocumentImageFile(
-  src: string,
-  documentId: number,
-): Promise<void> {
-  return queueImageFileOperation(src, () =>
-    window.WordApp.images.remove({ documentId, src }).then((data) => {
-      if (data !== null) {
-        removedImageBytes.set(src, data)
-      }
-    }),
-  )
-}
-
-function restoreDocumentImageFile(
-  src: string,
-  documentId: number,
-): Promise<void> {
-  return queueImageFileOperation(src, () => {
-    const data = removedImageBytes.get(src)
-
-    if (data === undefined) {
-      return Promise.resolve()
-    }
-
-    return window.WordApp.images
-      .restore({ documentId, src, data })
-      .then(() => {})
-  })
-}
-
-function imageFileNameFromSource(src: string): string {
-  const slash = src.lastIndexOf('/')
-  return slash === -1 ? 'image.png' : src.slice(slash + 1)
-}
-
 export function copyDocumentImage(
   src: string,
   documentId: number,
 ): Promise<string> {
-  return window.WordApp.images
-    .copy({ documentId, src })
-    .then((saved) => saved.src)
-    .catch(() => {
-      const data = removedImageBytes.get(src)
-
-      if (data === undefined) {
-        throw new Error('The image file is missing.')
-      }
-
-      return window.WordApp.images
-        .save({
-          documentId,
-          name: imageFileNameFromSource(src),
-          type: '',
-          data,
-        })
-        .then((saved) => saved.src)
-    })
+  return window.WordApp.images.copy({ documentId, src }).then((saved) => {
+    return saved.src
+  })
 }
 
-export function reconcileDocumentImages(
+export function collectDocumentImages(
   documentId: number,
   savedBody: string,
   currentBody: string,
 ): Promise<void> {
   return window.WordApp.images
-    .reconcile({ documentId, savedBody, currentBody })
+    .collect({ documentId, savedBody, currentBody })
     .then(() => {})
-}
-
-function storedImageSources(doc: ProseMirrorNode): Set<string> {
-  const sources = new Set<string>()
-
-  doc.descendants((node) => {
-    if (
-      node.type.name === 'image' &&
-      typeof node.attrs.src === 'string' &&
-      node.attrs.src.startsWith('wordapp-image://image/')
-    ) {
-      sources.add(node.attrs.src)
-    }
-
-    return true
-  })
-
-  return sources
-}
-
-function imageLifecyclePlugin(documentId: number): Plugin {
-  return new Plugin({
-    appendTransaction: (transactions, oldState, newState) => {
-      if (!transactions.some((transaction) => transaction.docChanged)) {
-        return null
-      }
-
-      const previous = storedImageSources(oldState.doc)
-      const next = storedImageSources(newState.doc)
-
-      for (const src of previous) {
-        if (!next.has(src)) {
-          void removeDocumentImageFile(src, documentId)
-        }
-      }
-
-      for (const src of next) {
-        if (!previous.has(src)) {
-          void restoreDocumentImageFile(src, documentId)
-        }
-      }
-
-      return null
-    },
-  })
 }
 
 export function imagePosition(
@@ -294,7 +181,7 @@ function localImageSourcesInSlice(slice: Slice): string[] {
     if (
       node.type.name === 'image' &&
       typeof node.attrs.src === 'string' &&
-      node.attrs.src.startsWith('wordapp-image://image/')
+      node.attrs.src.startsWith(storedImagePrefix)
     ) {
       sources.add(node.attrs.src)
     }
@@ -403,7 +290,6 @@ export const DocumentImageSelection =
     addProseMirrorPlugins() {
       return [
         imageSelectionPlugin(),
-        imageLifecyclePlugin(this.options.documentId),
         imagePastePlugin(this.editor, this.options.documentId),
       ]
     },

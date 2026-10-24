@@ -46,16 +46,12 @@ function installBridge(
     },
     images: {
       save: vi.fn(async () => ({
-        src: 'wordapp-image://image/11111111-1111-4111-8111-111111111111.png',
+        src: 'wordapp-image://image/1/11111111-1111-4111-8111-111111111111.png',
       })),
       copy: vi.fn(async () => ({
-        src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
+        src: 'wordapp-image://image/1/33333333-3333-4333-8333-333333333333.png',
       })),
-      remove: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
-      restore: vi.fn(async (request: { src: string }) => ({
-        src: request.src,
-      })),
-      reconcile: vi.fn(async () => {}),
+      collect: vi.fn(async () => {}),
     },
   }
   window.WordApp = bridge as unknown as Window['WordApp']
@@ -162,10 +158,10 @@ describe('useDocumentAutosave', () => {
     })
   })
 
-  it('reconciles the image journal with the saved and latest bodies', async () => {
+  it('collects the unused images after saving the saved and latest bodies', async () => {
     vi.useFakeTimers()
     const imageSrc =
-      'wordapp-image://image/44444444-4444-4444-8444-444444444444.png'
+      'wordapp-image://image/1/44444444-4444-4444-8444-444444444444.png'
     const record: DocumentRecord = {
       ...documentRecord,
       body: `<p><img src="${imageSrc}"></p>`,
@@ -180,14 +176,14 @@ describe('useDocumentAutosave', () => {
     act(() => result.current.updateBody('<p>متن</p>'))
     await advance(documentSaveDebounceMs)
 
-    expect(bridge.images.reconcile).toHaveBeenCalledExactlyOnceWith({
+    expect(bridge.images.collect).toHaveBeenCalledExactlyOnceWith({
       documentId: 1,
       savedBody: '<p>متن</p>',
       currentBody: '<p>متن</p>',
     })
   })
 
-  it('keeps the save successful when the image journal cannot be reconciled', async () => {
+  it('keeps the save successful when the image cleanup fails', async () => {
     vi.useFakeTimers()
     const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
       ...documentRecord,
@@ -195,15 +191,15 @@ describe('useDocumentAutosave', () => {
       updatedAt: 2_000,
     }))
     const { result, bridge } = renderAutosave(save)
-    bridge.images.reconcile.mockRejectedValueOnce(
-      new Error('The image journal is busy.'),
+    bridge.images.collect.mockRejectedValueOnce(
+      new Error('The image store is busy.'),
     )
 
     act(() => result.current.updateBody('<p>متن</p>'))
     await advance(documentSaveDebounceMs)
 
     expect(save).toHaveBeenCalledOnce()
-    expect(bridge.images.reconcile).toHaveBeenCalledOnce()
+    expect(bridge.images.collect).toHaveBeenCalledOnce()
   })
 
   it('exposes pending changes for navigation until they are saved', async () => {

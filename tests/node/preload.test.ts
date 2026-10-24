@@ -48,9 +48,7 @@ describe('preload bridge', () => {
     expect(typeof api.documents.save).toBe('function')
     expect(typeof api.images.save).toBe('function')
     expect(typeof api.images.copy).toBe('function')
-    expect(typeof api.images.remove).toBe('function')
-    expect(typeof api.images.restore).toBe('function')
-    expect(typeof api.images.reconcile).toBe('function')
+    expect(typeof api.images.collect).toBe('function')
   })
 
   it('forwards document calls over the document channels', async () => {
@@ -138,8 +136,8 @@ describe('preload bridge', () => {
   })
 
   it('forwards image calls over the image channels', async () => {
-    const saved = { src: 'wordapp-image://image/stored.png' }
-    const src = 'wordapp-image://image/stored.png'
+    const saved = { src: 'wordapp-image://image/7/stored.png' }
+    const src = 'wordapp-image://image/7/stored.png'
     const data = new Uint8Array([1, 2, 3]).buffer
     mocks.invoke.mockResolvedValue(saved)
     const api = await importPreload()
@@ -161,36 +159,14 @@ describe('preload bridge', () => {
       src,
     })
 
-    mocks.invoke.mockResolvedValue(data)
-    await expect(api.images.remove({ documentId: 7, src })).resolves.toEqual(
-      data,
-    )
-    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:remove', {
-      documentId: 7,
-      src,
-    })
-
-    mocks.invoke.mockResolvedValue(saved)
-    await expect(
-      api.images.restore({ documentId: 7, src, data }),
-    ).resolves.toEqual(saved)
-    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:restore', {
-      documentId: 7,
-      src,
-      data,
-    })
-
-    const reconcile = {
+    const collect = {
       documentId: 7,
       savedBody: '<p>saved</p>',
       currentBody: '<p>current</p>',
     }
     mocks.invoke.mockResolvedValue(undefined)
-    await expect(api.images.reconcile(reconcile)).resolves.toBeUndefined()
-    expect(mocks.invoke).toHaveBeenCalledWith(
-      'wordapp:images:reconcile',
-      reconcile,
-    )
+    await expect(api.images.collect(collect)).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:collect', collect)
   })
 
   it('forwards request cancellation over the cancellation channel', async () => {

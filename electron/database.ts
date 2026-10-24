@@ -15,6 +15,11 @@ export type DocumentChanges = {
   body?: string
 }
 
+export type DocumentBody = {
+  id: number
+  body: string
+}
+
 export type DocumentListOrder = 'newest' | 'oldest'
 
 export type DocumentListOptions = {
@@ -35,6 +40,7 @@ type DocumentRow = {
 export type WordAppDatabase = {
   createDocument: () => Promise<DocumentRecord>
   getDocument: (id: number) => Promise<DocumentRecord | undefined>
+  listDocumentBodies: () => Promise<DocumentBody[]>
   countDocuments: (search?: string, signal?: AbortSignal) => Promise<number>
   listDocuments: (
     options: DocumentListOptions,
@@ -130,6 +136,11 @@ BEGIN
   SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
   WHERE id = NEW.id;
 END;
+`,
+  `
+UPDATE documents
+SET body = REPLACE(body, 'wordapp-image://image/', 'wordapp-image://image/' || id || '/')
+WHERE body LIKE '%wordapp-image://image/________-____-____-____-____________.%';
 `,
 ]
 
@@ -230,6 +241,9 @@ export function openDatabase(
   const selectDocumentCount = database.prepare(
     'SELECT COUNT(*) AS count FROM documents',
   )
+  const selectDocumentBodies = database.prepare(
+    'SELECT id, body FROM documents',
+  )
   const selectDocumentCountByTitle = database.prepare(
     `SELECT COUNT(*) AS count FROM documents
      WHERE title LIKE ? ESCAPE '!'`,
@@ -308,6 +322,12 @@ export function openDatabase(
 
       const row = selectDocument.get(id) as DocumentRow | undefined
       return row === undefined ? undefined : toRecord(row)
+    },
+
+    async listDocumentBodies() {
+      await waitBeforeQuery()
+
+      return selectDocumentBodies.all() as DocumentBody[]
     },
 
     async countDocuments(search = '', signal?: AbortSignal) {

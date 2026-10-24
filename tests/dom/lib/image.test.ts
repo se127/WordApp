@@ -1,18 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const firstImage =
-  'wordapp-image://image/11111111-1111-4111-8111-111111111111.png'
-const secondImage =
-  'wordapp-image://image/22222222-2222-4222-8222-222222222222.png'
+  'wordapp-image://image/7/11111111-1111-4111-8111-111111111111.png'
 const copiedImage =
-  'wordapp-image://image/33333333-3333-4333-8333-333333333333.png'
+  'wordapp-image://image/7/33333333-3333-4333-8333-333333333333.png'
 
 let images: {
   save: ReturnType<typeof vi.fn>
   copy: ReturnType<typeof vi.fn>
-  remove: ReturnType<typeof vi.fn>
-  restore: ReturnType<typeof vi.fn>
-  reconcile: ReturnType<typeof vi.fn>
+  collect: ReturnType<typeof vi.fn>
 }
 
 async function importImageModule() {
@@ -24,9 +20,7 @@ beforeEach(() => {
   images = {
     save: vi.fn(async () => ({ src: copiedImage })),
     copy: vi.fn(async () => ({ src: copiedImage })),
-    remove: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
-    restore: vi.fn(async () => ({ src: firstImage })),
-    reconcile: vi.fn(async () => {}),
+    collect: vi.fn(async () => {}),
   }
   window.WordApp = { images } as unknown as Window['WordApp']
 })
@@ -80,24 +74,24 @@ describe('copyDocumentImage', () => {
     })
   })
 
-  it('rejects an image that is missing and was never captured', async () => {
+  it('reports a missing stored image without saving it again', async () => {
     const { copyDocumentImage } = await importImageModule()
-    images.copy.mockRejectedValueOnce(new Error('The image is missing.'))
+    images.copy.mockRejectedValueOnce(new Error('The stored image is missing.'))
 
-    await expect(copyDocumentImage(secondImage, 7)).rejects.toThrow(
-      'The image file is missing.',
+    await expect(copyDocumentImage(firstImage, 7)).rejects.toThrow(
+      'The stored image is missing.',
     )
     expect(images.save).not.toHaveBeenCalled()
   })
 })
 
-describe('reconcileDocumentImages', () => {
-  it('resolves the journal against the saved and current bodies', async () => {
-    const { reconcileDocumentImages } = await importImageModule()
+describe('collectDocumentImages', () => {
+  it('collects the images the saved and current bodies reference', async () => {
+    const { collectDocumentImages } = await importImageModule()
 
-    await reconcileDocumentImages(7, '<p>saved</p>', '<p>current</p>')
+    await collectDocumentImages(7, '<p>saved</p>', '<p>current</p>')
 
-    expect(images.reconcile).toHaveBeenCalledExactlyOnceWith({
+    expect(images.collect).toHaveBeenCalledExactlyOnceWith({
       documentId: 7,
       savedBody: '<p>saved</p>',
       currentBody: '<p>current</p>',

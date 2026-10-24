@@ -14,29 +14,25 @@ import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const storedImageSrc =
-  'wordapp-image://image/22222222-2222-4222-8222-222222222222.png'
+  'wordapp-image://image/7/22222222-2222-4222-8222-222222222222.png'
 
 const base64ImageSrc =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
 const savedImageSrc =
-  'wordapp-image://image/11111111-1111-4111-8111-111111111111.png'
+  'wordapp-image://image/7/11111111-1111-4111-8111-111111111111.png'
 
 const pastedImageSrc =
-  'wordapp-image://image/33333333-3333-4333-8333-333333333333.png'
+  'wordapp-image://image/7/33333333-3333-4333-8333-333333333333.png'
 
 function installImageBridge() {
   const save = vi.fn(async () => ({ src: savedImageSrc }))
   const copy = vi.fn(async () => ({ src: pastedImageSrc }))
-  const remove = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer)
-  const restore = vi.fn(async (request: { src: string }) => ({
-    src: request.src,
-  }))
-  const reconcile = vi.fn(async () => {})
+  const collect = vi.fn(async () => {})
   window.WordApp = {
-    images: { save, copy, remove, restore, reconcile },
+    images: { save, copy, collect },
   } as unknown as Window['WordApp']
-  return { save, copy, remove, restore, reconcile }
+  return { save, copy, collect }
 }
 
 function installImageSave() {
@@ -2388,8 +2384,8 @@ describe('DocumentBodyEditor', () => {
     )
   })
 
-  it('removes the image file when the image leaves the editor and restores it on undo', async () => {
-    const { remove, restore } = installImageBridge()
+  it('keeps the stored image file when the image leaves the editor and comes back', async () => {
+    const { collect } = installImageBridge()
     const { onBodyChange } = renderEditor({
       body: `<p>قبل</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
     })
@@ -2403,32 +2399,21 @@ describe('DocumentBodyEditor', () => {
 
     await user.hover(image)
     await user.click(await screen.findByRole('button', { name: 'حذف تصویر' }))
-
-    await waitFor(() =>
-      expect(remove).toHaveBeenCalledExactlyOnceWith({
-        documentId: 7,
-        src: storedImageSrc,
-      }),
-    )
     await waitFor(() => expect(editor.querySelector('img')).toBeNull())
+
+    expect(collect).not.toHaveBeenCalled()
 
     await user.keyboard('{Control>}z{/Control}')
 
     await waitFor(() => expect(editor.querySelector('img')).not.toBeNull())
-    await waitFor(() =>
-      expect(restore).toHaveBeenCalledExactlyOnceWith({
-        documentId: 7,
-        src: storedImageSrc,
-        data: expect.any(ArrayBuffer),
-      }),
-    )
+    expect(collect).not.toHaveBeenCalled()
     expect(onBodyChange).toHaveBeenLastCalledWith(
       expect.stringContaining(storedImageSrc),
     )
   })
 
-  it('removes the image file when the selected image is deleted from the keyboard', async () => {
-    const { remove } = installImageBridge()
+  it('keeps the stored image file when the selected image is deleted from the keyboard', async () => {
+    const { collect } = installImageBridge()
     renderEditor({
       body: `<p>متن</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
     })
@@ -2444,13 +2429,8 @@ describe('DocumentBodyEditor', () => {
     placeCursorAtEnd(editor)
     await user.keyboard('{ArrowDown}{Backspace}')
 
-    await waitFor(() =>
-      expect(remove).toHaveBeenCalledExactlyOnceWith({
-        documentId: 7,
-        src: storedImageSrc,
-      }),
-    )
     expect(editor.querySelector('img')).toBeNull()
+    expect(collect).not.toHaveBeenCalled()
   })
 
   it('shows the image bubble menu when the image is selected with the mouse', async () => {

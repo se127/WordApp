@@ -16,15 +16,12 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  imagesCollectChannel,
   imagesCopyChannel,
-  imagesReconcileChannel,
-  imagesRemoveChannel,
-  imagesRestoreChannel,
   imagesSaveChannel,
 } from './ipc.ts'
 import type {
-  ImageReconcileRequest,
-  ImageRestoreRequest,
+  ImageCollectRequest,
   ImageSaveRequest,
   ImageSourceRequest,
   SavedImage,
@@ -83,11 +80,7 @@ contextBridge.exposeInMainWorld('WordApp', {
       ipcRenderer.invoke(imagesSaveChannel, request),
     copy: (request: ImageSourceRequest): Promise<SavedImage> =>
       ipcRenderer.invoke(imagesCopyChannel, request),
-    remove: (request: ImageSourceRequest): Promise<ArrayBuffer | null> =>
-      ipcRenderer.invoke(imagesRemoveChannel, request),
-    restore: (request: ImageRestoreRequest): Promise<SavedImage> =>
-      ipcRenderer.invoke(imagesRestoreChannel, request),
-    reconcile: (request: ImageReconcileRequest): Promise<void> =>
-      ipcRenderer.invoke(imagesReconcileChannel, request),
+    collect: (request: ImageCollectRequest): Promise<void> =>
+      ipcRenderer.invoke(imagesCollectChannel, request),
   },
 })

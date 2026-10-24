@@ -30,8 +30,7 @@ import { createImageStore } from './image-store.ts'
 import {
   clearImageStore,
   imageDirectoryPath,
-  isImageReconcileRequest,
-  isImageRestoreRequest,
+  isImageCollectRequest,
   isImageSaveRequest,
   isImageSourceRequest,
 } from './images.ts'
@@ -47,10 +46,8 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  imagesCollectChannel,
   imagesCopyChannel,
-  imagesReconcileChannel,
-  imagesRemoveChannel,
-  imagesRestoreChannel,
   imagesSaveChannel,
 } from './ipc.ts'
 
@@ -540,10 +537,10 @@ async function startApp(): Promise<void> {
   const imageStore = await createImageStore(imagesDirectory)
 
   try {
-    await imageStore.recover((id) => database.getDocument(id))
+    await imageStore.sweep(await database.listDocumentBodies())
   } catch (error) {
     console.error(
-      `The image journal could not be recovered: ${
+      `The images could not be swept: ${
         error instanceof Error ? error.message : String(error)
       }`,
     )
@@ -552,26 +549,15 @@ async function startApp(): Promise<void> {
   handleImageProtocol(imagesDirectory)
 
   const deleteDocumentWithCleanup = async (id: number): Promise<void> => {
-    const deleted = await database.getDocument(id).catch(() => undefined)
-
     await database.deleteDocument(id)
-    await imageStore.removeDocument(id, deleted?.body ?? '')
+    await imageStore.removeDocument(id)
   }
 
   const deleteDocumentsWithCleanup = async (ids: number[]): Promise<void> => {
-    if (ids.length === 0) {
-      await database.deleteDocuments(ids)
-      return
-    }
-
-    const deleted = await Promise.all(
-      ids.map((id) => database.getDocument(id).catch(() => undefined)),
-    )
-
     await database.deleteDocuments(ids)
 
-    for (const [index, id] of ids.entries()) {
-      await imageStore.removeDocument(id, deleted[index]?.body ?? '')
+    for (const id of ids) {
+      await imageStore.removeDocument(id)
     }
   }
 
@@ -699,14 +685,8 @@ async function startApp(): Promise<void> {
   ipcMain.handle(imagesCopyChannel, (_event, value: unknown) =>
     isImageSourceRequest(value) ? imageStore.copy(value) : undefined,
   )
-  ipcMain.handle(imagesRemoveChannel, (_event, value: unknown) =>
-    isImageSourceRequest(value) ? imageStore.remove(value) : null,
-  )
-  ipcMain.handle(imagesRestoreChannel, (_event, value: unknown) =>
-    isImageRestoreRequest(value) ? imageStore.restore(value) : undefined,
-  )
-  ipcMain.handle(imagesReconcileChannel, (_event, value: unknown) =>
-    isImageReconcileRequest(value) ? imageStore.reconcile(value) : undefined,
+  ipcMain.handle(imagesCollectChannel, (_event, value: unknown) =>
+    isImageCollectRequest(value) ? imageStore.collect(value) : undefined,
   )
 
   app.on('will-quit', () => {

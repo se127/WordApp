@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import path from 'node:path'
 
 export const imageScheme = 'wordapp-image'
@@ -9,6 +17,8 @@ const imageUrlPrefix = `${imageScheme}://${imageHost}/`
 const imageFileNamePattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/
 const imageExtensionPattern = /\.(avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$/i
+const imageSourcePattern =
+  /<img\b[^>]*\ssrc="wordapp-image:\/\/image\/(\d+)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+)"/gi
 
 const imageMimeExtensions = new Map([
   ['image/avif', 'avif'],
@@ -38,13 +48,7 @@ export type ImageSourceRequest = {
   src: string
 }
 
-export type ImageRestoreRequest = {
-  documentId: number
-  src: string
-  data: ArrayBuffer | ArrayBufferView
-}
-
-export type ImageReconcileRequest = {
+export type ImageCollectRequest = {
   documentId: number
   savedBody: string
   currentBody: string
@@ -52,6 +56,16 @@ export type ImageReconcileRequest = {
 
 export type SavedImage = {
   src: string
+}
+
+export type ImageReference = {
+  documentId: number
+  fileName: string
+}
+
+export type ImageDocumentBody = {
+  id: number
+  body: string
 }
 
 export function imageDirectoryPath(
@@ -64,19 +78,33 @@ export function imageDirectoryPath(
     : path.join(appRoot, 'dev-data', 'images')
 }
 
+export function imageDocumentDirectoryPath(
+  directory: string,
+  documentId: number,
+): string {
+  return path.join(directory, String(documentId))
+}
+
 export function imageTrashDirectoryPath(directory: string): string {
   return path.join(path.dirname(directory), 'images-trash')
 }
 
-export function imageJournalPath(directory: string): string {
+export function imageTrashDocumentDirectoryPath(
+  directory: string,
+  documentId: number,
+): string {
+  return path.join(imageTrashDirectoryPath(directory), String(documentId))
+}
+
+export function legacyImageJournalPath(directory: string): string {
   return path.join(path.dirname(directory), 'image-journal.json')
 }
 
-export function imageUrl(fileName: string): string {
-  return `${imageUrlPrefix}${fileName}`
+export function imageUrl(documentId: number, fileName: string): string {
+  return `${imageUrlPrefix}${documentId}/${fileName}`
 }
 
-export function imageFileNameFromUrl(value: string): string | null {
+export function imageReference(value: string): ImageReference | null {
   let url: URL
 
   try {
@@ -94,20 +122,37 @@ export function imageFileNameFromUrl(value: string): string | null {
     return null
   }
 
-  const fileName = url.pathname.startsWith('/')
-    ? url.pathname.slice(1)
-    : url.pathname
+  const segments = url.pathname.split('/')
 
-  return imageFileNamePattern.test(fileName) ? fileName : null
+  if (segments.length !== 3 || segments[0] !== '') {
+    return null
+  }
+
+  const [, rawDocumentId, fileName] = segments
+
+  if (!/^[0-9]+$/.test(rawDocumentId)) {
+    return null
+  }
+
+  const documentId = Number(rawDocumentId)
+
+  if (!isImageDocumentId(documentId) || !imageFileNamePattern.test(fileName)) {
+    return null
+  }
+
+  return { documentId, fileName: fileName.toLowerCase() }
 }
 
-export function referencedImageFileNames(html: string): Set<string> {
+export function referencedImageFileNames(
+  html: string,
+  documentId: number,
+): Set<string> {
   const names = new Set<string>()
-  const pattern =
-    /<img\b[^>]*\ssrc="wordapp-image:\/\/image\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+)"/gi
 
-  for (const match of html.matchAll(pattern)) {
-    names.add(match[1].toLowerCase())
+  for (const match of html.matchAll(imageSourcePattern)) {
+    if (Number(match[1]) === documentId) {
+      names.add(match[2].toLowerCase())
+    }
   }
 
   return names
@@ -194,28 +239,13 @@ export function isImageSourceRequest(
   return (
     isImageDocumentId(documentId) &&
     typeof src === 'string' &&
-    imageFileNameFromUrl(src) !== null
+    imageReference(src) !== null
   )
 }
 
-export function isImageRestoreRequest(
+export function isImageCollectRequest(
   value: unknown,
-): value is ImageRestoreRequest {
-  if (!isImageSourceRequest(value)) {
-    return false
-  }
-
-  const { data } = value as { data?: unknown }
-
-  return (
-    (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) &&
-    data.byteLength > 0
-  )
-}
-
-export function isImageReconcileRequest(
-  value: unknown,
-): value is ImageReconcileRequest {
+): value is ImageCollectRequest {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -238,10 +268,8 @@ export function imageFileNameForSave(request: ImageSaveRequest): string | null {
   return extension === null ? null : `${randomUUID()}.${extension}`
 }
 
-export function imageFileNameForCopy(src: string): string | null {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
+export function imageFileNameForCopy(fileName: string): string | null {
+  if (!imageFileNamePattern.test(fileName)) {
     return null
   }
 
@@ -263,26 +291,11 @@ export async function writeImageFile(
   })
 }
 
-export async function overwriteImageFile(
-  directory: string,
-  fileName: string,
-  data: ArrayBuffer | ArrayBufferView,
-): Promise<void> {
-  if (!imageFileNamePattern.test(fileName)) {
-    throw new Error('The image file name is not valid.')
-  }
-
-  await mkdir(directory, { recursive: true })
-  await writeFile(path.join(directory, fileName), imageBytes(data))
-}
-
 export async function readImageFile(
   directory: string,
-  src: string,
+  fileName: string,
 ): Promise<ArrayBuffer | null> {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
+  if (!imageFileNamePattern.test(fileName)) {
     return null
   }
 
@@ -294,127 +307,136 @@ export async function readImageFile(
   }
 }
 
-export async function readImageFileFromTrash(
+export async function removeImageFile(
   directory: string,
-  src: string,
-): Promise<ArrayBuffer | null> {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
-    return null
+  fileName: string,
+): Promise<void> {
+  if (!imageFileNamePattern.test(fileName)) {
+    return
   }
 
+  await rm(path.join(directory, fileName), { force: true })
+}
+
+export async function listImageFileNames(directory: string): Promise<string[]> {
   try {
-    const data = await readFile(
-      path.join(imageTrashDirectoryPath(directory), fileName),
-    )
-    return new Uint8Array(data).buffer
+    const names = await readdir(directory)
+    return names.filter((name) => imageFileNamePattern.test(name))
   } catch {
-    return null
+    return []
+  }
+}
+
+export async function listImageDocumentIds(
+  directory: string,
+): Promise<number[]> {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => Number(entry.name))
+      .filter(isImageDocumentId)
+  } catch {
+    return []
   }
 }
 
 export async function moveImageFileToTrash(
   directory: string,
-  src: string,
-): Promise<ArrayBuffer | null> {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
-    return null
+  documentId: number,
+  fileName: string,
+): Promise<boolean> {
+  if (!imageFileNamePattern.test(fileName)) {
+    return false
   }
 
-  const trashDirectory = imageTrashDirectoryPath(directory)
-  const sourcePath = path.join(directory, fileName)
-  const trashPath = path.join(trashDirectory, fileName)
-  let data: Buffer
-
-  try {
-    data = await readFile(sourcePath)
-  } catch {
-    try {
-      data = await readFile(trashPath)
-    } catch {
-      return null
-    }
-
-    return new Uint8Array(data).buffer
-  }
-
-  await mkdir(trashDirectory, { recursive: true }).catch(() => {})
-  await rm(trashPath, { force: true }).catch(() => {})
-  await rename(sourcePath, trashPath).catch(() => {})
-
-  return new Uint8Array(data).buffer
+  return moveImageFile(
+    imageDocumentDirectoryPath(directory, documentId),
+    imageTrashDocumentDirectoryPath(directory, documentId),
+    fileName,
+  )
 }
 
 export async function moveImageFileFromTrash(
   directory: string,
-  src: string,
+  documentId: number,
+  fileName: string,
 ): Promise<boolean> {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
+  if (!imageFileNamePattern.test(fileName)) {
     return false
   }
 
-  const trashPath = path.join(imageTrashDirectoryPath(directory), fileName)
-  const targetPath = path.join(directory, fileName)
+  return moveImageFile(
+    imageTrashDocumentDirectoryPath(directory, documentId),
+    imageDocumentDirectoryPath(directory, documentId),
+    fileName,
+  )
+}
+
+export async function moveImageFileToDirectory(
+  sourceDirectory: string,
+  targetDirectory: string,
+  fileName: string,
+): Promise<boolean> {
+  if (!imageFileNamePattern.test(fileName)) {
+    return false
+  }
+
+  return moveImageFile(sourceDirectory, targetDirectory, fileName)
+}
+
+async function moveImageFile(
+  sourceDirectory: string,
+  targetDirectory: string,
+  fileName: string,
+): Promise<boolean> {
+  const sourcePath = path.join(sourceDirectory, fileName)
+  const targetPath = path.join(targetDirectory, fileName)
 
   try {
-    await readFile(trashPath)
+    await access(sourcePath)
   } catch {
     return false
   }
 
-  await mkdir(directory, { recursive: true }).catch(() => {})
+  await mkdir(targetDirectory, { recursive: true }).catch(() => {})
   await rm(targetPath, { force: true }).catch(() => {})
 
   try {
-    await rename(trashPath, targetPath)
+    await rename(sourcePath, targetPath)
     return true
   } catch {
     return false
   }
 }
 
-export async function restoreImageFile(
+export async function removeImageDocument(
   directory: string,
-  request: ImageRestoreRequest,
-): Promise<SavedImage> {
-  const fileName = imageFileNameFromUrl(request.src)
-
-  if (fileName === null) {
-    throw new Error('The image source is not a stored image.')
-  }
-
-  await overwriteImageFile(directory, fileName, request.data)
-
-  return { src: request.src }
-}
-
-export async function removeImageFileEverywhere(
-  directory: string,
-  src: string,
+  documentId: number,
 ): Promise<void> {
-  const fileName = imageFileNameFromUrl(src)
-
-  if (fileName === null) {
-    return
-  }
-
   await Promise.allSettled([
-    rm(path.join(directory, fileName), { force: true }),
-    rm(path.join(imageTrashDirectoryPath(directory), fileName), {
+    rm(imageDocumentDirectoryPath(directory, documentId), {
+      recursive: true,
+      force: true,
+    }),
+    rm(imageTrashDocumentDirectoryPath(directory, documentId), {
+      recursive: true,
       force: true,
     }),
   ])
+}
+
+export async function emptyImageTrash(directory: string): Promise<void> {
+  await rm(imageTrashDirectoryPath(directory), {
+    recursive: true,
+    force: true,
+  })
 }
 
 export async function clearImageStore(directory: string): Promise<void> {
   await Promise.all([
     rm(directory, { recursive: true, force: true }),
     rm(imageTrashDirectoryPath(directory), { recursive: true, force: true }),
-    rm(imageJournalPath(directory), { force: true }),
+    rm(legacyImageJournalPath(directory), { force: true }),
   ])
 }

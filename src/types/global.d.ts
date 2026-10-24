@@ -32,13 +32,7 @@ export type ImageSourceRequest = {
   src: string
 }
 
-export type ImageRestoreRequest = {
-  documentId: number
-  src: string
-  data: ArrayBuffer
-}
-
-export type ImageReconcileRequest = {
+export type ImageCollectRequest = {
   documentId: number
   savedBody: string
   currentBody: string
@@ -79,9 +73,7 @@ declare global {
       images: {
         save: (request: ImageSaveRequest) => Promise<SavedImage>
         copy: (request: ImageSourceRequest) => Promise<SavedImage>
-        remove: (request: ImageSourceRequest) => Promise<ArrayBuffer | null>
-        restore: (request: ImageRestoreRequest) => Promise<SavedImage>
-        reconcile: (request: ImageReconcileRequest) => Promise<void>
+        collect: (request: ImageCollectRequest) => Promise<void>
       }
     }
   }

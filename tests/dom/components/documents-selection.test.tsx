@@ -56,11 +56,7 @@ function renderToolbar({
       copy: vi.fn(async () => ({
         src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
       })),
-      remove: vi.fn(async () => new ArrayBuffer(3)),
-      restore: vi.fn(async (request: { src: string }) => ({
-        src: request.src,
-      })),
-      reconcile: vi.fn(async () => {}),
+      collect: vi.fn(async () => {}),
     },
   } satisfies Window['WordApp']
 

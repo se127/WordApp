@@ -3,26 +3,27 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createImageStore } from '../../electron/image-store.ts'
-import type { ImageJournalEntry } from '../../electron/image-store.ts'
 import {
   clearImageStore,
+  imageDocumentDirectoryPath,
   imageDirectoryPath,
-  imageFileNameFromUrl,
-  imageJournalPath,
+  imageReference,
+  imageTrashDocumentDirectoryPath,
   imageTrashDirectoryPath,
   imageUrl,
-  isImageReconcileRequest,
-  isImageRestoreRequest,
+  isImageCollectRequest,
   isImageSaveRequest,
   isImageSourceRequest,
+  legacyImageJournalPath,
+  listImageFileNames,
+  readImageFile,
   referencedImageFileNames,
   writeImageFile,
 } from '../../electron/images.ts'
@@ -72,24 +73,18 @@ function imageRequest(
   }
 }
 
-function restoreRequest(
-  src: string,
-  data: ArrayBuffer | Uint8Array = new Uint8Array([1, 2, 3]),
-  id = documentId,
-) {
-  return { documentId: id, src, data }
-}
-
-function journalEntries(journalPath: string): ImageJournalEntry[] {
-  if (!existsSync(journalPath)) {
-    return []
-  }
-
-  return JSON.parse(readFileSync(journalPath, 'utf8')).entries
-}
-
 function imageBody(...sources: string[]): string {
   return sources.map((src) => `<img src="${src}">`).join('')
+}
+
+function fileNameOf(src: string): string {
+  const reference = imageReference(src)
+
+  if (reference === null) {
+    throw new Error(`Not a stored image: ${src}`)
+  }
+
+  return reference.fileName
 }
 
 afterEach(() => {
@@ -97,8 +92,6 @@ afterEach(() => {
     rmSync(temporaryRoot, { recursive: true, force: true })
     temporaryRoot = undefined
   }
-
-  vi.restoreAllMocks()
 })
 
 describe('image paths', () => {
@@ -112,74 +105,100 @@ describe('image paths', () => {
     expect(imageTrashDirectoryPath('C:/wordapp/dev-data/images')).toBe(
       path.join('C:/wordapp/dev-data/images-trash'),
     )
-    expect(imageJournalPath('C:/wordapp/dev-data/images')).toBe(
+    expect(legacyImageJournalPath('C:/wordapp/dev-data/images')).toBe(
       path.join('C:/wordapp/dev-data/image-journal.json'),
+    )
+  })
+
+  it('puts every document in its own images folder', () => {
+    expect(imageDocumentDirectoryPath('C:/images', 7)).toBe(
+      path.join('C:/images', '7'),
+    )
+    expect(imageTrashDocumentDirectoryPath('C:/images', 7)).toBe(
+      path.join('C:/images-trash', '7'),
     )
   })
 })
 
-describe('imageFileNameFromUrl', () => {
-  it('reads the file name from a generated image url', () => {
-    expect(imageFileNameFromUrl(imageUrl(firstImage))).toBe(firstImage)
+describe('imageReference', () => {
+  it('reads the document and file name from a generated image url', () => {
+    expect(imageReference(imageUrl(documentId, firstImage))).toEqual({
+      documentId,
+      fileName: firstImage,
+    })
   })
 
   it('rejects urls that do not belong to the image scheme', () => {
-    expect(imageFileNameFromUrl(`https://image/${firstImage}`)).toBeNull()
+    expect(imageReference(`https://image/7/${firstImage}`)).toBeNull()
+    expect(imageReference(`wordapp-image://other/7/${firstImage}`)).toBeNull()
     expect(
-      imageFileNameFromUrl(`wordapp-image://other/${firstImage}`),
+      imageReference(`wordapp-image://image/7/${firstImage}?x=1`),
     ).toBeNull()
-    expect(
-      imageFileNameFromUrl(`wordapp-image://image/${firstImage}?x=1`),
-    ).toBeNull()
-    expect(
-      imageFileNameFromUrl(`wordapp-image://image/${firstImage}#x`),
-    ).toBeNull()
+    expect(imageReference(`wordapp-image://image/7/${firstImage}#x`)).toBeNull()
   })
 
   it('rejects paths that could escape the image directory', () => {
+    expect(imageReference('wordapp-image://image/../secret.png')).toBeNull()
     expect(
-      imageFileNameFromUrl('wordapp-image://image/../secret.png'),
+      imageReference('wordapp-image://image/%2e%2e%2fsecret.png'),
     ).toBeNull()
+    expect(imageReference(`wordapp-image://image/7/${firstImage}/x`)).toBeNull()
+    expect(imageReference('wordapp-image://image/7/not-a-uuid.png')).toBeNull()
+    expect(imageReference(`wordapp-image://image/0/${firstImage}`)).toBeNull()
+    expect(imageReference(`wordapp-image://image/-1/${firstImage}`)).toBeNull()
+    expect(imageReference(`wordapp-image://image/1.5/${firstImage}`)).toBeNull()
     expect(
-      imageFileNameFromUrl('wordapp-image://image/%2e%2e%2fsecret.png'),
+      imageReference(imageUrl(Number.MAX_SAFE_INTEGER + 1, firstImage)),
     ).toBeNull()
-    expect(
-      imageFileNameFromUrl('wordapp-image://image/not-a-uuid.png'),
-    ).toBeNull()
-    expect(imageFileNameFromUrl('wordapp-image://image/')).toBeNull()
+    expect(imageReference('wordapp-image://image/')).toBeNull()
   })
 })
 
 describe('referencedImageFileNames', () => {
-  it('collects every image url in a document body', () => {
-    const body = `<p>متن</p><img src="${imageUrl(firstImage)}" alt="a"><img src="${imageUrl(secondImage)}" alt="b">`
+  it('collects every image url of the document', () => {
+    const body = `<p>متن</p><img src="${imageUrl(documentId, firstImage)}" alt="a"><img src="${imageUrl(documentId, secondImage)}" alt="b">`
 
-    expect(referencedImageFileNames(body)).toEqual(
+    expect(referencedImageFileNames(body, documentId)).toEqual(
       new Set([firstImage, secondImage]),
     )
   })
 
+  it('ignores the images of another document', () => {
+    const body = `<img src="${imageUrl(documentId + 1, firstImage)}">`
+
+    expect(referencedImageFileNames(body, documentId)).toEqual(new Set())
+  })
+
   it('lowercases file names and ignores other schemes', () => {
     const upperCase = firstImage.toUpperCase()
-    const body = `<img src="wordapp-image://image/${upperCase}"><img src="https://example.com/${firstImage}">`
+    const body = `<img src="wordapp-image://image/${documentId}/${upperCase}"><img src="https://example.com/${firstImage}">`
 
-    expect(referencedImageFileNames(body)).toEqual(new Set([firstImage]))
+    expect(referencedImageFileNames(body, documentId)).toEqual(
+      new Set([firstImage]),
+    )
   })
 
   it('finds the image when another attribute comes first', () => {
-    const body = `<img alt="a" src="${imageUrl(firstImage)}">`
+    const body = `<img alt="a" src="${imageUrl(documentId, firstImage)}">`
 
-    expect(referencedImageFileNames(body)).toEqual(new Set([firstImage]))
+    expect(referencedImageFileNames(body, documentId)).toEqual(
+      new Set([firstImage]),
+    )
   })
 
   it('returns no names for a body without images', () => {
-    expect(referencedImageFileNames('<p>متن</p>')).toEqual(new Set())
+    expect(referencedImageFileNames('<p>متن</p>', documentId)).toEqual(
+      new Set(),
+    )
   })
 
   it('ignores an image url that only appears in text', () => {
-    expect(referencedImageFileNames(`<p>${imageUrl(firstImage)}</p>`)).toEqual(
-      new Set(),
-    )
+    expect(
+      referencedImageFileNames(
+        `<p>${imageUrl(documentId, firstImage)}</p>`,
+        documentId,
+      ),
+    ).toEqual(new Set())
   })
 })
 
@@ -203,10 +222,16 @@ describe('image request validation', () => {
 
   it('accepts stored image sources with a document', () => {
     expect(
-      isImageSourceRequest({ documentId, src: imageUrl(firstImage) }),
+      isImageSourceRequest({
+        documentId,
+        src: imageUrl(documentId, firstImage),
+      }),
     ).toBe(true)
     expect(
-      isImageSourceRequest({ documentId: 0, src: imageUrl(firstImage) }),
+      isImageSourceRequest({
+        documentId: 0,
+        src: imageUrl(documentId, firstImage),
+      }),
     ).toBe(false)
     expect(
       isImageSourceRequest({
@@ -216,54 +241,37 @@ describe('image request validation', () => {
     ).toBe(false)
   })
 
-  it('accepts stored bytes for a stored image url', () => {
-    expect(isImageRestoreRequest(restoreRequest(imageUrl(firstImage)))).toBe(
-      true,
-    )
-    expect(
-      isImageRestoreRequest({
-        documentId,
-        src: imageUrl(firstImage),
-        data: new Uint8Array(),
-      }),
-    ).toBe(false)
-    expect(
-      isImageRestoreRequest({ documentId, src: imageUrl(firstImage) }),
-    ).toBe(false)
-  })
-
-  it('accepts reconciliation requests with both bodies', () => {
+  it('accepts collection requests with both bodies', () => {
     const request = {
       documentId,
       savedBody: '<p>saved</p>',
       currentBody: '<p>current</p>',
     }
 
-    expect(isImageReconcileRequest(request)).toBe(true)
-    expect(isImageReconcileRequest({ ...request, savedBody: 1 })).toBe(false)
-    expect(isImageReconcileRequest({ ...request, currentBody: null })).toBe(
-      false,
-    )
-    expect(isImageReconcileRequest({ ...request, documentId: -1 })).toBe(false)
+    expect(isImageCollectRequest(request)).toBe(true)
+    expect(isImageCollectRequest({ ...request, savedBody: 1 })).toBe(false)
+    expect(isImageCollectRequest({ ...request, currentBody: null })).toBe(false)
+    expect(isImageCollectRequest({ ...request, documentId: -1 })).toBe(false)
   })
 })
 
 describe('image store save', () => {
-  it('stores an image and records it as pending until the body is saved', async () => {
+  it('stores an image in its document folder without a journal', async () => {
     const { directory, journal, store } = await openStore()
     const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src)
+    const fileName = fileNameOf(saved.src)
 
+    expect(imageReference(saved.src)?.documentId).toBe(documentId)
     expect(fileName).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/,
     )
-    expect(saved.src).toBe(imageUrl(fileName as string))
-    expect(readFileSync(path.join(directory, fileName as string))).toEqual(
-      Buffer.from([1, 2, 3]),
-    )
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
+    expect(saved.src).toBe(imageUrl(documentId, fileName))
+    expect(
+      readFileSync(
+        path.join(imageDocumentDirectoryPath(directory, documentId), fileName),
+      ),
+    ).toEqual(Buffer.from([1, 2, 3]))
+    expect(existsSync(journal)).toBe(false)
   })
 
   it('uses the mime type and normalizes the extension', async () => {
@@ -271,49 +279,69 @@ describe('image store save', () => {
     const saved = await store.save(
       imageRequest({ name: 'photo.jpeg', type: 'image/jpeg' }),
     )
-    const fileName = imageFileNameFromUrl(saved.src) as string
+    const fileName = fileNameOf(saved.src)
 
     expect(fileName.endsWith('.jpg')).toBe(true)
-    expect(existsSync(path.join(directory, fileName))).toBe(true)
+    expect(
+      existsSync(
+        path.join(imageDocumentDirectoryPath(directory, documentId), fileName),
+      ),
+    ).toBe(true)
   })
 
   it('rejects files that are not images without writing anything', async () => {
-    const { directory, journal, store } = await openStore()
+    const { directory, store } = await openStore()
 
     await expect(
       store.save(imageRequest({ name: 'notes.txt', type: 'text/plain' })),
     ).rejects.toThrow('The picked file is not a supported image.')
     expect(existsSync(directory)).toBe(false)
-    expect(existsSync(journal)).toBe(false)
   })
 })
 
 describe('image store copy', () => {
-  it('copies a stored image to a new file and records the copy as pending', async () => {
-    const { directory, journal, store } = await openStore()
+  it('copies a stored image into the same document folder', async () => {
+    const { directory, store } = await openStore()
     const original = await store.save(imageRequest())
+    const copied = await store.copy({ documentId, src: original.src })
+    const copiedName = fileNameOf(copied.src)
+
+    expect(copiedName).not.toBe(fileNameOf(original.src))
+    expect(imageReference(copied.src)?.documentId).toBe(documentId)
+    expect(
+      readFileSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          copiedName,
+        ),
+      ),
+    ).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('copies an image of another document into the requested document', async () => {
+    const { directory, store } = await openStore()
+    const original = await store.save(imageRequest())
+
     const copied = await store.copy({
-      documentId,
+      documentId: documentId + 1,
       src: original.src,
     })
-    const copiedName = imageFileNameFromUrl(copied.src) as string
 
-    expect(copiedName).not.toBe(imageFileNameFromUrl(original.src))
-    expect(readFileSync(path.join(directory, copiedName))).toEqual(
-      Buffer.from([1, 2, 3]),
-    )
-    expect(journalEntries(journal)).toHaveLength(2)
-    expect(journalEntries(journal)[1]).toEqual({
-      action: 'add',
-      documentId,
-      src: copied.src,
-    })
+    expect(imageReference(copied.src)?.documentId).toBe(documentId + 1)
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId + 1),
+          fileNameOf(copied.src),
+        ),
+      ),
+    ).toBe(true)
   })
 
   it('copies an image that is waiting in the trash', async () => {
     const { store } = await openStore()
     const original = await store.save(imageRequest())
-    await store.remove({ documentId, src: original.src })
+    await store.collect({ documentId, savedBody: '', currentBody: '' })
 
     const copied = await store.copy({ documentId, src: original.src })
 
@@ -327,367 +355,278 @@ describe('image store copy', () => {
       store.copy({ documentId, src: 'https://example.com/photo.png' }),
     ).rejects.toThrow('The image source is not a stored image.')
     await expect(
-      store.copy({ documentId, src: imageUrl(firstImage) }),
+      store.copy({ documentId, src: imageUrl(documentId, firstImage) }),
     ).rejects.toThrow('The stored image is missing.')
   })
 })
 
-describe('image store remove', () => {
-  it('moves the file to the trash, returns its bytes, and journals the removal', async () => {
-    const { directory, trash, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-
-    const data = await store.remove({ documentId, src: saved.src })
-
-    expect(new Uint8Array(data as ArrayBuffer)).toEqual(
-      new Uint8Array([1, 2, 3]),
-    )
-    expect(existsSync(path.join(directory, fileName))).toBe(false)
-    expect(readFileSync(path.join(trash, fileName))).toEqual(
-      Buffer.from([1, 2, 3]),
-    )
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-      { action: 'remove', documentId, src: saved.src },
-    ])
-  })
-
-  it('returns the bytes again when the file is already in the trash', async () => {
-    const { store } = await openStore()
+describe('image store collect', () => {
+  it('keeps an image the saved body references', async () => {
+    const { directory, store } = await openStore()
     const saved = await store.save(imageRequest())
 
-    await store.remove({ documentId, src: saved.src })
-    const data = await store.remove({ documentId, src: saved.src })
-
-    expect(new Uint8Array(data as ArrayBuffer)).toEqual(
-      new Uint8Array([1, 2, 3]),
-    )
-  })
-
-  it('answers an invalid or missing source with no bytes', async () => {
-    const { journal, store } = await openStore()
-
-    await expect(
-      store.remove({ documentId, src: 'https://example.com/photo.png' }),
-    ).resolves.toBeNull()
-    await expect(
-      store.remove({ documentId, src: imageUrl(firstImage) }),
-    ).resolves.toBeNull()
-    expect(journalEntries(journal)).toEqual([])
-  })
-})
-
-describe('image store restore', () => {
-  it('moves a removed image back and clears its removal journal entry', async () => {
-    const { directory, trash, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
-
-    await store.restore(restoreRequest(saved.src))
-
-    expect(readFileSync(path.join(directory, fileName))).toEqual(
-      Buffer.from([1, 2, 3]),
-    )
-    expect(existsSync(path.join(trash, fileName))).toBe(false)
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
-  })
-
-  it('writes the supplied bytes back when the trash file is gone', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
-    rmSync(path.join(imageTrashDirectoryPath(directory), fileName))
-    const reopened = await createImageStore(directory)
-
-    await reopened.restore(
-      restoreRequest(saved.src, new Uint8Array([4, 5, 6, 7])),
-    )
-
-    expect(readFileSync(path.join(directory, fileName))).toEqual(
-      Buffer.from([4, 5, 6, 7]),
-    )
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
-  })
-
-  it('rejects a source that is not a stored image', async () => {
-    const { store } = await openStore()
-
-    await expect(
-      store.restore(restoreRequest('https://example.com/photo.png')),
-    ).rejects.toThrow('The image source is not a stored image.')
-  })
-})
-
-describe('image store reconcile', () => {
-  it('clears a pending add once the saved body contains it', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-
-    await store.reconcile({
+    await store.collect({
       documentId,
       savedBody: imageBody(saved.src),
       currentBody: imageBody(saved.src),
     })
 
-    expect(journalEntries(journal)).toEqual([])
     expect(
       existsSync(
-        path.join(directory, imageFileNameFromUrl(saved.src) as string),
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
       ),
     ).toBe(true)
   })
 
-  it('keeps a pending add while only the editor body contains it', async () => {
-    const { journal, store } = await openStore()
+  it('keeps an image only the editor body references', async () => {
+    const { directory, store } = await openStore()
     const saved = await store.save(imageRequest())
 
-    await store.reconcile({
+    await store.collect({
       documentId,
       savedBody: '',
       currentBody: imageBody(saved.src),
     })
 
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
-  })
-
-  it('deletes a pending add that left both bodies', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-
-    await store.reconcile({
-      documentId,
-      savedBody: '',
-      currentBody: '',
-    })
-
-    expect(journalEntries(journal)).toEqual([])
     expect(
       existsSync(
-        path.join(directory, imageFileNameFromUrl(saved.src) as string),
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it('moves an image both bodies left to the trash', async () => {
+    const { directory, store } = await openStore()
+    const saved = await store.save(imageRequest())
+
+    await store.collect({ documentId, savedBody: '', currentBody: '' })
+
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
       ),
     ).toBe(false)
+    expect(
+      readFileSync(
+        path.join(
+          imageTrashDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
+      ),
+    ).toEqual(Buffer.from([1, 2, 3]))
   })
 
-  it('keeps a removal in the trash while the saved body still contains it', async () => {
-    const { trash, journal, store } = await openStore()
+  it('restores an undone image from the trash', async () => {
+    const { directory, store } = await openStore()
     const saved = await store.save(imageRequest())
-    await store.remove({ documentId, src: saved.src })
+    await store.collect({ documentId, savedBody: '', currentBody: '' })
 
-    await store.reconcile({
+    await store.collect({
       documentId,
       savedBody: imageBody(saved.src),
-      currentBody: '',
-    })
-
-    expect(
-      existsSync(path.join(trash, imageFileNameFromUrl(saved.src) as string)),
-    ).toBe(true)
-    expect(journalEntries(journal)).toContainEqual({
-      action: 'remove',
-      documentId,
-      src: saved.src,
-    })
-  })
-
-  it('restores an undone image and tracks it as pending for the next save', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
-
-    await store.reconcile({
-      documentId,
-      savedBody: '',
       currentBody: imageBody(saved.src),
     })
 
-    expect(existsSync(path.join(directory, fileName))).toBe(true)
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
+      ),
+    ).toBe(true)
   })
 
-  it('deletes the trash once the removal is saved', async () => {
-    const { trash, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
+  it('leaves the images of other documents alone', async () => {
+    const { directory, store } = await openStore()
+    const saved = await store.save(imageRequest({ documentId: documentId + 1 }))
 
-    await store.reconcile({
-      documentId,
-      savedBody: '',
-      currentBody: '',
-    })
+    await store.collect({ documentId, savedBody: '', currentBody: '' })
 
-    expect(existsSync(path.join(trash, fileName))).toBe(false)
-    expect(journalEntries(journal)).toEqual([])
-  })
-
-  it('leaves entries of other documents alone', async () => {
-    const { journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-
-    await store.reconcile({
-      documentId: documentId + 1,
-      savedBody: '',
-      currentBody: '',
-    })
-
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId + 1),
+          fileNameOf(saved.src),
+        ),
+      ),
+    ).toBe(true)
   })
 })
 
-describe('image store recovery', () => {
-  function documentWith(...sources: string[]) {
-    return { body: imageBody(...sources) }
-  }
+describe('image store sweep', () => {
+  it('moves legacy flat files into the folder of the document that references them', async () => {
+    const { directory, store } = await openStore()
+    await writeImageFile(directory, firstImage, new Uint8Array([1, 2, 3]))
 
-  it('keeps an added image that reached the saved body', async () => {
-    const { directory, journal, store } = await openStore()
+    await store.sweep([
+      { id: documentId, body: imageBody(imageUrl(documentId, firstImage)) },
+    ])
+
+    expect(existsSync(path.join(directory, firstImage))).toBe(false)
+    expect(
+      readFileSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          firstImage,
+        ),
+      ),
+    ).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('deletes a legacy flat file that no document references', async () => {
+    const { directory, store } = await openStore()
+    await writeImageFile(directory, firstImage, new Uint8Array([1]))
+    await writeImageFile(directory, secondImage, new Uint8Array([2]))
+
+    await store.sweep([
+      { id: documentId, body: imageBody(imageUrl(documentId, firstImage)) },
+    ])
+
+    expect(existsSync(path.join(directory, secondImage))).toBe(false)
+  })
+
+  it('removes the legacy journal file', async () => {
+    const { journal, store } = await openStore()
+    writeFileSync(journal, '{}')
+
+    await store.sweep([])
+
+    expect(existsSync(journal)).toBe(false)
+  })
+
+  it('restores a referenced image that is waiting in the trash', async () => {
+    const { directory, store } = await openStore()
     const saved = await store.save(imageRequest())
-    const getDocument = vi.fn(async () => documentWith(saved.src))
+    await store.collect({ documentId, savedBody: '', currentBody: '' })
 
-    await store.recover(getDocument)
+    await store.sweep([{ id: documentId, body: imageBody(saved.src) }])
 
-    expect(getDocument).toHaveBeenCalledExactlyOnceWith(documentId)
-    expect(journalEntries(journal)).toEqual([])
     expect(
       existsSync(
-        path.join(directory, imageFileNameFromUrl(saved.src) as string),
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
       ),
+    ).toBe(true)
+    expect(existsSync(imageTrashDirectoryPath(directory))).toBe(false)
+  })
+
+  it('deletes an unreferenced file and empties the trash', async () => {
+    const { directory, trash, store } = await openStore()
+    const saved = await store.save(imageRequest())
+
+    await store.sweep([{ id: documentId, body: '' }])
+
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          fileNameOf(saved.src),
+        ),
+      ),
+    ).toBe(false)
+    expect(existsSync(trash)).toBe(false)
+  })
+
+  it('deletes the folders of a document that no longer exists', async () => {
+    const { directory, store } = await openStore()
+    await store.save(imageRequest())
+    const other = await store.save(imageRequest({ documentId: documentId + 1 }))
+
+    await store.sweep([{ id: documentId + 1, body: imageBody(other.src) }])
+
+    expect(existsSync(imageDocumentDirectoryPath(directory, documentId))).toBe(
+      false,
+    )
+    expect(
+      existsSync(imageDocumentDirectoryPath(directory, documentId + 1)),
     ).toBe(true)
   })
 
-  it('deletes an added image that never reached the saved body', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-
-    await store.recover(async () => documentWith())
-
-    expect(journalEntries(journal)).toEqual([])
-    expect(
-      existsSync(
-        path.join(directory, imageFileNameFromUrl(saved.src) as string),
-      ),
-    ).toBe(false)
-  })
-
-  it('restores a removed image that is still in the saved body', async () => {
-    const { directory, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
-
-    await store.recover(async () => documentWith(saved.src))
-
-    expect(readFileSync(path.join(directory, fileName))).toEqual(
-      Buffer.from([1, 2, 3]),
+  it('keeps a body-less document folder empty but present after a clean sweep', async () => {
+    const { directory, store } = await openStore()
+    await writeImageFile(
+      imageDocumentDirectoryPath(directory, documentId),
+      firstImage,
+      new Uint8Array([1]),
     )
-    expect(journalEntries(journal)).toEqual([])
-  })
 
-  it('deletes the trash of a removal that reached the saved body', async () => {
-    const { trash, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const fileName = imageFileNameFromUrl(saved.src) as string
-    await store.remove({ documentId, src: saved.src })
+    await store.sweep([{ id: documentId, body: '<p>متن</p>' }])
 
-    await store.recover(async () => documentWith())
-
-    expect(existsSync(path.join(trash, fileName))).toBe(false)
-    expect(journalEntries(journal)).toEqual([])
-  })
-
-  it('deletes the files of a document that no longer exists', async () => {
-    const { directory, trash, journal, store } = await openStore()
-    const added = await store.save(imageRequest())
-    const removed = await store.save(imageRequest({ name: 'second.png' }))
-    const removedName = imageFileNameFromUrl(removed.src) as string
-    await store.remove({ documentId, src: removed.src })
-
-    await store.recover(async () => undefined)
-
-    expect(journalEntries(journal)).toEqual([])
     expect(
       existsSync(
-        path.join(directory, imageFileNameFromUrl(added.src) as string),
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId),
+          firstImage,
+        ),
       ),
     ).toBe(false)
-    expect(existsSync(path.join(trash, removedName))).toBe(false)
-  })
-
-  it('keeps entries whose document read failed', async () => {
-    const { journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-
-    await store.recover(async () => {
-      throw new Error('database unavailable')
-    })
-
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId, src: saved.src },
-    ])
   })
 })
 
 describe('image store document deletion', () => {
-  it('removes saved and pending images of the deleted document only', async () => {
-    const { directory, trash, journal, store } = await openStore()
-    const saved = await store.save(imageRequest())
-    const pending = await store.save(imageRequest({ name: 'pending.png' }))
-    const removed = await store.save(imageRequest({ name: 'removed.png' }))
-    const removedName = imageFileNameFromUrl(removed.src) as string
-    await store.remove({ documentId, src: removed.src })
-    const other = await store.save(imageRequest({ documentId: documentId + 1 }))
-    const otherName = imageFileNameFromUrl(other.src) as string
-
-    await store.removeDocument(documentId, imageBody(saved.src))
-
-    expect(
-      existsSync(
-        path.join(directory, imageFileNameFromUrl(saved.src) as string),
-      ),
-    ).toBe(false)
-    expect(
-      existsSync(
-        path.join(directory, imageFileNameFromUrl(pending.src) as string),
-      ),
-    ).toBe(false)
-    expect(existsSync(path.join(trash, removedName))).toBe(false)
-    expect(existsSync(path.join(directory, otherName))).toBe(true)
-    expect(journalEntries(journal)).toEqual([
-      { action: 'add', documentId: documentId + 1, src: other.src },
-    ])
-  })
-
-  it('removes the files of the saved body even without journal entries', async () => {
+  it('removes the files and the trash of the deleted document only', async () => {
     const { directory, store } = await openStore()
+    const kept = await store.save(imageRequest())
+    const removed = await store.save(imageRequest({ name: 'second.png' }))
+    await store.collect({
+      documentId,
+      savedBody: imageBody(kept.src),
+      currentBody: imageBody(kept.src),
+    })
+    const other = await store.save(imageRequest({ documentId: documentId + 1 }))
 
-    await writeImageFile(directory, secondImage, new Uint8Array([1]))
-    await store.removeDocument(documentId, imageBody(imageUrl(secondImage)))
+    expect(
+      existsSync(
+        path.join(
+          imageTrashDocumentDirectoryPath(directory, documentId),
+          fileNameOf(removed.src),
+        ),
+      ),
+    ).toBe(true)
 
-    expect(existsSync(path.join(directory, secondImage))).toBe(false)
+    await store.removeDocument(documentId)
+
+    expect(existsSync(imageDocumentDirectoryPath(directory, documentId))).toBe(
+      false,
+    )
+    expect(
+      existsSync(imageTrashDocumentDirectoryPath(directory, documentId)),
+    ).toBe(false)
+    expect(
+      existsSync(
+        path.join(
+          imageDocumentDirectoryPath(directory, documentId + 1),
+          fileNameOf(other.src),
+        ),
+      ),
+    ).toBe(true)
   })
 })
 
 describe('clearImageStore', () => {
-  it('removes the images, the trash, and the journal', async () => {
+  it('removes the images, the trash, and the legacy journal', async () => {
     const { directory, trash, journal } = storePaths()
-    mkdirSync(directory, { recursive: true })
-    mkdirSync(trash, { recursive: true })
-    writeFileSync(path.join(directory, firstImage), 'image')
-    writeFileSync(path.join(trash, secondImage), 'image')
+    mkdirSync(imageDocumentDirectoryPath(directory, documentId), {
+      recursive: true,
+    })
+    mkdirSync(path.join(trash, String(documentId)), { recursive: true })
+    writeFileSync(
+      path.join(imageDocumentDirectoryPath(directory, documentId), firstImage),
+      'image',
+    )
+    writeFileSync(path.join(trash, String(documentId), secondImage), 'image')
     writeFileSync(journal, JSON.stringify({ entries: [] }))
 
     await clearImageStore(directory)
@@ -698,41 +637,30 @@ describe('clearImageStore', () => {
   })
 })
 
-describe('image journal file', () => {
-  it('survives reopening the store', async () => {
-    const { directory, journal } = storePaths()
-    const firstStore = await createImageStore(directory)
-    const saved = await firstStore.save(imageRequest())
-    const secondStore = await createImageStore(directory)
+describe('image files', () => {
+  it('lists only stored image file names of a folder', async () => {
+    const { directory } = await openStore()
+    const documentDirectory = imageDocumentDirectoryPath(directory, documentId)
+    await writeImageFile(documentDirectory, firstImage, new Uint8Array([1]))
+    writeFileSync(path.join(documentDirectory, 'notes.txt'), 'text')
 
-    await secondStore.reconcile({
-      documentId,
-      savedBody: imageBody(saved.src),
-      currentBody: imageBody(saved.src),
-    })
-
-    expect(journalEntries(journal)).toEqual([])
+    expect(await listImageFileNames(documentDirectory)).toEqual([firstImage])
   })
 
-  it('moves an unreadable journal aside and starts clean', async () => {
-    const { directory, journal } = storePaths()
-    writeFileSync(journal, '{not json')
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('reads a stored file and answers a missing one with null', async () => {
+    const { directory, store } = await openStore()
+    const saved = await store.save(imageRequest())
+    const documentDirectory = imageDocumentDirectoryPath(directory, documentId)
 
-    await expect(createImageStore(directory)).resolves.toBeDefined()
+    const data = await readImageFile(documentDirectory, fileNameOf(saved.src))
 
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining('The image journal could not be read:'),
+    expect(new Uint8Array(data as ArrayBuffer)).toEqual(
+      new Uint8Array([1, 2, 3]),
     )
-    expect(
-      readdirSync(path.dirname(journal)).some((name) =>
-        name.startsWith('image-journal.json.corrupt-'),
-      ),
-    ).toBe(true)
+    expect(await readImageFile(documentDirectory, secondImage)).toBeNull()
+    expect(await readImageFile(documentDirectory, '../secret.png')).toBeNull()
   })
-})
 
-describe('writeImageFile', () => {
   it('writes a validated image file name', async () => {
     const { directory } = storePaths()
 
@@ -749,5 +677,11 @@ describe('writeImageFile', () => {
     await expect(
       writeImageFile(directory, '../secret.png', new Uint8Array([1])),
     ).rejects.toThrow('The image file name is not valid.')
+  })
+
+  it('does not create the images folder before the first save', async () => {
+    const { directory } = await openStore()
+
+    expect(existsSync(directory)).toBe(false)
   })
 })

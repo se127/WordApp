@@ -225,20 +225,23 @@ flex-col` and the message block is `flex min-h-32 w-full flex-1 ... p-6`. Copy:
 - New image features use the app image store, never base64 or remote URLs. The editor
   sets `Image.configure({ allowBase64: false })`; inserted files go through
   `window.WordApp.images.save` and become
-  `wordapp-image://image/<uuid>.<extension>`.
-- `electron/images.ts` validates scheme, host, and UUID file name; the protocol handler
-  serves only files from the image directory. Never widen that validation or serve
-  arbitrary paths.
-- `electron/image-store.ts` serializes operations, journals every add/remove before
-  touching files, moves removed files to `images-trash`, recovers at startup, and
-  reconciles after saves. Preserve crash safety: journal before write, remove the entry
-  on failure, and keep removed bytes for undo.
-- Lifecycle: removing an image moves it to trash; re-adding restores it; a successful
-  save reconciles the journal with the saved body; deleting a document removes its
-  images and journal entries. Pasting a document image copies it so each document owns
-  its bytes. Keep these paths tested.
-- Dev data: `dev-data/db.sqlite`, `dev-data/images`, `dev-data/images-trash`,
-  `dev-data/image-journal.json`; packaged data lives under `userData`.
+  `wordapp-image://image/<documentId>/<uuid>.<extension>`.
+- Files live under `images/<documentId>/<uuid>.<extension>`, with the sibling
+  `images-trash/<documentId>/` holding files the last save no longer references. Dev
+  data uses `dev-data/images` and `dev-data/images-trash`; packaged data lives under
+  `userData`. There is no journal file.
+- `electron/images.ts` validates scheme, host, numeric document id, and UUID file name;
+  the protocol handler serves only files from the document's own folder. Never widen
+  that validation or serve arbitrary paths.
+- `electron/image-store.ts` serializes operations. `save` writes a new file into the
+  document folder, `copy` writes a fresh file so pasted images belong to the target
+  document, and `collect` compares the saved and current bodies with the folder: it
+  moves unreferenced files to trash and restores referenced files from trash. `sweep`
+  runs once at startup, moves legacy flat files into their owner folder, trashes files
+  no body references, restores referenced files, then empties the trash.
+- Lifecycle: removing an image from the editor never touches the file, so undo needs no
+  restore call. A successful body save collects unused files; deleting a document
+  removes its image folder and trash folder. Keep these paths tested.
 
 ## React Compiler — keep renderer code compilable
 

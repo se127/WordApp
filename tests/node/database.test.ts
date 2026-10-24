@@ -70,7 +70,7 @@ describe('openDatabase', () => {
 
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       })
       expect(raw.prepare('PRAGMA journal_mode').get()).toEqual({
         journal_mode: 'wal',
@@ -215,7 +215,7 @@ END;
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       })
       expect(
         raw
@@ -245,7 +245,7 @@ END;
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       })
     } finally {
       raw.close()
@@ -301,7 +301,7 @@ VALUES
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       })
       expect(
         raw
@@ -332,6 +332,68 @@ VALUES
     } finally {
       raw.close()
     }
+  })
+
+  it('moves legacy image URLs into the folder of their document', async () => {
+    const databasePath = temporaryDatabasePath()
+    const legacy = new DatabaseSync(databasePath)
+    legacy.exec(`
+CREATE TABLE documents (
+  id INTEGER PRIMARY KEY,
+  title TEXT,
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX documents_created_at_id_idx ON documents (created_at DESC, id DESC);
+
+CREATE TRIGGER documents_touch_updated_at
+AFTER UPDATE ON documents
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+  UPDATE documents
+  SET updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+  WHERE id = NEW.id;
+END;
+`)
+    legacy.exec('PRAGMA user_version = 3')
+    legacy.exec(`
+INSERT INTO documents (title, body, created_at, updated_at)
+VALUES
+  (
+    'گزارش',
+    '<p><img src="wordapp-image://image/11111111-1111-4111-8111-111111111111.png"></p>',
+    2000,
+    2000
+  ),
+  (
+    'یادداشت',
+    '<p><img src="wordapp-image://image/7/22222222-2222-4222-8222-222222222222.png"></p>',
+    1000,
+    1000
+  );
+`)
+    legacy.close()
+
+    const store = openDatabase(databasePath)
+    database = store
+
+    expect(
+      (await store.listDocumentBodies()).sort(
+        (first, second) => first.id - second.id,
+      ),
+    ).toEqual([
+      {
+        id: 1,
+        body: '<p><img src="wordapp-image://image/1/11111111-1111-4111-8111-111111111111.png"></p>',
+      },
+      {
+        id: 2,
+        body: '<p><img src="wordapp-image://image/7/22222222-2222-4222-8222-222222222222.png"></p>',
+      },
+    ])
   })
 })
 
@@ -1208,7 +1270,7 @@ describe('resetDatabase', () => {
     const raw = new DatabaseSync(databasePath)
     try {
       expect(raw.prepare('PRAGMA user_version').get()).toEqual({
-        user_version: 3,
+        user_version: 4,
       })
       expect(
         raw.prepare('SELECT COUNT(*) AS count FROM documents').get(),
