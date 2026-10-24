@@ -617,6 +617,7 @@ describe('routes', () => {
       'کد',
       'نقل قول',
       'خط افقی',
+      'افزودن جدول',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement

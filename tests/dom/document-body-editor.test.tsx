@@ -127,6 +127,7 @@ describe('DocumentBodyEditor', () => {
       'کد',
       'نقل قول',
       'خط افقی',
+      'افزودن جدول',
     ])
 
     const [
@@ -146,6 +147,7 @@ describe('DocumentBodyEditor', () => {
       codeBlockButton,
       blockquoteButton,
       horizontalRuleButton,
+      tableButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -166,6 +168,7 @@ describe('DocumentBodyEditor', () => {
       textPositionButton,
       codeBlockButton,
       horizontalRuleButton,
+      tableButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
@@ -211,7 +214,7 @@ describe('DocumentBodyEditor', () => {
     expect(fontSizeSelect).not.toHaveClass('dark:hover:bg-zinc-700')
 
     const separators = toolbar.querySelectorAll('[data-slot="separator"]')
-    expect(separators).toHaveLength(5)
+    expect(separators).toHaveLength(6)
     for (const separator of separators) {
       expect(separator).toHaveAttribute('data-orientation', 'vertical')
     }
@@ -228,6 +231,8 @@ describe('DocumentBodyEditor', () => {
     expect(separators[4]?.nextElementSibling).toBe(codeBlockButton)
     expect(codeBlockButton.nextElementSibling).toBe(blockquoteButton)
     expect(blockquoteButton.nextElementSibling).toBe(horizontalRuleButton)
+    expect(horizontalRuleButton.nextElementSibling).toBe(separators[5])
+    expect(separators[5]?.nextElementSibling).toBe(tableButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -342,6 +347,7 @@ describe('DocumentBodyEditor', () => {
       'ol',
       'li',
       'pre',
+      'table',
       'hr',
     ].map((tag) => `.document-body-editor .ProseMirror ${tag}`)
 
@@ -356,6 +362,9 @@ describe('DocumentBodyEditor', () => {
     )
     expect(compactStyles).toContain(
       '.document-body-editor .ProseMirror li > ul, .document-body-editor .ProseMirror li > ol { margin-block: 0.5em; }',
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror li > .table-scroll { margin-block: 0.5em; }',
     )
   })
 
@@ -1502,6 +1511,500 @@ describe('DocumentBodyEditor', () => {
       '<p dir="rtl">متن</p><hr dir="rtl"><p dir="rtl"></p>',
     )
     expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('opens the add table dialog and inserts one cell with focus back in the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByRole('heading', { name: 'افزودن جدول' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('برای افزودن جدول از فرم زیر استفاده نمایید.'),
+    ).toBeInTheDocument()
+
+    const rowsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد سطرها',
+    })
+    const columnsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد ستون ها',
+    })
+    expect(rowsInput).toHaveValue(1)
+    expect(columnsInput).toHaveValue(1)
+    expect(rowsInput).toHaveAttribute('type', 'number')
+    expect(columnsInput).toHaveAttribute('type', 'number')
+    expect(rowsInput).toHaveClass(
+      '[appearance:textfield]',
+      '[&::-webkit-inner-spin-button]:appearance-none',
+      '[&::-webkit-outer-spin-button]:appearance-none',
+    )
+    expect(rowsInput).toHaveFocus()
+
+    expect(
+      within(dialog).getByRole('button', { name: 'کاهش تعداد سطرها' }),
+    ).toBeDisabled()
+    expect(
+      within(dialog).getByRole('button', { name: 'افزایش تعداد سطرها' }),
+    ).toBeEnabled()
+    expect(
+      within(dialog).getByRole('button', { name: 'کاهش تعداد ستون ها' }),
+    ).toBeDisabled()
+    expect(
+      within(dialog).getByRole('button', { name: 'افزایش تعداد ستون ها' }),
+    ).toBeEnabled()
+
+    expect(
+      within(dialog).getByRole('button', { name: 'انصراف' }),
+    ).toBeInTheDocument()
+
+    const headerCheckbox = within(dialog).getByRole('checkbox', {
+      name: 'اولین سطر به عنوان سرستون؟',
+    })
+    expect(headerCheckbox).not.toBeChecked()
+
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const editor = await editorTextbox()
+    const table = editor.querySelector('table')
+    expect(table).not.toBeNull()
+    expect(table?.querySelectorAll('tr')).toHaveLength(1)
+    expect(table?.querySelectorAll('td')).toHaveLength(1)
+    expect(table?.querySelectorAll('th')).toHaveLength(0)
+    expect(onBodyChange).toHaveBeenCalled()
+    expect(editor).toHaveFocus()
+  })
+
+  it('closes the add table dialog without inserting when cancelled', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(onBodyChange).not.toHaveBeenCalled()
+    expect(document.querySelector('.ProseMirror table')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const reopenedDialog = await screen.findByRole('dialog')
+
+    await user.click(
+      within(reopenedDialog).getByRole('button', { name: 'بستن' }),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(onBodyChange).not.toHaveBeenCalled()
+    expect(document.querySelector('.ProseMirror table')).toBeNull()
+  })
+
+  it('steps the table size with the minus and plus buttons', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+    const rowsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد سطرها',
+    })
+    const columnsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد ستون ها',
+    })
+    const decrementRows = within(dialog).getByRole('button', {
+      name: 'کاهش تعداد سطرها',
+    })
+    const incrementRows = within(dialog).getByRole('button', {
+      name: 'افزایش تعداد سطرها',
+    })
+    const incrementColumns = within(dialog).getByRole('button', {
+      name: 'افزایش تعداد ستون ها',
+    })
+
+    await user.click(incrementRows)
+    await user.click(incrementRows)
+    await user.click(incrementColumns)
+
+    expect(rowsInput).toHaveValue(3)
+    expect(columnsInput).toHaveValue(2)
+    expect(decrementRows).toBeEnabled()
+
+    await user.click(decrementRows)
+
+    expect(rowsInput).toHaveValue(2)
+
+    fireEvent.change(rowsInput, { target: { value: '10' } })
+    expect(incrementRows).toBeDisabled()
+    expect(decrementRows).toBeEnabled()
+
+    fireEvent.change(rowsInput, { target: { value: '1' } })
+    expect(decrementRows).toBeDisabled()
+    expect(incrementRows).toBeEnabled()
+
+    expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('types inside table cells and keeps the table in the body', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const editor = await editorTextbox()
+    expect(editor).toHaveFocus()
+    await user.keyboard('سلام')
+
+    expect(editor.querySelector('table td p')).toHaveTextContent('سلام')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringMatching(/<table[\s\S]*سلام[\s\S]*<\/table>/),
+    )
+  })
+
+  it('inserts the requested rows and columns with an optional header row', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+    const rowsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد سطرها',
+    })
+    const columnsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد ستون ها',
+    })
+
+    await user.clear(rowsInput)
+    await user.type(rowsInput, '2')
+    await user.clear(columnsInput)
+    await user.type(columnsInput, '3')
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'اولین سطر به عنوان سرستون؟',
+      }),
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const editor = await editorTextbox()
+    const table = editor.querySelector('table')
+    expect(table).not.toBeNull()
+    expect(table?.querySelectorAll('tr')).toHaveLength(2)
+    expect(table?.querySelectorAll('th')).toHaveLength(3)
+    expect(table?.querySelectorAll('td')).toHaveLength(3)
+
+    const columns = table?.querySelectorAll<HTMLTableColElement>('colgroup col')
+    expect(columns).toHaveLength(3)
+
+    for (const column of Array.from(columns ?? [])) {
+      expect(column.style.width).toBe('')
+    }
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<th'),
+    )
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<td'),
+    )
+    expect(editor).toHaveFocus()
+  })
+
+  it('validates table sizes with Farsi messages and clears them on edit', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+    const rowsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد سطرها',
+    })
+    const columnsInput = within(dialog).getByRole('spinbutton', {
+      name: 'تعداد ستون ها',
+    })
+    const addButton = within(dialog).getByRole('button', { name: 'افزودن' })
+
+    await user.clear(rowsInput)
+    await user.type(rowsInput, '0')
+    await user.clear(columnsInput)
+    await user.type(columnsInput, '11')
+    await user.click(addButton)
+
+    expect(
+      within(dialog).getByText('حداقل یک سطر الزامی است.'),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('تعداد ستون ها بیشتر از ۱۰ است.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(rowsInput).toHaveAttribute('aria-invalid', 'true')
+    expect(columnsInput).toHaveAttribute('aria-invalid', 'true')
+
+    await user.clear(rowsInput)
+    await user.type(rowsInput, '1')
+
+    expect(
+      within(dialog).queryByText('حداقل یک سطر الزامی است.'),
+    ).not.toBeInTheDocument()
+
+    await user.clear(columnsInput)
+    await user.type(columnsInput, '1.5')
+    await user.click(addButton)
+
+    expect(
+      within(dialog).getByText('تعداد ستون ها باید عدد صحیح باشد.'),
+    ).toBeInTheDocument()
+
+    fireEvent.change(columnsInput, { target: { value: 'ستون' } })
+    await user.click(addButton)
+
+    expect(
+      within(dialog).getByText('تعداد ستون ها باید یک عدد باشد.'),
+    ).toBeInTheDocument()
+    expect(document.querySelector('.ProseMirror table')).toBeNull()
+    expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('renders tables in a horizontal scroll area with the code block scrollbar', async () => {
+    const resizeCallbacks: Array<{
+      target: Element
+      callback: () => void
+    }> = []
+
+    class TestResizeObserver {
+      private readonly callback: () => void
+
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+
+      observe(target: Element) {
+        resizeCallbacks.push({ target, callback: this.callback })
+      }
+
+      unobserve() {}
+
+      disconnect() {}
+    }
+
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    renderEditor({
+      body: '<table><tbody><tr><th><p>عنوان یک</p></th><th><p>عنوان دو</p></th></tr><tr><td><p>خانه</p></td><td><p>مدرسه</p></td></tr></tbody></table>',
+    })
+
+    const editor = await editorTextbox()
+    const table = editor.querySelector('table')
+    expect(table).not.toBeNull()
+    expect(table?.querySelectorAll('th')).toHaveLength(2)
+    expect(table?.querySelectorAll('td')).toHaveLength(2)
+    expect(table?.querySelector('colgroup')).not.toBeNull()
+
+    const wrapper = table?.closest('.table-scroll')
+    expect(wrapper).not.toBeNull()
+
+    const scrollArea = wrapper?.querySelector('[data-slot="scroll-area"]')
+    expect(scrollArea).toHaveClass('table-scroll-area')
+
+    const viewport = scrollArea?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    expect(viewport).not.toBeNull()
+    expect(viewport?.contains(table)).toBe(true)
+
+    const content = viewport?.firstElementChild
+    expect(content).toHaveAttribute('data-slot', 'scroll-area-content')
+    expect(table?.parentElement).toBe(content)
+
+    Object.defineProperties(viewport, {
+      offsetWidth: { configurable: true, value: 160 },
+      scrollWidth: { configurable: true, value: 480 },
+      offsetHeight: { configurable: true, value: 120 },
+      scrollHeight: { configurable: true, value: 120 },
+    })
+
+    for (const { target, callback } of resizeCallbacks) {
+      if (scrollArea?.contains(target)) {
+        callback()
+      }
+    }
+
+    const horizontalBar = await waitFor(() => {
+      const bar = scrollArea?.querySelector(
+        '[data-slot="scroll-area-scrollbar"][data-orientation="horizontal"]',
+      )
+      expect(bar).not.toBeNull()
+      return bar as HTMLElement
+    })
+    expect(horizontalBar).toHaveClass('table-scrollbar')
+    expect(fireEvent.mouseDown(horizontalBar)).toBe(false)
+
+    for (const { target, callback } of resizeCallbacks) {
+      if (horizontalBar.contains(target)) {
+        callback()
+      }
+    }
+
+    await waitFor(() => {
+      expect(
+        horizontalBar.querySelector('[data-slot="scroll-area-thumb"]'),
+      ).not.toBeNull()
+    })
+
+    vi.unstubAllGlobals()
+  })
+
+  it('themes tables and pins the column resize handle', async () => {
+    const editorStyles = (
+      await readFile('src/components/document-body-editor.css', 'utf8')
+    ).replace(/\s+/g, ' ')
+
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-scroll-area:has\(\[data-slot='scroll-area-scrollbar'\]\) \{[^}]*padding-bottom: 0\.625rem;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-grid \{[^}]*width: 100%;[^}]*margin-block: 0;[^}]*border-collapse: collapse;[^}]*font-size: 0\.875em;[^}]*table-layout: fixed;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-grid th \{[^}]*background-color: var\(--color-gray-100\);/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-grid th, \.document-body-editor \.ProseMirror \.table-grid td \{[^}]*position: relative;[^}]*padding: 0\.375rem;[^}]*border: 1px solid var\(--color-gray-400\);[^}]*vertical-align: top;/,
+    )
+    expect(editorStyles).toContain(
+      '.document-body-editor .ProseMirror .table-grid tr:not(:has(th)):nth-child(2n of tr:not(:has(th))) { background-color: var(--color-gray-100); }',
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .table-grid th { background-color: var(--color-zinc-800); }',
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .table-grid th, .dark .document-body-editor .ProseMirror .table-grid td { border-color: var(--color-zinc-600); }',
+    )
+    expect(editorStyles).toContain(
+      '.dark .document-body-editor .ProseMirror .table-grid tr:not(:has(th)):nth-child(2n of tr:not(:has(th))) { background-color: var(--color-zinc-800); }',
+    )
+    expect(editorStyles).not.toMatch(/\.table-grid[^{]*:hover/)
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror\.resize-cursor \{[^}]*cursor: col-resize;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-grid \.column-resize-handle \{[^}]*position: absolute;[^}]*inset-inline-end: -0\.125rem;[^}]*width: 0\.25rem;[^}]*background-color: var\(--primary\);/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-scrollbar \{[^}]*z-index: 2;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.table-scrollbar \[data-slot='scroll-area-thumb'\] \{[^}]*background-color: color-mix\(in srgb, currentColor 25%, transparent\);/,
+    )
+  })
+
+  it('shows the table bubble menu when clicking a stored table', async () => {
+    renderEditor({
+      body: '<table><tbody><tr><td><p>یک</p></td><td><p>دو</p></td></tr></tbody></table>',
+    })
+
+    const editor = await editorTextbox()
+    const user = userEvent.setup()
+
+    expect(
+      screen.queryByRole('button', { name: 'حذف جدول' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(editor.querySelectorAll('td p')[1] as HTMLElement)
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف جدول' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers table actions in a bubble menu and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن جدول' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const editor = await editorTextbox()
+    const table = editor.querySelector('table')
+    expect(table?.querySelectorAll('tr')).toHaveLength(1)
+
+    const addRowButton = await screen.findByRole('button', {
+      name: 'افزودن سطر بعدی',
+    })
+    const deleteTableButton = screen.getByRole('button', { name: 'حذف جدول' })
+    expect(deleteTableButton).toHaveAttribute('data-variant', 'destructive')
+    expect(
+      screen.getByRole('button', { name: 'حذف سطر فعلی' }),
+    ).toHaveAttribute('data-variant', 'destructive')
+
+    await user.click(addRowButton)
+    expect(table?.querySelectorAll('tr')).toHaveLength(2)
+    expect(editor).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن ستون بعدی' }))
+    expect(
+      table?.querySelectorAll('tr')[0]?.querySelectorAll('td'),
+    ).toHaveLength(2)
+    expect(editor).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'افزودن سرستون' }))
+    expect(table?.querySelector('th')).not.toBeNull()
+
+    await user.click(await screen.findByRole('button', { name: 'حذف سرستون' }))
+    expect(table?.querySelector('th')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'حذف جدول' }))
+    expect(editor.querySelector('table')).toBeNull()
+    expect(onBodyChange).toHaveBeenCalled()
+    expect(editor).toHaveFocus()
+  })
+
+  it('moves between table cells with the right-to-left arrow keys', async () => {
+    renderEditor({
+      body: '<table><tbody><tr><td><p>یک</p></td><td><p>دو</p></td></tr></tbody></table>',
+    })
+
+    const editor = await editorTextbox()
+    const cells = editor.querySelectorAll('td')
+    const firstParagraph = cells[0]?.querySelector('p')
+    expect(firstParagraph).not.toBeNull()
+
+    const user = userEvent.setup()
+    await user.click(firstParagraph as HTMLElement)
+    await user.keyboard('{ArrowLeft}')
+
+    const selection = window.getSelection()
+    expect(cells[1]?.contains(selection?.anchorNode ?? null)).toBe(true)
+
+    await user.keyboard('{ArrowRight}')
+
+    expect(cells[0]?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    )
   })
 
   it('returns focus to the editor after a keyboard selection in a toolbar menu', async () => {

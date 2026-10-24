@@ -1,3 +1,5 @@
+import { DocumentTableDialog } from '@/components/document-table-dialog'
+import { DocumentTableMenu } from '@/components/document-table-menu'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,11 +40,18 @@ import {
   snapFontSize,
 } from '@/lib/font-size'
 import { formatNumber } from '@/lib/number'
+import {
+  DocumentTable,
+  hasTableNode,
+  RtlTableArrowNavigation,
+  RtlTableColumnResizing,
+} from '@/lib/table'
 import { cn } from '@/lib/utils'
 import { Highlight } from '@tiptap/extension-highlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Subscript as SubscriptExtension } from '@tiptap/extension-subscript'
 import { Superscript as SuperscriptExtension } from '@tiptap/extension-superscript'
+import { TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TextAlign } from '@tiptap/extension-text-align'
 import { Color, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import {
@@ -82,6 +91,7 @@ import {
   Strikethrough,
   Subscript,
   Superscript,
+  TableIcon,
   Type,
   Underline,
   Undo,
@@ -99,6 +109,12 @@ const documentBodyExtensions = [
   Highlight.configure({ multicolor: true }),
   Placeholder.configure({ placeholder: 'متن سند را اینجا بنویسید...' }),
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
+  DocumentTable.configure({ resizable: false, renderWrapper: false }),
+  TableRow,
+  TableHeader,
+  TableCell,
+  RtlTableColumnResizing,
+  RtlTableArrowNavigation,
   SuperscriptExtension,
   SubscriptExtension,
 ]
@@ -359,7 +375,10 @@ function DocumentBodyEditor({
     content: body,
     textDirection: 'rtl',
     onUpdate: ({ editor: updatedEditor }) => {
-      onBodyChange(updatedEditor.isEmpty ? '' : updatedEditor.getHTML())
+      const html = updatedEditor.getHTML()
+      const body =
+        updatedEditor.isEmpty && !hasTableNode(updatedEditor) ? '' : html
+      onBodyChange(body)
     },
     editorProps: documentBodyEditorProps,
   })
@@ -456,6 +475,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const textAlignFocus = useEditorFocusAfterToolbarSelection(editor)
   const textPositionFocus = useEditorFocusAfterToolbarSelection(editor)
   const codeBlockFocus = useEditorFocusAfterToolbarSelection(editor)
+  const [isTableDialogOpen, setIsTableDialogOpen] = useState(false)
 
   const currentTextStyle =
     textStyleOptions.find(
@@ -928,6 +948,20 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <Minus />
       </ToolbarButton>
+      <Separator orientation="vertical" />
+      <ToolbarButton
+        label="افزودن جدول"
+        disabled={editor === null}
+        onClick={() => setIsTableDialogOpen(true)}
+      >
+        <TableIcon />
+      </ToolbarButton>
+      <DocumentTableDialog
+        editor={editor}
+        open={isTableDialogOpen}
+        onOpenChange={setIsTableDialogOpen}
+      />
+      <DocumentTableMenu editor={editor} />
     </>
   )
 }
