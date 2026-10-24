@@ -16,7 +16,19 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  imagesCopyChannel,
+  imagesReconcileChannel,
+  imagesRemoveChannel,
+  imagesRestoreChannel,
+  imagesSaveChannel,
 } from './ipc.ts'
+import type {
+  ImageReconcileRequest,
+  ImageRestoreRequest,
+  ImageSaveRequest,
+  ImageSourceRequest,
+  SavedImage,
+} from './images.ts'
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
@@ -65,5 +77,17 @@ contextBridge.exposeInMainWorld('WordApp', {
       changes: DocumentChanges,
     ): Promise<DocumentRecord | undefined> =>
       ipcRenderer.invoke(documentsSaveChannel, id, changes),
+  },
+  images: {
+    save: (request: ImageSaveRequest): Promise<SavedImage> =>
+      ipcRenderer.invoke(imagesSaveChannel, request),
+    copy: (request: ImageSourceRequest): Promise<SavedImage> =>
+      ipcRenderer.invoke(imagesCopyChannel, request),
+    remove: (request: ImageSourceRequest): Promise<ArrayBuffer | null> =>
+      ipcRenderer.invoke(imagesRemoveChannel, request),
+    restore: (request: ImageRestoreRequest): Promise<SavedImage> =>
+      ipcRenderer.invoke(imagesRestoreChannel, request),
+    reconcile: (request: ImageReconcileRequest): Promise<void> =>
+      ipcRenderer.invoke(imagesReconcileChannel, request),
   },
 })

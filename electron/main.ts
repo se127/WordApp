@@ -23,6 +23,19 @@ import type {
   WordAppDatabase,
 } from './database.ts'
 import {
+  handleImageProtocol,
+  registerImageSchemePrivileges,
+} from './image-protocol.ts'
+import { createImageStore } from './image-store.ts'
+import {
+  clearImageStore,
+  imageDirectoryPath,
+  isImageReconcileRequest,
+  isImageRestoreRequest,
+  isImageSaveRequest,
+  isImageSourceRequest,
+} from './images.ts'
+import {
   appBeforeCloseChannel,
   appCloseCancelledChannel,
   appCloseReadyChannel,
@@ -34,7 +47,14 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  imagesCopyChannel,
+  imagesReconcileChannel,
+  imagesRemoveChannel,
+  imagesRestoreChannel,
+  imagesSaveChannel,
 } from './ipc.ts'
+
+registerImageSchemePrivileges()
 
 const appRoot = app.getAppPath()
 
@@ -438,12 +458,30 @@ async function startApp(): Promise<void> {
     ? path.join(app.getPath('userData'), 'db.sqlite')
     : path.join(app.getAppPath(), 'dev-data', 'db.sqlite')
 
+  const imagesDirectory = imageDirectoryPath(
+    app.getAppPath(),
+    app.getPath('userData'),
+    app.isPackaged,
+  )
+
   if (devSeed !== undefined) {
     try {
       resetDatabase(databasePath, parseSeedArgument(devSeed))
     } catch (error) {
       console.error(
         `The dev seed could not be applied: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      app.exit(1)
+      return
+    }
+
+    try {
+      await clearImageStore(imagesDirectory)
+    } catch (error) {
+      console.error(
+        `The dev images could not be cleared: ${
           error instanceof Error ? error.message : String(error)
         }`,
       )
@@ -497,6 +535,44 @@ async function startApp(): Promise<void> {
     dialog.showErrorBox('WordApp', 'پایگاه داده باز نشد. برنامه بسته می شود.')
     app.exit(1)
     return
+  }
+
+  const imageStore = await createImageStore(imagesDirectory)
+
+  try {
+    await imageStore.recover((id) => database.getDocument(id))
+  } catch (error) {
+    console.error(
+      `The image journal could not be recovered: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
+
+  handleImageProtocol(imagesDirectory)
+
+  const deleteDocumentWithCleanup = async (id: number): Promise<void> => {
+    const deleted = await database.getDocument(id).catch(() => undefined)
+
+    await database.deleteDocument(id)
+    await imageStore.removeDocument(id, deleted?.body ?? '')
+  }
+
+  const deleteDocumentsWithCleanup = async (ids: number[]): Promise<void> => {
+    if (ids.length === 0) {
+      await database.deleteDocuments(ids)
+      return
+    }
+
+    const deleted = await Promise.all(
+      ids.map((id) => database.getDocument(id).catch(() => undefined)),
+    )
+
+    await database.deleteDocuments(ids)
+
+    for (const [index, id] of ids.entries()) {
+      await imageStore.removeDocument(id, deleted[index]?.body ?? '')
+    }
   }
 
   const activeDocumentRequests = new Map<string, AbortController>()
@@ -582,11 +658,11 @@ async function startApp(): Promise<void> {
   })
   ipcMain.handle(documentsDeleteChannel, (_event, id: unknown) =>
     typeof id === 'number' && Number.isSafeInteger(id)
-      ? database.deleteDocument(id)
+      ? deleteDocumentWithCleanup(id)
       : undefined,
   )
   ipcMain.handle(documentsDeleteManyChannel, (_event, ids: unknown) =>
-    isDocumentIds(ids) ? database.deleteDocuments(ids) : undefined,
+    isDocumentIds(ids) ? deleteDocumentsWithCleanup(ids) : undefined,
   )
   ipcMain.handle(
     documentsSaveChannel,
@@ -616,6 +692,21 @@ async function startApp(): Promise<void> {
       )
       return saved
     },
+  )
+  ipcMain.handle(imagesSaveChannel, (_event, value: unknown) =>
+    isImageSaveRequest(value) ? imageStore.save(value) : undefined,
+  )
+  ipcMain.handle(imagesCopyChannel, (_event, value: unknown) =>
+    isImageSourceRequest(value) ? imageStore.copy(value) : undefined,
+  )
+  ipcMain.handle(imagesRemoveChannel, (_event, value: unknown) =>
+    isImageSourceRequest(value) ? imageStore.remove(value) : null,
+  )
+  ipcMain.handle(imagesRestoreChannel, (_event, value: unknown) =>
+    isImageRestoreRequest(value) ? imageStore.restore(value) : undefined,
+  )
+  ipcMain.handle(imagesReconcileChannel, (_event, value: unknown) =>
+    isImageReconcileRequest(value) ? imageStore.reconcile(value) : undefined,
   )
 
   app.on('will-quit', () => {

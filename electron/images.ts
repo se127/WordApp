@@ -1,0 +1,420 @@
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+
+export const imageScheme = 'wordapp-image'
+export const imageHost = 'image'
+
+const imageUrlPrefix = `${imageScheme}://${imageHost}/`
+const imageFileNamePattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/
+const imageExtensionPattern = /\.(avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$/i
+
+const imageMimeExtensions = new Map([
+  ['image/avif', 'avif'],
+  ['image/bmp', 'bmp'],
+  ['image/gif', 'gif'],
+  ['image/jpeg', 'jpg'],
+  ['image/jpg', 'jpg'],
+  ['image/pjpeg', 'jpg'],
+  ['image/png', 'png'],
+  ['image/svg+xml', 'svg'],
+  ['image/tiff', 'tiff'],
+  ['image/vnd.microsoft.icon', 'ico'],
+  ['image/webp', 'webp'],
+  ['image/x-icon', 'ico'],
+  ['image/x-ms-bmp', 'bmp'],
+])
+
+export type ImageSaveRequest = {
+  documentId: number
+  name: string
+  type: string
+  data: ArrayBuffer | ArrayBufferView
+}
+
+export type ImageSourceRequest = {
+  documentId: number
+  src: string
+}
+
+export type ImageRestoreRequest = {
+  documentId: number
+  src: string
+  data: ArrayBuffer | ArrayBufferView
+}
+
+export type ImageReconcileRequest = {
+  documentId: number
+  savedBody: string
+  currentBody: string
+}
+
+export type SavedImage = {
+  src: string
+}
+
+export function imageDirectoryPath(
+  appRoot: string,
+  userDataPath: string,
+  isPackaged: boolean,
+): string {
+  return isPackaged
+    ? path.join(userDataPath, 'images')
+    : path.join(appRoot, 'dev-data', 'images')
+}
+
+export function imageTrashDirectoryPath(directory: string): string {
+  return path.join(path.dirname(directory), 'images-trash')
+}
+
+export function imageJournalPath(directory: string): string {
+  return path.join(path.dirname(directory), 'image-journal.json')
+}
+
+export function imageUrl(fileName: string): string {
+  return `${imageUrlPrefix}${fileName}`
+}
+
+export function imageFileNameFromUrl(value: string): string | null {
+  let url: URL
+
+  try {
+    url = new URL(value)
+  } catch {
+    return null
+  }
+
+  if (
+    url.protocol !== `${imageScheme}:` ||
+    url.hostname !== imageHost ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    return null
+  }
+
+  const fileName = url.pathname.startsWith('/')
+    ? url.pathname.slice(1)
+    : url.pathname
+
+  return imageFileNamePattern.test(fileName) ? fileName : null
+}
+
+export function referencedImageFileNames(html: string): Set<string> {
+  const names = new Set<string>()
+  const pattern =
+    /<img\b[^>]*\ssrc="wordapp-image:\/\/image\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+)"/gi
+
+  for (const match of html.matchAll(pattern)) {
+    names.add(match[1].toLowerCase())
+  }
+
+  return names
+}
+
+function normalizeImageExtension(extension: string): string {
+  const lower = extension.toLowerCase()
+
+  if (lower === 'jpe' || lower === 'jpeg') {
+    return 'jpg'
+  }
+
+  if (lower === 'tif') {
+    return 'tiff'
+  }
+
+  return lower
+}
+
+function imageExtensionFor(type: string, name: string): string | null {
+  const lowerType = type.trim().toLowerCase()
+
+  if (lowerType !== '' && !lowerType.startsWith('image/')) {
+    return null
+  }
+
+  const byMime = imageMimeExtensions.get(lowerType)
+  if (byMime !== undefined) {
+    return byMime
+  }
+
+  const byName = imageExtensionPattern.exec(name)
+  return byName === null ? null : normalizeImageExtension(byName[1])
+}
+
+function imageBytes(data: ArrayBuffer | ArrayBufferView): Uint8Array {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data)
+  }
+
+  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+}
+
+function isImageDocumentId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+export function isImageSaveRequest(value: unknown): value is ImageSaveRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { documentId, name, type, data } = value as {
+    documentId?: unknown
+    name?: unknown
+    type?: unknown
+    data?: unknown
+  }
+
+  return (
+    isImageDocumentId(documentId) &&
+    typeof name === 'string' &&
+    name.length > 0 &&
+    name.length <= 260 &&
+    typeof type === 'string' &&
+    type.length <= 120 &&
+    (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) &&
+    data.byteLength > 0
+  )
+}
+
+export function isImageSourceRequest(
+  value: unknown,
+): value is ImageSourceRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { documentId, src } = value as {
+    documentId?: unknown
+    src?: unknown
+  }
+
+  return (
+    isImageDocumentId(documentId) &&
+    typeof src === 'string' &&
+    imageFileNameFromUrl(src) !== null
+  )
+}
+
+export function isImageRestoreRequest(
+  value: unknown,
+): value is ImageRestoreRequest {
+  if (!isImageSourceRequest(value)) {
+    return false
+  }
+
+  const { data } = value as { data?: unknown }
+
+  return (
+    (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) &&
+    data.byteLength > 0
+  )
+}
+
+export function isImageReconcileRequest(
+  value: unknown,
+): value is ImageReconcileRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const { documentId, savedBody, currentBody } = value as {
+    documentId?: unknown
+    savedBody?: unknown
+    currentBody?: unknown
+  }
+
+  return (
+    isImageDocumentId(documentId) &&
+    typeof savedBody === 'string' &&
+    typeof currentBody === 'string'
+  )
+}
+
+export function imageFileNameForSave(request: ImageSaveRequest): string | null {
+  const extension = imageExtensionFor(request.type, request.name)
+  return extension === null ? null : `${randomUUID()}.${extension}`
+}
+
+export function imageFileNameForCopy(src: string): string | null {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return null
+  }
+
+  return `${randomUUID()}.${path.extname(fileName).slice(1)}`
+}
+
+export async function writeImageFile(
+  directory: string,
+  fileName: string,
+  data: ArrayBuffer | ArrayBufferView,
+): Promise<void> {
+  if (!imageFileNamePattern.test(fileName)) {
+    throw new Error('The image file name is not valid.')
+  }
+
+  await mkdir(directory, { recursive: true })
+  await writeFile(path.join(directory, fileName), imageBytes(data), {
+    flag: 'wx',
+  })
+}
+
+export async function overwriteImageFile(
+  directory: string,
+  fileName: string,
+  data: ArrayBuffer | ArrayBufferView,
+): Promise<void> {
+  if (!imageFileNamePattern.test(fileName)) {
+    throw new Error('The image file name is not valid.')
+  }
+
+  await mkdir(directory, { recursive: true })
+  await writeFile(path.join(directory, fileName), imageBytes(data))
+}
+
+export async function readImageFile(
+  directory: string,
+  src: string,
+): Promise<ArrayBuffer | null> {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return null
+  }
+
+  try {
+    const data = await readFile(path.join(directory, fileName))
+    return new Uint8Array(data).buffer
+  } catch {
+    return null
+  }
+}
+
+export async function readImageFileFromTrash(
+  directory: string,
+  src: string,
+): Promise<ArrayBuffer | null> {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return null
+  }
+
+  try {
+    const data = await readFile(
+      path.join(imageTrashDirectoryPath(directory), fileName),
+    )
+    return new Uint8Array(data).buffer
+  } catch {
+    return null
+  }
+}
+
+export async function moveImageFileToTrash(
+  directory: string,
+  src: string,
+): Promise<ArrayBuffer | null> {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return null
+  }
+
+  const trashDirectory = imageTrashDirectoryPath(directory)
+  const sourcePath = path.join(directory, fileName)
+  const trashPath = path.join(trashDirectory, fileName)
+  let data: Buffer
+
+  try {
+    data = await readFile(sourcePath)
+  } catch {
+    try {
+      data = await readFile(trashPath)
+    } catch {
+      return null
+    }
+
+    return new Uint8Array(data).buffer
+  }
+
+  await mkdir(trashDirectory, { recursive: true }).catch(() => {})
+  await rm(trashPath, { force: true }).catch(() => {})
+  await rename(sourcePath, trashPath).catch(() => {})
+
+  return new Uint8Array(data).buffer
+}
+
+export async function moveImageFileFromTrash(
+  directory: string,
+  src: string,
+): Promise<boolean> {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return false
+  }
+
+  const trashPath = path.join(imageTrashDirectoryPath(directory), fileName)
+  const targetPath = path.join(directory, fileName)
+
+  try {
+    await readFile(trashPath)
+  } catch {
+    return false
+  }
+
+  await mkdir(directory, { recursive: true }).catch(() => {})
+  await rm(targetPath, { force: true }).catch(() => {})
+
+  try {
+    await rename(trashPath, targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function restoreImageFile(
+  directory: string,
+  request: ImageRestoreRequest,
+): Promise<SavedImage> {
+  const fileName = imageFileNameFromUrl(request.src)
+
+  if (fileName === null) {
+    throw new Error('The image source is not a stored image.')
+  }
+
+  await overwriteImageFile(directory, fileName, request.data)
+
+  return { src: request.src }
+}
+
+export async function removeImageFileEverywhere(
+  directory: string,
+  src: string,
+): Promise<void> {
+  const fileName = imageFileNameFromUrl(src)
+
+  if (fileName === null) {
+    return
+  }
+
+  await Promise.allSettled([
+    rm(path.join(directory, fileName), { force: true }),
+    rm(path.join(imageTrashDirectoryPath(directory), fileName), {
+      force: true,
+    }),
+  ])
+}
+
+export async function clearImageStore(directory: string): Promise<void> {
+  await Promise.all([
+    rm(directory, { recursive: true, force: true }),
+    rm(imageTrashDirectoryPath(directory), { recursive: true, force: true }),
+    rm(imageJournalPath(directory), { force: true }),
+  ])
+}

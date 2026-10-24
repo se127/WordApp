@@ -84,12 +84,26 @@
 .document-body-editor .ProseMirror li,
 .document-body-editor .ProseMirror pre,
 .document-body-editor .ProseMirror table,
-.document-body-editor .ProseMirror hr {
+.document-body-editor .ProseMirror hr,
+.document-body-editor .ProseMirror img {
   margin-top: 0;
 }
 
 .document-body-editor .ProseMirror hr {
   margin-bottom: 1.5em;
+}
+
+.document-body-editor .ProseMirror img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  margin-block: 0 1.25em;
+}
+
+.document-body-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .document-body-editor .ProseMirror blockquote {
@@ -296,6 +310,10 @@
 }
 
 .document-body-editor .ProseMirror li > .table-scroll {
+  margin-block: 0.5em;
+}
+
+.document-body-editor .ProseMirror li > img {
   margin-block: 0.5em;
 }
 

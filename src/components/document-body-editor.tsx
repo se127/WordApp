@@ -1,4 +1,5 @@
 import { DocumentCodeBlockMenu } from '@/components/document-code-block-menu'
+import { DocumentImageMenu } from '@/components/document-image-menu'
 import {
   DocumentLinkDialog,
   type DocumentLinkDialogValues,
@@ -46,6 +47,12 @@ import {
   parseFontSize,
   snapFontSize,
 } from '@/lib/font-size'
+import {
+  DocumentImage,
+  DocumentImageSelection,
+  isImageFile,
+  saveDocumentImage,
+} from '@/lib/image'
 import { getLinkRange } from '@/lib/link'
 import { formatNumber } from '@/lib/number'
 import {
@@ -90,6 +97,7 @@ import {
   Heading5,
   Heading6,
   Highlighter,
+  ImagePlus,
   Italic,
   LinkIcon,
   List,
@@ -109,7 +117,13 @@ import {
   Underline,
   Undo,
 } from 'lucide-react'
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
 import './document-body-editor.css'
 
 const documentBodyExtensions = [
@@ -134,6 +148,7 @@ const documentBodyExtensions = [
   RtlTableArrowNavigation,
   SuperscriptExtension,
   SubscriptExtension,
+  DocumentImage,
 ]
 const documentBodyEditorProps = {
   attributes: {
@@ -413,14 +428,23 @@ function handleSelectItemKeyDown(
 }
 
 function DocumentBodyEditor({
+  documentId,
   body,
   onBodyChange,
 }: {
+  documentId: number
   body: string
   onBodyChange: (body: string) => void
 }) {
+  const extensions = useMemo(
+    () => [
+      ...documentBodyExtensions,
+      DocumentImageSelection.configure({ documentId }),
+    ],
+    [documentId],
+  )
   const editor = useEditor({
-    extensions: documentBodyExtensions,
+    extensions,
     content: body,
     textDirection: 'rtl',
     onUpdate: ({ editor: updatedEditor }) => {
@@ -440,7 +464,7 @@ function DocumentBodyEditor({
         dir="rtl"
         className="-mx-6 flex shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-y bg-gray-100 px-6 py-1 dark:bg-zinc-800"
       >
-        <EditorToolbar editor={editor} />
+        <EditorToolbar editor={editor} documentId={documentId} />
       </div>
 
       <EditorScrollArea>
@@ -491,7 +515,13 @@ function textStyleValue(editor: Editor | null): string {
   return 'paragraph'
 }
 
-function EditorToolbar({ editor }: { editor: Editor | null }) {
+function EditorToolbar({
+  editor,
+  documentId,
+}: {
+  editor: Editor | null
+  documentId: number
+}) {
   const editorState = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => ({
@@ -530,6 +560,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const [linkDialogValues, setLinkDialogValues] =
     useState<DocumentLinkDialogValues | null>(null)
   const [linkDialogKey, setLinkDialogKey] = useState(0)
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
 
   const currentTextStyle =
     textStyleOptions.find(
@@ -566,6 +597,26 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     })
     setLinkDialogKey((key) => key + 1)
     setIsLinkDialogOpen(true)
+  }
+
+  const openImagePicker = (): void => {
+    imageInputRef.current?.click()
+  }
+
+  const insertImage = (file: File): void => {
+    if (editor === null || !isImageFile(file)) {
+      return
+    }
+
+    saveDocumentImage(file, documentId)
+      .then((src) => {
+        if (editor.isDestroyed) {
+          return
+        }
+
+        editor.chain().focus().setImage({ src, alt: file.name }).run()
+      })
+      .catch(() => {})
   }
 
   const setTextStyle = (value: string): void => {
@@ -1036,6 +1087,13 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <LinkIcon />
       </ToolbarButton>
+      <ToolbarButton
+        label="افزودن تصویر"
+        disabled={editor === null}
+        onClick={openImagePicker}
+      >
+        <ImagePlus />
+      </ToolbarButton>
       <ToolbarEmojiPicker editor={editor} />
       <DocumentTableDialog
         editor={editor}
@@ -1052,6 +1110,22 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       <DocumentTableMenu editor={editor} />
       <DocumentCodeBlockMenu editor={editor} />
       <DocumentLinkMenu editor={editor} onEdit={openLinkDialog} />
+      <DocumentImageMenu editor={editor} />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        aria-label="انتخاب تصویر"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+
+          if (file !== undefined) {
+            insertImage(file)
+          }
+        }}
+      />
     </>
   )
 }

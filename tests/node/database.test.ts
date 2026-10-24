@@ -884,7 +884,7 @@ describe('parseDbDelayArgument', () => {
 })
 
 describe('databaseOperationNames', () => {
-  it('lists the operations the failure knob can make fail', () => {
+  it('lists every operation the store exposes to the failure knob', () => {
     expect(databaseOperationNames).toEqual([
       'createDocument',
       'getDocument',

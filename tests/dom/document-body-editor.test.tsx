@@ -11,14 +11,52 @@ import {
 import userEvent from '@testing-library/user-event'
 import { readFile } from 'node:fs/promises'
 import { StrictMode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const storedImageSrc =
+  'wordapp-image://image/22222222-2222-4222-8222-222222222222.png'
+
+const base64ImageSrc =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+const savedImageSrc =
+  'wordapp-image://image/11111111-1111-4111-8111-111111111111.png'
+
+const pastedImageSrc =
+  'wordapp-image://image/33333333-3333-4333-8333-333333333333.png'
+
+function installImageBridge() {
+  const save = vi.fn(async () => ({ src: savedImageSrc }))
+  const copy = vi.fn(async () => ({ src: pastedImageSrc }))
+  const remove = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer)
+  const restore = vi.fn(async (request: { src: string }) => ({
+    src: request.src,
+  }))
+  const reconcile = vi.fn(async () => {})
+  window.WordApp = {
+    images: { save, copy, remove, restore, reconcile },
+  } as unknown as Window['WordApp']
+  return { save, copy, remove, restore, reconcile }
+}
+
+function installImageSave() {
+  return installImageBridge().save
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(window, 'WordApp')
+})
 
 function editorElement(body: string, onBodyChange: (body: string) => void) {
   return (
     <StrictMode>
       <DirectionProvider dir="rtl">
         <TooltipProvider>
-          <DocumentBodyEditor body={body} onBodyChange={onBodyChange} />
+          <DocumentBodyEditor
+            documentId={7}
+            body={body}
+            onBodyChange={onBodyChange}
+          />
         </TooltipProvider>
       </DirectionProvider>
     </StrictMode>
@@ -158,6 +196,7 @@ describe('DocumentBodyEditor', () => {
       'خط افقی',
       'افزودن جدول',
       'افزودن / ویرایش لینک',
+      'افزودن تصویر',
       'ایموجی',
     ])
 
@@ -180,6 +219,7 @@ describe('DocumentBodyEditor', () => {
       horizontalRuleButton,
       tableButton,
       linkButton,
+      imageButton,
       emojiButton,
     ] = buttons
     const markButtons = [
@@ -203,6 +243,7 @@ describe('DocumentBodyEditor', () => {
       horizontalRuleButton,
       tableButton,
       linkButton,
+      imageButton,
       emojiButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
@@ -269,7 +310,8 @@ describe('DocumentBodyEditor', () => {
     expect(horizontalRuleButton.nextElementSibling).toBe(separators[5])
     expect(separators[5]?.nextElementSibling).toBe(tableButton)
     expect(tableButton.nextElementSibling).toBe(linkButton)
-    expect(linkButton.nextElementSibling).toBe(emojiButton)
+    expect(linkButton.nextElementSibling).toBe(imageButton)
+    expect(imageButton.nextElementSibling).toBe(emojiButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -386,6 +428,7 @@ describe('DocumentBodyEditor', () => {
       'pre',
       'table',
       'hr',
+      'img',
     ].map((tag) => `.document-body-editor .ProseMirror ${tag}`)
 
     expect(compactStyles).toContain(
@@ -402,6 +445,24 @@ describe('DocumentBodyEditor', () => {
     )
     expect(compactStyles).toContain(
       '.document-body-editor .ProseMirror li > .table-scroll { margin-block: 0.5em; }',
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror li > img { margin-block: 0.5em; }',
+    )
+  })
+
+  it('centers images, caps their width, and keeps their aspect ratio', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+    const compactStyles = editorStyles.replace(/\s+/g, ' ')
+
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror img { display: block; max-width: 100%; height: auto; margin-inline: auto; margin-block: 0 1.25em; }',
+    )
+    expect(compactStyles).toContain(
+      '.document-body-editor .ProseMirror img.ProseMirror-selectednode { outline: 2px solid var(--ring); outline-offset: 2px; }',
     )
   })
 
@@ -2124,6 +2185,337 @@ describe('DocumentBodyEditor', () => {
     await user.keyboard('{Escape}')
 
     expect(emojiButton).toHaveFocus()
+  })
+
+  it('opens the image picker from the toolbar and inserts the picked image', async () => {
+    const save = installImageSave()
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const imageButton = screen.getByRole('button', { name: 'افزودن تصویر' })
+    const input = screen.getByLabelText('انتخاب تصویر') as HTMLInputElement
+
+    expect(input).toHaveAttribute('type', 'file')
+    expect(input).toHaveAttribute('accept', 'image/*')
+
+    const clickSpy = vi.spyOn(input, 'click')
+    await user.click(imageButton)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    clickSpy.mockRestore()
+
+    await user.upload(
+      input,
+      new File(['image-bytes'], 'photo.png', { type: 'image/png' }),
+    )
+
+    const image = await waitFor(() => {
+      const element = editor.querySelector('img')
+      expect(element).not.toBeNull()
+      return element as HTMLImageElement
+    })
+
+    expect(save).toHaveBeenCalledWith({
+      documentId: 7,
+      name: 'photo.png',
+      type: 'image/png',
+      data: expect.any(ArrayBuffer),
+    })
+    expect(image.getAttribute('src')).toBe(savedImageSrc)
+    expect(image).toHaveAttribute('alt', 'photo.png')
+    expect(image).not.toHaveAttribute('width')
+    expect(image).not.toHaveAttribute('height')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<img'),
+    )
+  })
+
+  it('does not insert an image when the file cannot be stored', async () => {
+    const save = vi.fn(async () => {
+      throw new Error('The image could not be stored.')
+    })
+    window.WordApp = {
+      images: { save },
+    } as unknown as Window['WordApp']
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const input = screen.getByLabelText('انتخاب تصویر') as HTMLInputElement
+
+    await user.upload(
+      input,
+      new File(['image-bytes'], 'photo.png', { type: 'image/png' }),
+    )
+
+    await waitFor(() => expect(save).toHaveBeenCalledOnce())
+    expect(editor.querySelector('img')).toBeNull()
+    expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('ignores a picked file that is not an image', async () => {
+    const save = installImageSave()
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup({ applyAccept: false })
+    const editor = await editorTextbox()
+    const input = screen.getByLabelText('انتخاب تصویر') as HTMLInputElement
+
+    await user.upload(
+      input,
+      new File(['plain'], 'notes.txt', { type: 'text/plain' }),
+    )
+
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toBeNull()
+    })
+    expect(save).not.toHaveBeenCalled()
+    expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('stores a copy of a pasted image and inserts the copy', async () => {
+    const { copy } = installImageBridge()
+    const { onBodyChange } = renderEditor({
+      body: `<p>متن</p><img src="${storedImageSrc}" alt="photo">`,
+    })
+    const editor = await editorTextbox()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData(
+      'text/html',
+      `<p><img src="${storedImageSrc}" alt="photo"></p>`,
+    )
+    clipboardData.setData('text/plain', '')
+
+    fireEvent.paste(editor, { clipboardData })
+
+    await waitFor(() =>
+      expect(copy).toHaveBeenCalledExactlyOnceWith({
+        documentId: 7,
+        src: storedImageSrc,
+      }),
+    )
+
+    await waitFor(() => {
+      const sources = [...editor.querySelectorAll('img')].map((image) =>
+        image.getAttribute('src'),
+      )
+      expect(sources).toContain(pastedImageSrc)
+      expect(sources).toContain(storedImageSrc)
+    })
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(pastedImageSrc),
+    )
+  })
+
+  it('pastes text without copying any stored image', async () => {
+    const { copy } = installImageBridge()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/html', '<p>متن تازه</p>')
+    clipboardData.setData('text/plain', 'متن تازه')
+
+    fireEvent.paste(editor, { clipboardData })
+
+    await waitFor(() => expect(editor).toHaveTextContent('متن تازه'))
+    expect(copy).not.toHaveBeenCalled()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('متن تازه'),
+    )
+  })
+
+  it('inserts the original image when its copy cannot be stored', async () => {
+    const { copy } = installImageBridge()
+    copy.mockRejectedValueOnce(new Error('The image is missing.'))
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData(
+      'text/html',
+      `<p><img src="${storedImageSrc}" alt="photo"></p>`,
+    )
+    clipboardData.setData('text/plain', '')
+
+    fireEvent.paste(editor, { clipboardData })
+
+    await waitFor(() => expect(editor.querySelector('img')).not.toBeNull())
+    expect(copy).toHaveBeenCalledWith({ documentId: 7, src: storedImageSrc })
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(storedImageSrc),
+    )
+  })
+
+  it('does not restore images stored as base64 data URLs', async () => {
+    renderEditor({
+      body: `<p>متن</p><img src="${base64ImageSrc}" alt="قدیمی">`,
+    })
+    const editor = await editorTextbox()
+
+    expect(editor.querySelector('img')).toBeNull()
+    expect(editor).toHaveTextContent('متن')
+  })
+
+  it('shows the image bubble menu on hover and deletes the image', async () => {
+    const { onBodyChange } = renderEditor({
+      body: `<p>قبل</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    expect(
+      screen.queryByRole('button', { name: 'حذف تصویر' }),
+    ).not.toBeInTheDocument()
+
+    await user.hover(image)
+
+    const deleteButton = await screen.findByRole('button', {
+      name: 'حذف تصویر',
+    })
+    expect(deleteButton).toHaveAttribute('data-variant', 'destructive')
+    expect(deleteButton).toHaveAttribute('data-size', 'icon')
+    expect(deleteButton.querySelector('svg.lucide-trash-2')).not.toBeNull()
+
+    await user.click(deleteButton)
+
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toBeNull()
+    })
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('قبل'),
+    )
+  })
+
+  it('removes the image file when the image leaves the editor and restores it on undo', async () => {
+    const { remove, restore } = installImageBridge()
+    const { onBodyChange } = renderEditor({
+      body: `<p>قبل</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    await user.hover(image)
+    await user.click(await screen.findByRole('button', { name: 'حذف تصویر' }))
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledExactlyOnceWith({
+        documentId: 7,
+        src: storedImageSrc,
+      }),
+    )
+    await waitFor(() => expect(editor.querySelector('img')).toBeNull())
+
+    await user.keyboard('{Control>}z{/Control}')
+
+    await waitFor(() => expect(editor.querySelector('img')).not.toBeNull())
+    await waitFor(() =>
+      expect(restore).toHaveBeenCalledExactlyOnceWith({
+        documentId: 7,
+        src: storedImageSrc,
+        data: expect.any(ArrayBuffer),
+      }),
+    )
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(storedImageSrc),
+    )
+  })
+
+  it('removes the image file when the selected image is deleted from the keyboard', async () => {
+    const { remove } = installImageBridge()
+    renderEditor({
+      body: `<p>متن</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const paragraph = editor.querySelector('p')
+
+    if (paragraph === null) {
+      throw new Error('Paragraph is missing')
+    }
+
+    await user.click(paragraph)
+    placeCursorAtEnd(editor)
+    await user.keyboard('{ArrowDown}{Backspace}')
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledExactlyOnceWith({
+        documentId: 7,
+        src: storedImageSrc,
+      }),
+    )
+    expect(editor.querySelector('img')).toBeNull()
+  })
+
+  it('shows the image bubble menu when the image is selected with the mouse', async () => {
+    renderEditor({
+      body: `<p>متن</p><img src="${storedImageSrc}" alt="تصویر">`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    await user.click(image)
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف تصویر' }),
+    ).toBeInTheDocument()
+    expect(image).toHaveClass('ProseMirror-selectednode')
+  })
+
+  it('selects an image with Tab and shows the image bubble menu', async () => {
+    renderEditor({
+      body: `<p>متن</p><img src="${storedImageSrc}" alt="تصویر">`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    expect(image).toHaveAttribute('tabindex', '0')
+
+    await user.click(editor)
+    await user.tab()
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف تصویر' }),
+    ).toBeInTheDocument()
+    expect(image).toHaveClass('ProseMirror-selectednode')
+  })
+
+  it('shows the image bubble menu when the image is selected with the arrow keys', async () => {
+    renderEditor({
+      body: `<p>متن</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    await user.click(editor.querySelector('p') as HTMLElement)
+    placeCursorAtEnd(editor)
+    await user.keyboard('{ArrowDown}')
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف تصویر' }),
+    ).toBeInTheDocument()
+    expect(image).toHaveClass('ProseMirror-selectednode')
   })
 
   it('opens the add table dialog and inserts one cell with focus back in the editor', async () => {

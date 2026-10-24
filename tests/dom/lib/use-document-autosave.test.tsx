@@ -27,7 +27,7 @@ function installBridge(
     changes: DocumentChanges,
   ) => Promise<DocumentRecord | undefined>,
 ) {
-  window.WordApp = {
+  const bridge = {
     platform: 'win32',
     lifecycle: {
       onBeforeClose: vi.fn(() => () => {}),
@@ -44,7 +44,22 @@ function installBridge(
       deleteMany: vi.fn(async () => undefined),
       save,
     },
+    images: {
+      save: vi.fn(async () => ({
+        src: 'wordapp-image://image/11111111-1111-4111-8111-111111111111.png',
+      })),
+      copy: vi.fn(async () => ({
+        src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
+      })),
+      remove: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
+      restore: vi.fn(async (request: { src: string }) => ({
+        src: request.src,
+      })),
+      reconcile: vi.fn(async () => {}),
+    },
   }
+  window.WordApp = bridge as unknown as Window['WordApp']
+  return bridge
 }
 
 function createWrapper(queryClient: ReturnType<typeof createQueryClient>) {
@@ -61,14 +76,15 @@ function renderAutosave(
     changes: DocumentChanges,
   ) => Promise<DocumentRecord | undefined>,
   prepare?: (queryClient: ReturnType<typeof createQueryClient>) => void,
+  document: DocumentRecord = documentRecord,
 ) {
-  installBridge(save)
+  const bridge = installBridge(save)
   const queryClient = createQueryClient()
   prepare?.(queryClient)
-  const hook = renderHook(() => useDocumentAutosave(documentRecord), {
+  const hook = renderHook(() => useDocumentAutosave(document), {
     wrapper: createWrapper(queryClient),
   })
-  return { ...hook, queryClient }
+  return { ...hook, queryClient, bridge }
 }
 
 async function advance(ms: number): Promise<void> {
@@ -144,6 +160,50 @@ describe('useDocumentAutosave', () => {
       title: 'قبلی',
       body: '<p>تازه</p>',
     })
+  })
+
+  it('reconciles the image journal with the saved and latest bodies', async () => {
+    vi.useFakeTimers()
+    const imageSrc =
+      'wordapp-image://image/44444444-4444-4444-8444-444444444444.png'
+    const record: DocumentRecord = {
+      ...documentRecord,
+      body: `<p><img src="${imageSrc}"></p>`,
+    }
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...record,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, bridge } = renderAutosave(save, undefined, record)
+
+    act(() => result.current.updateBody('<p>متن</p>'))
+    await advance(documentSaveDebounceMs)
+
+    expect(bridge.images.reconcile).toHaveBeenCalledExactlyOnceWith({
+      documentId: 1,
+      savedBody: '<p>متن</p>',
+      currentBody: '<p>متن</p>',
+    })
+  })
+
+  it('keeps the save successful when the image journal cannot be reconciled', async () => {
+    vi.useFakeTimers()
+    const save = vi.fn(async (_id: number, changes: DocumentChanges) => ({
+      ...documentRecord,
+      ...changes,
+      updatedAt: 2_000,
+    }))
+    const { result, bridge } = renderAutosave(save)
+    bridge.images.reconcile.mockRejectedValueOnce(
+      new Error('The image journal is busy.'),
+    )
+
+    act(() => result.current.updateBody('<p>متن</p>'))
+    await advance(documentSaveDebounceMs)
+
+    expect(save).toHaveBeenCalledOnce()
+    expect(bridge.images.reconcile).toHaveBeenCalledOnce()
   })
 
   it('exposes pending changes for navigation until they are saved', async () => {

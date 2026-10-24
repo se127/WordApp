@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   afterEach,
   beforeEach,
@@ -20,6 +21,11 @@ import {
   documentsGetChannel,
   documentsListChannel,
   documentsSaveChannel,
+  imagesCopyChannel,
+  imagesReconcileChannel,
+  imagesRemoveChannel,
+  imagesRestoreChannel,
+  imagesSaveChannel,
 } from '../../electron/ipc.ts'
 
 const mocks = vi.hoisted(() => {
@@ -69,6 +75,29 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(),
   }
 
+  const imageStore = {
+    save: vi.fn(async () => ({
+      src: 'wordapp-image://image/11111111-1111-4111-8111-111111111111.png',
+    })),
+    copy: vi.fn(async () => ({
+      src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
+    })),
+    remove: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
+    restore: vi.fn(async (request: unknown) => ({
+      src: (request as { src: string }).src,
+    })),
+    reconcile: vi.fn(async () => {}),
+    recover: vi.fn(
+      async (
+        _getDocument: (id: number) => Promise<{ body: string } | undefined>,
+      ) => {},
+    ),
+    removeDocument: vi.fn(async () => {}),
+  }
+
+  const clearImageStore = vi.fn(async () => {})
+  const createImageStore = vi.fn(async () => imageStore)
+
   const parseSeedArgument = vi.fn((value: string) =>
     value === '' ? [] : [{ table: 'documents', count: 3 }],
   )
@@ -110,18 +139,28 @@ const mocks = vi.hoisted(() => {
     BrowserWindow,
     Menu: { setApplicationMenu: vi.fn() },
     app,
+    clearImageStore,
     created,
+    createImageStore,
     database,
     dialog,
+    imageStore,
     ipcMain: {
       on: vi.fn(),
       handle: vi.fn(),
       removeListener: vi.fn(),
     },
+    net: {
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    },
     openDatabase: vi.fn(() => database),
     parseDbDelayArgument,
     parseDbFailureArgument,
     parseSeedArgument,
+    protocol: {
+      registerSchemesAsPrivileged: vi.fn(),
+      handle: vi.fn(),
+    },
     resetDatabase,
     session: { defaultSession: { setProxy: vi.fn(async () => {}) } },
     shell: { openExternal: vi.fn(async () => {}) },
@@ -136,6 +175,8 @@ vi.mock('electron', () => ({
   dialog: mocks.dialog,
   ipcMain: mocks.ipcMain,
   Menu: mocks.Menu,
+  net: mocks.net,
+  protocol: mocks.protocol,
   session: mocks.session,
   shell: mocks.shell,
 }))
@@ -146,6 +187,20 @@ vi.mock('../../electron/database.ts', () => ({
   parseDbFailureArgument: mocks.parseDbFailureArgument,
   parseSeedArgument: mocks.parseSeedArgument,
   resetDatabase: mocks.resetDatabase,
+}))
+
+vi.mock('../../electron/images.ts', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../electron/images.ts')>()
+
+  return {
+    ...actual,
+    clearImageStore: mocks.clearImageStore,
+  }
+})
+
+vi.mock('../../electron/image-store.ts', () => ({
+  createImageStore: mocks.createImageStore,
 }))
 
 type WindowOptions = {
@@ -215,6 +270,7 @@ beforeEach(() => {
   mocks.created.length = 0
   mocks.state.isPackaged = false
   mocks.state.options = undefined
+  mocks.database.getDocument.mockResolvedValue(undefined)
   mocks.win.isDestroyed.mockReturnValue(false)
   mocks.app.requestSingleInstanceLock.mockReturnValue(true)
 })
@@ -958,8 +1014,65 @@ describe('documents database', () => {
   it('deletes documents over IPC', async () => {
     await importMain()
 
-    expect(handlerFor('handle', documentsDeleteChannel)({}, 1)).toBeUndefined()
+    await expect(
+      Promise.resolve(handlerFor('handle', documentsDeleteChannel)({}, 1)),
+    ).resolves.toBeUndefined()
+    expect(mocks.database.getDocument).toHaveBeenCalledWith(1)
     expect(mocks.database.deleteDocument).toHaveBeenCalledWith(1)
+    expect(mocks.imageStore.removeDocument).toHaveBeenCalledWith(1, '')
+  })
+
+  it('removes the images the deleted document referenced', async () => {
+    const fileName = '11111111-1111-4111-8111-111111111111.png'
+    const body = `<img src="wordapp-image://image/${fileName}">`
+    mocks.database.getDocument.mockResolvedValueOnce({
+      id: 1,
+      title: null,
+      body,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await importMain()
+
+    await handlerFor('handle', documentsDeleteChannel)({}, 1)
+
+    expect(mocks.imageStore.removeDocument).toHaveBeenCalledWith(1, body)
+  })
+
+  it('removes the images of every deleted document', async () => {
+    const firstFileName = '11111111-1111-4111-8111-111111111111.png'
+    const secondFileName = '22222222-2222-4222-8222-222222222222.jpg'
+    const firstBody = `<img src="wordapp-image://image/${firstFileName}"><img src="wordapp-image://image/${secondFileName}">`
+    const secondBody = `<img src="wordapp-image://image/${secondFileName}">`
+    mocks.database.getDocument
+      .mockResolvedValueOnce({
+        id: 1,
+        title: null,
+        body: firstBody,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .mockResolvedValueOnce({
+        id: 2,
+        title: null,
+        body: secondBody,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    await importMain()
+
+    await handlerFor('handle', documentsDeleteManyChannel)({}, [1, 2])
+
+    expect(mocks.imageStore.removeDocument).toHaveBeenNthCalledWith(
+      1,
+      1,
+      firstBody,
+    )
+    expect(mocks.imageStore.removeDocument).toHaveBeenNthCalledWith(
+      2,
+      2,
+      secondBody,
+    )
   })
 
   it('ignores delete calls whose id is not a safe integer', async () => {
@@ -975,9 +1088,11 @@ describe('documents database', () => {
   it('deletes a batch of documents over IPC', async () => {
     await importMain()
 
-    expect(
-      handlerFor('handle', documentsDeleteManyChannel)({}, [1, 2, 3]),
-    ).toBeUndefined()
+    await expect(
+      Promise.resolve(
+        handlerFor('handle', documentsDeleteManyChannel)({}, [1, 2, 3]),
+      ),
+    ).resolves.toBeUndefined()
     expect(mocks.database.deleteDocuments).toHaveBeenCalledExactlyOnceWith([
       1, 2, 3,
     ])
@@ -996,7 +1111,7 @@ describe('documents database', () => {
     expect(removeMany({}, [Number.NaN])).toBeUndefined()
     expect(mocks.database.deleteDocuments).not.toHaveBeenCalled()
 
-    removeMany({}, [])
+    await Promise.resolve(removeMany({}, []))
     expect(mocks.database.deleteDocuments).toHaveBeenCalledExactlyOnceWith([])
   })
 
@@ -1150,9 +1265,18 @@ describe('documents database', () => {
     expect(mocks.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.openDatabase.mock.invocationCallOrder[0],
     )
+    expect(mocks.clearImageStore).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'images'),
+    )
+    expect(mocks.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+      asMock(mocks.clearImageStore).mock.invocationCallOrder[0],
+    )
+    expect(
+      asMock(mocks.clearImageStore).mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.openDatabase.mock.invocationCallOrder[0])
   })
 
-  it('only empties the dev database when the dev script passed no seed', async () => {
+  it('only empties the dev database and images when the dev script passed no seed', async () => {
     vi.stubEnv('DEV_SEED', '')
 
     await importMain()
@@ -1162,23 +1286,31 @@ describe('documents database', () => {
       path.join('C:/fake/wordapp', 'dev-data', 'db.sqlite'),
       [],
     )
+    expect(mocks.clearImageStore).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'images'),
+    )
   })
 
-  it('leaves the database alone when the dev script did not set a seed', async () => {
+  it('leaves the database and images alone when the dev script did not set a seed', async () => {
     await importMain()
 
     expect(mocks.resetDatabase).not.toHaveBeenCalled()
+    expect(mocks.clearImageStore).not.toHaveBeenCalled()
   })
 
-  it('ignores the dev seed in a packaged app', async () => {
+  it('ignores the dev seed and images in a packaged app', async () => {
     vi.stubEnv('DEV_SEED', 'documents,3')
 
     await importMain({ isPackaged: true })
 
     expect(mocks.resetDatabase).not.toHaveBeenCalled()
+    expect(mocks.clearImageStore).not.toHaveBeenCalled()
     expect(mocks.openDatabase).toHaveBeenCalledExactlyOnceWith(
       path.join('C:/fake/userdata', 'db.sqlite'),
       { operationDelayMs: 0, failingOperations: [] },
+    )
+    expect(mocks.createImageStore).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/userdata', 'images'),
     )
   })
 
@@ -1197,6 +1329,26 @@ describe('documents database', () => {
       })
       expect(consoleError).toHaveBeenCalledWith(
         'The dev seed could not be applied: Cannot seed table "users": no such table',
+      )
+      expect(mocks.openDatabase).not.toHaveBeenCalled()
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('exits before opening the store when the dev images cannot be cleared', async () => {
+    vi.stubEnv('DEV_SEED', 'documents,3')
+    mocks.clearImageStore.mockRejectedValueOnce(new Error('busy'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain({ expectWindow: false })
+
+      await vi.waitFor(() => {
+        expect(mocks.app.exit).toHaveBeenCalledWith(1)
+      })
+      expect(consoleError).toHaveBeenCalledWith(
+        'The dev images could not be cleared: busy',
       )
       expect(mocks.openDatabase).not.toHaveBeenCalled()
     } finally {
@@ -1337,6 +1489,229 @@ describe('documents database', () => {
     } finally {
       consoleError.mockRestore()
     }
+  })
+})
+
+describe('images', () => {
+  const fileName = '11111111-1111-4111-8111-111111111111.png'
+  const src = `wordapp-image://image/${fileName}`
+
+  it('opens the image store and recovers its journal before the window', async () => {
+    await importMain()
+
+    expect(mocks.createImageStore).toHaveBeenCalledExactlyOnceWith(
+      path.join('C:/fake/wordapp', 'dev-data', 'images'),
+    )
+    expect(mocks.imageStore.recover).toHaveBeenCalledOnce()
+    expect(typeof mocks.imageStore.recover.mock.calls[0][0]).toBe('function')
+    expect(mocks.createImageStore.mock.invocationCallOrder[0]).toBeLessThan(
+      asMock(mocks.BrowserWindow).mock.invocationCallOrder[0],
+    )
+    expect(
+      asMock(mocks.imageStore.recover).mock.invocationCallOrder[0],
+    ).toBeLessThan(asMock(mocks.BrowserWindow).mock.invocationCallOrder[0])
+  })
+
+  it('keeps starting when the image journal cannot be recovered', async () => {
+    mocks.imageStore.recover.mockRejectedValueOnce(new Error('bad journal'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await importMain()
+
+      expect(consoleError).toHaveBeenCalledWith(
+        'The image journal could not be recovered: bad journal',
+      )
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
+  it('registers the image scheme and serves only stored file names', async () => {
+    await importMain()
+
+    expect(mocks.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      {
+        scheme: 'wordapp-image',
+        privileges: {
+          standard: true,
+          secure: true,
+          supportFetchAPI: true,
+          stream: true,
+        },
+      },
+    ])
+
+    const handler = mocks.protocol.handle.mock.calls.at(-1)?.[1] as
+      ((request: { url: string }) => Promise<Response> | Response) | undefined
+
+    expect(mocks.protocol.handle).toHaveBeenCalledWith(
+      'wordapp-image',
+      expect.any(Function),
+    )
+    expect(handler).toBeTypeOf('function')
+
+    await handler?.({ url: src })
+    expect(mocks.net.fetch).toHaveBeenCalledWith(
+      pathToFileURL(
+        path.join('C:/fake/wordapp', 'dev-data', 'images', fileName),
+      ).toString(),
+    )
+
+    const missing = await handler?.({
+      url: 'wordapp-image://image/../secret.png',
+    })
+    expect(missing?.status).toBe(404)
+    expect(mocks.net.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('stores an uploaded image through the bridge', async () => {
+    await importMain()
+    const request = {
+      documentId: 7,
+      name: 'photo.png',
+      type: 'image/png',
+      data: new Uint8Array([1, 2, 3]),
+    }
+
+    await expect(
+      handlerFor('handle', imagesSaveChannel)({}, request),
+    ).resolves.toEqual({
+      src: 'wordapp-image://image/11111111-1111-4111-8111-111111111111.png',
+    })
+    expect(mocks.imageStore.save).toHaveBeenCalledExactlyOnceWith(request)
+  })
+
+  it('ignores image uploads without a document or image bytes', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', imagesSaveChannel)({}, { name: 'photo.png' }),
+    ).toBeUndefined()
+    expect(
+      handlerFor('handle', imagesSaveChannel)(
+        {},
+        {
+          documentId: 7,
+          name: 'photo.png',
+          type: 'image/png',
+          data: new Uint8Array(),
+        },
+      ),
+    ).toBeUndefined()
+    expect(mocks.imageStore.save).not.toHaveBeenCalled()
+  })
+
+  it('copies a stored image through the bridge', async () => {
+    await importMain()
+    const request = { documentId: 7, src }
+
+    await expect(
+      handlerFor('handle', imagesCopyChannel)({}, request),
+    ).resolves.toEqual({
+      src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
+    })
+    expect(mocks.imageStore.copy).toHaveBeenCalledExactlyOnceWith(request)
+  })
+
+  it('ignores image copies that are not stored image sources', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', imagesCopyChannel)(
+        {},
+        {
+          documentId: 7,
+          src: 'https://example.com/photo.png',
+        },
+      ),
+    ).toBeUndefined()
+    expect(mocks.imageStore.copy).not.toHaveBeenCalled()
+  })
+
+  it('removes a stored image and returns its bytes', async () => {
+    await importMain()
+    const request = { documentId: 7, src }
+
+    const data = await handlerFor('handle', imagesRemoveChannel)({}, request)
+
+    expect(new Uint8Array(data as ArrayBuffer)).toEqual(
+      new Uint8Array([1, 2, 3]),
+    )
+    expect(mocks.imageStore.remove).toHaveBeenCalledExactlyOnceWith(request)
+  })
+
+  it('answers image removals for other sources with no bytes', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', imagesRemoveChannel)(
+        {},
+        {
+          documentId: 7,
+          src: 'https://example.com/photo.png',
+        },
+      ),
+    ).toBeNull()
+    expect(mocks.imageStore.remove).not.toHaveBeenCalled()
+  })
+
+  it('restores a stored image from its bytes', async () => {
+    await importMain()
+    const request = {
+      documentId: 7,
+      src,
+      data: new Uint8Array([1, 2, 3]).buffer,
+    }
+
+    await expect(
+      handlerFor('handle', imagesRestoreChannel)({}, request),
+    ).resolves.toEqual({ src })
+    expect(mocks.imageStore.restore).toHaveBeenCalledExactlyOnceWith(request)
+  })
+
+  it('ignores image restores without bytes', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', imagesRestoreChannel)(
+        {},
+        {
+          documentId: 7,
+          src,
+        },
+      ),
+    ).toBeUndefined()
+    expect(mocks.imageStore.restore).not.toHaveBeenCalled()
+  })
+
+  it('reconciles the image journal after a body save', async () => {
+    await importMain()
+    const request = {
+      documentId: 7,
+      savedBody: `<img src="${src}">`,
+      currentBody: '<p>current</p>',
+    }
+
+    await expect(
+      handlerFor('handle', imagesReconcileChannel)({}, request),
+    ).resolves.toBeUndefined()
+    expect(mocks.imageStore.reconcile).toHaveBeenCalledExactlyOnceWith(request)
+  })
+
+  it('ignores reconciliation requests without both bodies', async () => {
+    await importMain()
+
+    expect(
+      handlerFor('handle', imagesReconcileChannel)(
+        {},
+        {
+          documentId: 7,
+          savedBody: '<p>saved</p>',
+        },
+      ),
+    ).toBeUndefined()
+    expect(mocks.imageStore.reconcile).not.toHaveBeenCalled()
   })
 })
 

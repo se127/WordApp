@@ -20,6 +20,34 @@ export type DocumentListOptions = {
   search?: string
 }
 
+export type ImageSaveRequest = {
+  documentId: number
+  name: string
+  type: string
+  data: ArrayBuffer
+}
+
+export type ImageSourceRequest = {
+  documentId: number
+  src: string
+}
+
+export type ImageRestoreRequest = {
+  documentId: number
+  src: string
+  data: ArrayBuffer
+}
+
+export type ImageReconcileRequest = {
+  documentId: number
+  savedBody: string
+  currentBody: string
+}
+
+export type SavedImage = {
+  src: string
+}
+
 declare global {
   interface Window {
     WordApp: {
@@ -47,6 +75,13 @@ declare global {
           id: number,
           changes: DocumentChanges,
         ) => Promise<DocumentRecord | undefined>
+      }
+      images: {
+        save: (request: ImageSaveRequest) => Promise<SavedImage>
+        copy: (request: ImageSourceRequest) => Promise<SavedImage>
+        remove: (request: ImageSourceRequest) => Promise<ArrayBuffer | null>
+        restore: (request: ImageRestoreRequest) => Promise<SavedImage>
+        reconcile: (request: ImageReconcileRequest) => Promise<void>
       }
     }
   }

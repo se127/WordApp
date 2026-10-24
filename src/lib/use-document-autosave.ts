@@ -6,6 +6,7 @@ import {
   setRememberedDocumentWait,
 } from '@/lib/document-recovery'
 import { documentSaveDebounceMs, useDocumentSave } from '@/lib/document-save'
+import { reconcileDocumentImages } from '@/lib/image'
 import { registerPendingChanges } from '@/lib/pending-changes'
 import type { DocumentChanges, DocumentRecord } from '@/types/global'
 import { useQueryClient } from '@tanstack/react-query'
@@ -142,6 +143,14 @@ function useDocumentAutosave(document: DocumentRecord) {
             if (pendingBodyRef.current === nextChanges.body) {
               pendingBodyRef.current = null
             }
+          }
+
+          if (nextChanges.body !== undefined) {
+            await reconcileDocumentImages(
+              document.id,
+              nextChanges.body,
+              pendingBodyRef.current ?? nextChanges.body,
+            ).catch(() => {})
           }
         }
       })()

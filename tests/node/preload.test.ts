@@ -46,6 +46,11 @@ describe('preload bridge', () => {
     expect(typeof api.documents.delete).toBe('function')
     expect(typeof api.documents.deleteMany).toBe('function')
     expect(typeof api.documents.save).toBe('function')
+    expect(typeof api.images.save).toBe('function')
+    expect(typeof api.images.copy).toBe('function')
+    expect(typeof api.images.remove).toBe('function')
+    expect(typeof api.images.restore).toBe('function')
+    expect(typeof api.images.reconcile).toBe('function')
   })
 
   it('forwards document calls over the document channels', async () => {
@@ -130,6 +135,62 @@ describe('preload bridge', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('wordapp:documents:save', 7, {
       title: 'گزارش',
     })
+  })
+
+  it('forwards image calls over the image channels', async () => {
+    const saved = { src: 'wordapp-image://image/stored.png' }
+    const src = 'wordapp-image://image/stored.png'
+    const data = new Uint8Array([1, 2, 3]).buffer
+    mocks.invoke.mockResolvedValue(saved)
+    const api = await importPreload()
+    const request = {
+      documentId: 7,
+      name: 'photo.png',
+      type: 'image/png',
+      data,
+    }
+
+    await expect(api.images.save(request)).resolves.toEqual(saved)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:save', request)
+
+    await expect(api.images.copy({ documentId: 7, src })).resolves.toEqual(
+      saved,
+    )
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:copy', {
+      documentId: 7,
+      src,
+    })
+
+    mocks.invoke.mockResolvedValue(data)
+    await expect(api.images.remove({ documentId: 7, src })).resolves.toEqual(
+      data,
+    )
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:remove', {
+      documentId: 7,
+      src,
+    })
+
+    mocks.invoke.mockResolvedValue(saved)
+    await expect(
+      api.images.restore({ documentId: 7, src, data }),
+    ).resolves.toEqual(saved)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:images:restore', {
+      documentId: 7,
+      src,
+      data,
+    })
+
+    const reconcile = {
+      documentId: 7,
+      savedBody: '<p>saved</p>',
+      currentBody: '<p>current</p>',
+    }
+    mocks.invoke.mockResolvedValue(undefined)
+    await expect(api.images.reconcile(reconcile)).resolves.toBeUndefined()
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      'wordapp:images:reconcile',
+      reconcile,
+    )
   })
 
   it('forwards request cancellation over the cancellation channel', async () => {

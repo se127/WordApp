@@ -112,7 +112,11 @@ function DocumentEditor({
           onDocumentDeleted={onDocumentDeleted}
         />
       </div>
-      <DocumentBodyEditor body={body} onBodyChange={updateBody} />
+      <DocumentBodyEditor
+        documentId={document.id}
+        body={body}
+        onBodyChange={updateBody}
+      />
     </>
   )
 }

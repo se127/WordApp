@@ -51,6 +51,19 @@ function installBridge(
       deleteMany: vi.fn(async () => undefined),
       save,
     },
+    images: {
+      save: vi.fn(async () => ({
+        src: 'wordapp-image://image/11111111-1111-4111-8111-111111111111.png',
+      })),
+      copy: vi.fn(async () => ({
+        src: 'wordapp-image://image/33333333-3333-4333-8333-333333333333.png',
+      })),
+      remove: vi.fn(async () => new ArrayBuffer(3)),
+      restore: vi.fn(async (request: { src: string }) => ({
+        src: request.src,
+      })),
+      reconcile: vi.fn(async () => {}),
+    },
   }
 }
 
