@@ -778,6 +778,134 @@ describe('DocumentBodyEditor', () => {
     writeText.mockRestore()
   })
 
+  it('shows the code block bubble menu while the cursor is in the block and removes it', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({
+      body: '<p>قبل</p><p>بعد</p>',
+      onBodyChange,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    expect(
+      screen.queryByRole('button', { name: 'حذف بلوک کد' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(editor)
+    placeCursorAtEnd(editor)
+    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1')
+
+    expect(editor.querySelector('.code-block-frame')).not.toBeNull()
+
+    const removeButton = await screen.findByRole('button', {
+      name: 'حذف بلوک کد',
+    })
+    expect(removeButton).toHaveAttribute('data-variant', 'destructive')
+    expect(removeButton).toHaveAttribute('data-size', 'icon')
+    expect(removeButton.querySelector('svg.lucide-trash-2')).not.toBeNull()
+
+    await user.hover(removeButton)
+    expect(
+      await screen.findByText('حذف بلوک کد', {
+        selector: '[data-slot="tooltip-content"]',
+      }),
+    ).toBeVisible()
+
+    await user.click(removeButton)
+
+    expect(editor.querySelector('.code-block-frame')).toBeNull()
+    expect(editor).toHaveTextContent('قبلبعد')
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      '<p dir="rtl">قبل</p><p dir="rtl">بعد</p>',
+    )
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: 'حذف بلوک کد' }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('anchors the code block bubble menu to the bottom of the block', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1')
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector<HTMLElement>('.code-block-frame')
+
+    if (frame === null) {
+      throw new Error('Code block frame is missing')
+    }
+
+    const menu = (
+      await screen.findByRole('button', { name: 'حذف بلوک کد' })
+    ).closest<HTMLElement>('[data-slot="code-block-bubble-menu"]')
+
+    if (menu === null) {
+      throw new Error('Code block bubble menu is missing')
+    }
+
+    const rect = new DOMRect(10, 20, 200, 100)
+    Object.defineProperty(frame, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect,
+    })
+    Object.defineProperty(document.documentElement, 'clientHeight', {
+      configurable: true,
+      value: 1000,
+    })
+    Object.defineProperty(document.documentElement, 'clientWidth', {
+      configurable: true,
+      value: 1000,
+    })
+
+    try {
+      await user.keyboard('x')
+      await user.keyboard('{Backspace}')
+
+      await waitFor(() => {
+        expect(menu).toHaveStyle({ top: '128px' })
+      })
+    } finally {
+      Reflect.deleteProperty(document.documentElement, 'clientHeight')
+      Reflect.deleteProperty(document.documentElement, 'clientWidth')
+    }
+  })
+
+  it('replaces a lone removed code block with an editable paragraph', async () => {
+    const onBodyChange = vi.fn()
+    renderEditor({ onBodyChange })
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1')
+    await user.click(await screen.findByRole('button', { name: 'حذف بلوک کد' }))
+
+    const editor = await editorTextbox()
+    expect(editor.querySelector('.code-block-frame')).toBeNull()
+    expect(editor.querySelector('p')).not.toBeNull()
+    expect(editor).toHaveTextContent('')
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith('')
+
+    await user.keyboard('متن تازه')
+    expect(editor).toHaveTextContent('متن تازه')
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن تازه</p>')
+  })
+
   it('wraps code blocks in a capped two-axis scroll area', async () => {
     const resizeCallbacks: Array<{
       target: Element

@@ -11,10 +11,21 @@ import sql from '@shikijs/langs/sql'
 import typescript from '@shikijs/langs/typescript'
 import githubDark from '@shikijs/themes/github-dark-default'
 import githubLight from '@shikijs/themes/github-light-default'
-import { mergeAttributes, Extension } from '@tiptap/core'
+import {
+  Extension,
+  findParentNodeClosestToPos,
+  mergeAttributes,
+  type Editor,
+} from '@tiptap/core'
 import { CodeBlock } from '@tiptap/extension-code-block'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type Selection,
+} from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { createHighlighterCoreSync } from 'shiki/core'
@@ -93,6 +104,64 @@ export function resolveCodeBlockLanguage(
   }
 
   return languageAliases[normalized] ?? null
+}
+
+function findCodeBlockAtSelection(
+  selection: Selection,
+): { position: number; node: ProseMirrorNode } | null {
+  if (selection instanceof NodeSelection) {
+    return selection.node.type.name === 'codeBlock'
+      ? { position: selection.from, node: selection.node }
+      : null
+  }
+
+  const codeBlock = findParentNodeClosestToPos(
+    selection.$from,
+    (node) => node.type.name === 'codeBlock',
+  )
+
+  return codeBlock === undefined
+    ? null
+    : { position: codeBlock.pos, node: codeBlock.node }
+}
+
+export function getCodeBlockPosition(editor: Editor): number | null {
+  return findCodeBlockAtSelection(editor.state.selection)?.position ?? null
+}
+
+export function removeCodeBlock(editor: Editor): boolean {
+  return editor
+    .chain()
+    .focus()
+    .command(({ state, tr }) => {
+      const codeBlock = findCodeBlockAtSelection(state.selection)
+
+      if (codeBlock === null) {
+        return false
+      }
+
+      const { position, node } = codeBlock
+      const parent = state.doc.resolve(position).parent
+
+      if (parent.childCount === 1) {
+        tr.replaceWith(
+          position,
+          position + node.nodeSize,
+          state.schema.nodes.paragraph.create(),
+        )
+        tr.setSelection(TextSelection.near(tr.doc.resolve(position + 1)))
+      } else {
+        tr.delete(position, position + node.nodeSize)
+        tr.setSelection(
+          TextSelection.near(
+            tr.doc.resolve(Math.min(position, tr.doc.content.size)),
+          ),
+        )
+      }
+
+      return true
+    })
+    .run()
 }
 
 function getHighlighter(): ReturnType<typeof createHighlighterCoreSync> {

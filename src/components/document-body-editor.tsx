@@ -1,3 +1,4 @@
+import { DocumentCodeBlockMenu } from '@/components/document-code-block-menu'
 import {
   DocumentLinkDialog,
   type DocumentLinkDialogValues,
@@ -1046,6 +1047,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
         onOpenChange={setIsLinkDialogOpen}
       />
       <DocumentTableMenu editor={editor} />
+      <DocumentCodeBlockMenu editor={editor} />
       <DocumentLinkMenu editor={editor} onEdit={openLinkDialog} />
     </>
   )
