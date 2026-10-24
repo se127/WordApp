@@ -619,6 +619,7 @@ describe('routes', () => {
       'خط افقی',
       'افزودن جدول',
       'افزودن / ویرایش لینک',
+      'ایموجی',
     ])
 
     const page = document.querySelector('.document-body-editor')?.parentElement

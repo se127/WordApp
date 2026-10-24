@@ -42,6 +42,35 @@ async function editorTextbox(): Promise<HTMLElement> {
   return screen.findByRole('textbox', { name: 'متن سند' })
 }
 
+function stubResizeObserver(): Array<{
+  target: Element
+  callback: () => void
+}> {
+  const resizeCallbacks: Array<{
+    target: Element
+    callback: () => void
+  }> = []
+
+  class TestResizeObserver {
+    private readonly callback: () => void
+
+    constructor(callback: () => void) {
+      this.callback = callback
+    }
+
+    observe(target: Element) {
+      resizeCallbacks.push({ target, callback: this.callback })
+    }
+
+    unobserve() {}
+
+    disconnect() {}
+  }
+
+  vi.stubGlobal('ResizeObserver', TestResizeObserver)
+  return resizeCallbacks
+}
+
 function placeCursorAtEnd(editor: HTMLElement): void {
   const paragraph = editor.querySelector('p') ?? editor
   const range = document.createRange()
@@ -129,6 +158,7 @@ describe('DocumentBodyEditor', () => {
       'خط افقی',
       'افزودن جدول',
       'افزودن / ویرایش لینک',
+      'ایموجی',
     ])
 
     const [
@@ -150,6 +180,7 @@ describe('DocumentBodyEditor', () => {
       horizontalRuleButton,
       tableButton,
       linkButton,
+      emojiButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -172,6 +203,7 @@ describe('DocumentBodyEditor', () => {
       horizontalRuleButton,
       tableButton,
       linkButton,
+      emojiButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
@@ -237,6 +269,7 @@ describe('DocumentBodyEditor', () => {
     expect(horizontalRuleButton.nextElementSibling).toBe(separators[5])
     expect(separators[5]?.nextElementSibling).toBe(tableButton)
     expect(tableButton.nextElementSibling).toBe(linkButton)
+    expect(linkButton.nextElementSibling).toBe(emojiButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -936,28 +969,7 @@ describe('DocumentBodyEditor', () => {
   })
 
   it('wraps code blocks in a capped two-axis scroll area', async () => {
-    const resizeCallbacks: Array<{
-      target: Element
-      callback: () => void
-    }> = []
-
-    class TestResizeObserver {
-      private readonly callback: () => void
-
-      constructor(callback: () => void) {
-        this.callback = callback
-      }
-
-      observe(target: Element) {
-        resizeCallbacks.push({ target, callback: this.callback })
-      }
-
-      unobserve() {}
-
-      disconnect() {}
-    }
-
-    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    const resizeCallbacks = stubResizeObserver()
     renderEditor()
     const user = userEvent.setup()
 
@@ -1976,6 +1988,142 @@ describe('DocumentBodyEditor', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith(
       expect.stringContaining('<p dir="rtl">لینک</p>'),
     )
+  })
+
+  it('keeps the emoji menu open for multiple picks and inserts each emoji at the caret', async () => {
+    const resizeCallbacks = stubResizeObserver()
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const emojiButton = screen.getByRole('button', { name: 'ایموجی' })
+    expect(emojiButton).toHaveAttribute('data-variant', 'ghost')
+    expect(emojiButton).toHaveAttribute('data-size', 'icon')
+    expect(emojiButton).toHaveClass(
+      'hover:bg-gray-200',
+      'dark:hover:bg-zinc-700',
+    )
+
+    await user.hover(emojiButton)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('ایموجی')
+    await user.click(emojiButton)
+
+    const menu = await screen.findByRole('menu')
+    expect(menu).toHaveClass('w-72', 'overflow-hidden')
+    const scrollArea = menu.querySelector('[data-slot="scroll-area"]')
+    expect(scrollArea).toHaveClass('h-64', 'pe-3')
+    const viewport = scrollArea?.querySelector(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    expect(viewport).not.toBeNull()
+    const group = menu.querySelector('[data-slot="dropdown-menu-group"]')
+    expect(group).toHaveClass('grid', 'grid-cols-6', 'gap-1', 'p-2')
+    expect(group).not.toHaveClass('overflow-y-auto')
+    for (const emoji of ['😀', '👍', '🎉', '🚀', '🍕', '🐶']) {
+      expect(
+        within(group as HTMLElement).getByRole('menuitem', { name: emoji }),
+      ).toBeInTheDocument()
+    }
+    const firstEmoji = within(group as HTMLElement).getByRole('menuitem', {
+      name: '😀',
+    })
+    expect(firstEmoji).toHaveClass('size-8', 'justify-center', 'p-0', 'text-xl')
+    expect(viewport).toContainElement(firstEmoji)
+
+    Object.defineProperties(viewport as HTMLElement, {
+      offsetHeight: { configurable: true, value: 256 },
+      offsetWidth: { configurable: true, value: 288 },
+      scrollHeight: { configurable: true, value: 640 },
+      scrollWidth: { configurable: true, value: 288 },
+    })
+
+    for (const { target, callback } of resizeCallbacks) {
+      if (menu.contains(target)) {
+        callback()
+      }
+    }
+
+    const verticalScrollbar = await waitFor(() => {
+      const scrollbar = menu.querySelector(
+        '[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]',
+      )
+      expect(scrollbar).not.toBeNull()
+      return scrollbar as HTMLElement
+    })
+
+    for (const { target, callback } of resizeCallbacks) {
+      if (verticalScrollbar.contains(target)) {
+        callback()
+      }
+    }
+
+    await waitFor(() => {
+      expect(
+        verticalScrollbar.querySelector('[data-slot="scroll-area-thumb"]'),
+      ).not.toBeNull()
+    })
+
+    await user.click(firstEmoji)
+
+    expect(menu).toBeInTheDocument()
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن😀</p>')
+
+    await user.click(
+      within(group as HTMLElement).getByRole('menuitem', { name: '👍' }),
+    )
+
+    expect(menu).toBeInTheDocument()
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن😀👍</p>')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(await editorTextbox()).toHaveFocus()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('inserts repeatedly from the keyboard and returns focus when the emoji menu closes', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await typeInEditor('متن')
+
+    const emojiButton = screen.getByRole('button', { name: 'ایموجی' })
+    emojiButton.focus()
+    await user.keyboard('{Enter}')
+    const firstEmoji = await screen.findByRole('menuitem', { name: '😀' })
+    expect(firstEmoji).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(firstEmoji).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن😀</p>')
+
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">متن😀😀</p>')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('returns focus to the emoji trigger when the menu closes without a selection', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    const emojiButton = screen.getByRole('button', { name: 'ایموجی' })
+    await user.click(emojiButton)
+    await screen.findByRole('menuitem', { name: '😀' })
+
+    await user.keyboard('{Escape}')
+
+    expect(emojiButton).toHaveFocus()
   })
 
   it('opens the add table dialog and inserts one cell with focus back in the editor', async () => {

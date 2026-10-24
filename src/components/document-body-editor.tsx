@@ -39,6 +39,7 @@ import {
   ShikiCodeBlock,
   type CodeBlockLanguage,
 } from '@/lib/code-block'
+import { emojis } from '@/lib/emoji'
 import {
   fontSizes,
   normalizePastedFontSizes,
@@ -82,6 +83,7 @@ import {
   Check,
   ChevronLeft,
   Code2,
+  FaceSlightlySmiling,
   Heading2,
   Heading3,
   Heading4,
@@ -1034,6 +1036,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <LinkIcon />
       </ToolbarButton>
+      <ToolbarEmojiPicker editor={editor} />
       <DocumentTableDialog
         editor={editor}
         open={isTableDialogOpen}
@@ -1225,6 +1228,65 @@ function ToolbarColorPicker({
             />
           ))}
         </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ToolbarEmojiPicker({ editor }: { editor: Editor | null }) {
+  const [open, setOpen] = useState(false)
+  const { markToolbarSelection, handleCloseAutoFocus } =
+    useEditorFocusAfterToolbarSelection(editor)
+
+  const insertEmoji = (emoji: string): void => {
+    if (editor === null) {
+      return
+    }
+
+    markToolbarSelection()
+    editor.chain().insertContent(emoji).run()
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="ایموجی"
+              disabled={editor === null}
+              className="hover:bg-gray-200 dark:hover:bg-zinc-700"
+            >
+              <FaceSlightlySmiling />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>ایموجی</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="start"
+        className="w-72 overflow-hidden"
+        onCloseAutoFocus={handleCloseAutoFocus}
+      >
+        <ScrollArea type="auto" className="h-64 pe-3">
+          <DropdownMenuGroup className="grid grid-cols-6 gap-1 p-2">
+            {emojis.map((emoji) => (
+              <DropdownMenuItem
+                key={emoji}
+                className="size-8 justify-center p-0 text-xl"
+                onSelect={(event) => {
+                  event.preventDefault()
+                  insertEmoji(emoji)
+                }}
+              >
+                {emoji}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </ScrollArea>
       </DropdownMenuContent>
     </DropdownMenu>
   )
