@@ -128,6 +128,7 @@ describe('DocumentBodyEditor', () => {
       'نقل قول',
       'خط افقی',
       'افزودن جدول',
+      'افزودن / ویرایش لینک',
     ])
 
     const [
@@ -148,6 +149,7 @@ describe('DocumentBodyEditor', () => {
       blockquoteButton,
       horizontalRuleButton,
       tableButton,
+      linkButton,
     ] = buttons
     const markButtons = [
       boldButton,
@@ -169,6 +171,7 @@ describe('DocumentBodyEditor', () => {
       codeBlockButton,
       horizontalRuleButton,
       tableButton,
+      linkButton,
     ]) {
       expect(button).toHaveAttribute('data-variant', 'ghost')
       expect(button).toHaveAttribute('data-size', 'icon')
@@ -233,6 +236,7 @@ describe('DocumentBodyEditor', () => {
     expect(blockquoteButton.nextElementSibling).toBe(horizontalRuleButton)
     expect(horizontalRuleButton.nextElementSibling).toBe(separators[5])
     expect(separators[5]?.nextElementSibling).toBe(tableButton)
+    expect(tableButton.nextElementSibling).toBe(linkButton)
 
     const user = userEvent.setup()
     await user.hover(screen.getByRole('button', { name: 'توپر' }))
@@ -1519,6 +1523,302 @@ describe('DocumentBodyEditor', () => {
       '<p dir="rtl">متن</p><hr dir="rtl"><p dir="rtl"></p>',
     )
     expect(await editorTextbox()).toHaveFocus()
+  })
+
+  it('adds a link to the selected text and returns focus to the editor', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    const editor = await typeInEditor('متن لینک')
+    await user.keyboard('{Control>}a{/Control}')
+
+    await user.click(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByRole('heading', { name: 'افزودن / ویرایش لینک' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        'برای افزودن یا ویرایش لینک از فرم زیر استفاده نمایید.',
+      ),
+    ).toBeInTheDocument()
+
+    const textInput = within(dialog).getByRole('textbox', { name: 'متن' })
+    const hrefInput = within(dialog).getByRole('textbox', {
+      name: 'آدرس (URL)',
+    })
+
+    expect(textInput).toHaveValue('متن لینک')
+    expect(textInput).toHaveFocus()
+    expect(hrefInput).toHaveValue('')
+    expect(
+      within(dialog).queryByRole('button', { name: 'حذف لینک' }),
+    ).not.toBeInTheDocument()
+
+    await user.type(hrefInput, 'https://example.com')
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const link = editor.querySelector('a')
+    expect(link).not.toBeNull()
+    expect(link).toHaveTextContent('متن لینک')
+    expect(link).toHaveAttribute('href', 'https://example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('href="https://example.com"'),
+    )
+    expect(editor).toHaveFocus()
+  })
+
+  it('inserts a link with new text when nothing is selected', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    await user.click(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const textInput = within(dialog).getByRole('textbox', { name: 'متن' })
+    const hrefInput = within(dialog).getByRole('textbox', {
+      name: 'آدرس (URL)',
+    })
+
+    expect(textInput).toHaveValue('')
+    expect(hrefInput).toHaveValue('')
+
+    await user.type(textInput, 'OpenAI')
+    await user.type(hrefInput, 'https://openai.com')
+    await user.click(within(dialog).getByRole('button', { name: 'افزودن' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const link = editor.querySelector('a')
+    expect(link).not.toBeNull()
+    expect(link).toHaveTextContent('OpenAI')
+    expect(link).toHaveAttribute('href', 'https://openai.com')
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('>OpenAI</a>'),
+    )
+  })
+
+  it('keeps text typed immediately after a stored link outside of it', async () => {
+    renderEditor({
+      body: '<p><a href="https://example.com">لینک</a></p>',
+    })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    placeCursorAtEnd(editor)
+    await user.keyboard('بعد')
+
+    const link = editor.querySelector('a')
+    expect(link).toHaveTextContent('لینک')
+    expect(link).not.toHaveTextContent('بعد')
+    expect(editor).toHaveTextContent('لینکبعد')
+  })
+
+  it('autolinks a typed URL', async () => {
+    renderEditor()
+
+    const editor = await typeInEditor('https://example.com ')
+
+    expect(editor.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://example.com',
+    )
+  })
+
+  it('prevents a stored link from opening when it is clicked', async () => {
+    renderEditor({
+      body: '<p><a href="https://example.com">لینک</a></p>',
+    })
+
+    const editor = await editorTextbox()
+    const link = editor.querySelector('a')
+    const click = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+    })
+
+    link?.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(editor).toHaveFocus()
+  })
+
+  it('validates link text and URL before adding a link', async () => {
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const textInput = within(dialog).getByRole('textbox', { name: 'متن' })
+    const hrefInput = within(dialog).getByRole('textbox', {
+      name: 'آدرس (URL)',
+    })
+    const addButton = within(dialog).getByRole('button', { name: 'افزودن' })
+
+    await user.click(addButton)
+
+    expect(
+      within(dialog).getByText('متن لینک را وارد کنید.'),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText('مقدار وارد شده باید یک URL باشد.'),
+    ).toBeInTheDocument()
+    expect(textInput).toHaveAttribute('aria-invalid', 'true')
+    expect(hrefInput).toHaveAttribute('aria-invalid', 'true')
+
+    await user.type(textInput, 'لینک')
+    await user.type(hrefInput, 'example.com')
+    await user.click(addButton)
+
+    expect(
+      within(dialog).queryByText('متن لینک را وارد کنید.'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).getByText('مقدار وارد شده باید یک URL باشد.'),
+    ).toBeInTheDocument()
+    expect(hrefInput).toHaveAttribute('aria-invalid', 'true')
+    expect(document.querySelector('.ProseMirror a')).toBeNull()
+    expect(onBodyChange).not.toHaveBeenCalled()
+
+    await user.clear(hrefInput)
+    await user.type(hrefInput, 'https://example.com')
+    await user.click(addButton)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    expect(document.querySelector('.ProseMirror a')).toHaveAttribute(
+      'href',
+      'https://example.com',
+    )
+  })
+
+  it('edits and removes a stored link from the dialog', async () => {
+    const { onBodyChange } = renderEditor({
+      body: '<p><a href="https://old.example">لینک قدیمی</a></p>',
+    })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    await user.keyboard('{ArrowLeft}')
+    await user.click(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const textInput = within(dialog).getByRole('textbox', { name: 'متن' })
+    const hrefInput = within(dialog).getByRole('textbox', {
+      name: 'آدرس (URL)',
+    })
+
+    expect(textInput).toHaveValue('لینک قدیمی')
+    expect(hrefInput).toHaveValue('https://old.example')
+    expect(
+      within(dialog).getByRole('button', { name: 'حذف لینک' }),
+    ).toHaveAttribute('data-variant', 'destructive')
+
+    await user.clear(textInput)
+    await user.type(textInput, 'لینک تازه')
+    await user.clear(hrefInput)
+    await user.type(hrefInput, 'https://new.example')
+    await user.click(within(dialog).getByRole('button', { name: 'ذخیره' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    const updatedLink = editor.querySelector('a')
+    expect(updatedLink).toHaveTextContent('لینک تازه')
+    expect(updatedLink).toHaveAttribute('href', 'https://new.example')
+    expect(editor).toHaveFocus()
+
+    await user.click(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    )
+
+    const removeDialog = await screen.findByRole('dialog')
+    await user.click(
+      within(removeDialog).getByRole('button', { name: 'حذف لینک' }),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    expect(editor.querySelector('a')).toBeNull()
+    expect(editor).toHaveTextContent('لینک تازه')
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('لینک تازه'),
+    )
+  })
+
+  it('shows the link bubble menu and removes the link from it', async () => {
+    const { onBodyChange } = renderEditor({
+      body: '<p><a href="https://example.com">لینک</a></p>',
+    })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    await user.keyboard('{ArrowLeft}')
+
+    const editButton = await screen.findByRole('button', {
+      name: 'ویرایش لینک',
+    })
+    const deleteButton = screen.getByRole('button', { name: 'حذف لینک' })
+
+    expect(
+      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
+    ).toHaveAttribute('data-variant', 'default')
+    expect(editButton).toHaveAttribute('data-variant', 'outline')
+    expect(deleteButton).toHaveAttribute('data-variant', 'destructive')
+
+    await user.click(editButton)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'متن' })).toHaveValue(
+      'لینک',
+    )
+
+    await user.click(within(dialog).getByRole('button', { name: 'انصراف' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    await user.click(editor)
+    await user.keyboard('{ArrowLeft}')
+    await user.click(await screen.findByRole('button', { name: 'حذف لینک' }))
+
+    expect(editor.querySelector('a')).toBeNull()
+    expect(editor).toHaveFocus()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<p dir="rtl">لینک</p>'),
+    )
   })
 
   it('opens the add table dialog and inserts one cell with focus back in the editor', async () => {

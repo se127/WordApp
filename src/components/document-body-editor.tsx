@@ -1,3 +1,8 @@
+import {
+  DocumentLinkDialog,
+  type DocumentLinkDialogValues,
+} from '@/components/document-link-dialog'
+import { DocumentLinkMenu } from '@/components/document-link-menu'
 import { DocumentTableDialog } from '@/components/document-table-dialog'
 import { DocumentTableMenu } from '@/components/document-table-menu'
 import { Button } from '@/components/ui/button'
@@ -39,6 +44,7 @@ import {
   parseFontSize,
   snapFontSize,
 } from '@/lib/font-size'
+import { getLinkRange } from '@/lib/link'
 import { formatNumber } from '@/lib/number'
 import {
   DocumentTable,
@@ -48,12 +54,15 @@ import {
 } from '@/lib/table'
 import { cn } from '@/lib/utils'
 import { Highlight } from '@tiptap/extension-highlight'
+import { Link as LinkExtension } from '@tiptap/extension-link'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Subscript as SubscriptExtension } from '@tiptap/extension-subscript'
 import { Superscript as SuperscriptExtension } from '@tiptap/extension-superscript'
 import { TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TextAlign } from '@tiptap/extension-text-align'
 import { Color, FontSize, TextStyle } from '@tiptap/extension-text-style'
+import { TextSelection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import {
   EditorContent,
   useEditor,
@@ -79,6 +88,7 @@ import {
   Heading6,
   Highlighter,
   Italic,
+  LinkIcon,
   List,
   ListOrdered,
   Minus,
@@ -100,7 +110,11 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import './document-body-editor.css'
 
 const documentBodyExtensions = [
-  StarterKit.configure({ codeBlock: false }),
+  StarterKit.configure({ codeBlock: false, link: false }),
+  LinkExtension.extend({ inclusive: () => false }).configure({
+    openOnClick: false,
+    autolink: true,
+  }),
   ShikiCodeBlock,
   CodeBlockSelectAll,
   TextStyle,
@@ -123,6 +137,38 @@ const documentBodyEditorProps = {
     role: 'textbox',
     'aria-label': 'متن سند',
     'aria-multiline': 'true',
+  },
+  handleClick: (view: EditorView, pos: number, event: MouseEvent): boolean => {
+    if (
+      event.button !== 0 ||
+      !(event.target instanceof HTMLElement) ||
+      event.target.closest('a') === null
+    ) {
+      return false
+    }
+
+    event.preventDefault()
+    view.focus()
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)),
+    )
+
+    return true
+  },
+  handleDOMEvents: {
+    click: (view: EditorView, event: MouseEvent): boolean => {
+      if (
+        event.button !== 0 ||
+        !(event.target instanceof HTMLElement) ||
+        event.target.closest('a') === null
+      ) {
+        return false
+      }
+
+      event.preventDefault()
+      view.focus()
+      return true
+    },
   },
   transformPastedHTML: (html: string): string => normalizePastedFontSizes(html),
 }
@@ -459,6 +505,7 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       canRedo: currentEditor?.can().redo() ?? false,
       textStyle: textStyleValue(currentEditor),
       textDirection: currentEditor?.isActive({ dir: 'ltr' }) ? 'ltr' : 'rtl',
+      link: currentEditor?.isActive('link') ?? false,
       textAlign: textAlignValue(currentEditor),
       textPosition: textPositionValue(currentEditor),
       fontSize: fontSizeValue(currentEditor),
@@ -476,6 +523,10 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
   const textPositionFocus = useEditorFocusAfterToolbarSelection(editor)
   const codeBlockFocus = useEditorFocusAfterToolbarSelection(editor)
   const [isTableDialogOpen, setIsTableDialogOpen] = useState(false)
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false)
+  const [linkDialogValues, setLinkDialogValues] =
+    useState<DocumentLinkDialogValues | null>(null)
+  const [linkDialogKey, setLinkDialogKey] = useState(0)
 
   const currentTextStyle =
     textStyleOptions.find(
@@ -495,6 +546,24 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
     textPositionOptions.find(
       (option) => option.value === editorState?.textPosition,
     ) ?? textPositionOptions[0]
+
+  const openLinkDialog = (): void => {
+    if (editor === null) {
+      return
+    }
+
+    const range = getLinkRange(editor)
+    const isEditing = editor.isActive('link')
+
+    setLinkDialogValues({
+      range,
+      text: editor.state.doc.textBetween(range.from, range.to, ' '),
+      href: isEditing ? String(editor.getAttributes('link').href ?? '') : '',
+      isEditing,
+    })
+    setLinkDialogKey((key) => key + 1)
+    setIsLinkDialogOpen(true)
+  }
 
   const setTextStyle = (value: string): void => {
     if (editor === null) {
@@ -956,12 +1025,28 @@ function EditorToolbar({ editor }: { editor: Editor | null }) {
       >
         <TableIcon />
       </ToolbarButton>
+      <ToolbarButton
+        label="افزودن / ویرایش لینک"
+        disabled={editor === null}
+        isActive={editorState?.link ?? false}
+        onClick={openLinkDialog}
+      >
+        <LinkIcon />
+      </ToolbarButton>
       <DocumentTableDialog
         editor={editor}
         open={isTableDialogOpen}
         onOpenChange={setIsTableDialogOpen}
       />
+      <DocumentLinkDialog
+        key={linkDialogKey}
+        editor={editor}
+        open={isLinkDialogOpen}
+        initialValues={linkDialogValues}
+        onOpenChange={setIsLinkDialogOpen}
+      />
       <DocumentTableMenu editor={editor} />
+      <DocumentLinkMenu editor={editor} onEdit={openLinkDialog} />
     </>
   )
 }
