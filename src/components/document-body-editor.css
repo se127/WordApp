@@ -163,6 +163,7 @@
   background-color: var(--wordapp-shiki-light-bg);
   color: inherit;
   font: inherit;
+  font-family: var(--font-sans);
   text-align: right;
   user-select: none;
   white-space: pre;

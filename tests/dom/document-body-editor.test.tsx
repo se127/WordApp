@@ -731,7 +731,9 @@ describe('DocumentBodyEditor', () => {
       'shadow-sm',
     )
     expect(copyButton).toBeEnabled()
-    expect(copyButton.querySelector('svg.lucide-copy')).not.toBeNull()
+    const copyIcon = copyButton.querySelector('svg.lucide-clipboard-copy')
+    expect(copyIcon).toHaveClass('size-4')
+    expect(copyIcon).not.toHaveClass('rotate-90')
 
     await user.hover(copyButton)
     expect(
@@ -759,7 +761,10 @@ describe('DocumentBodyEditor', () => {
     expect(copyButton).toHaveAttribute('aria-busy', 'false')
 
     await waitFor(
-      () => expect(copyButton.querySelector('svg.lucide-copy')).not.toBeNull(),
+      () =>
+        expect(
+          copyButton.querySelector('svg.lucide-clipboard-copy'),
+        ).not.toBeNull(),
       { timeout: 2000 },
     )
     expect(copyButton).toBeEnabled()
@@ -912,6 +917,9 @@ describe('DocumentBodyEditor', () => {
     )
     expect(editorStyles).toMatch(
       /\.document-body-editor \.ProseMirror \.code-block-gutter \{[^}]*position: sticky;[^}]*left: 0;[^}]*background-color: var\(--wordapp-shiki-light-bg\);[^}]*color: inherit;[^}]*text-align: right;[^}]*user-select: none;[^}]*white-space: pre;/,
+    )
+    expect(editorStyles).toMatch(
+      /\.document-body-editor \.ProseMirror \.code-block-gutter \{[^}]*font-family: var\(--font-sans\);/,
     )
     expect(editorStyles).toContain(
       '.dark .document-body-editor .ProseMirror .code-block-gutter { background-color: var(--wordapp-shiki-dark-bg); }',

@@ -11,7 +11,7 @@ import {
   NodeViewWrapper,
   type NodeViewProps,
 } from '@tiptap/react'
-import { Check, Copy, LoaderCircle } from 'lucide-react'
+import { Check, ClipboardCopy, LoaderCircle } from 'lucide-react'
 import { ScrollArea as ScrollAreaPrimitive } from 'radix-ui'
 import {
   useEffect,
@@ -185,7 +185,7 @@ export function CodeBlockView({ node, editor, getPos }: NodeViewProps) {
             ) : copyState === 'copied' ? (
               <Check className="size-4" />
             ) : (
-              <Copy className="size-4" />
+              <ClipboardCopy className="size-4" />
             )}
           </Button>
         </TooltipTrigger>
