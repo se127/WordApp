@@ -719,6 +719,7 @@ describe('DocumentBodyEditor', () => {
     })
 
     expect(copyButton).toHaveAttribute('data-variant', 'ghost')
+    expect(copyButton).toHaveAttribute('contenteditable', 'false')
     expect(copyButton).toHaveClass(
       'absolute',
       'top-2',
@@ -776,6 +777,34 @@ describe('DocumentBodyEditor', () => {
       'const a = 1\nconst b = 2',
     )
     writeText.mockRestore()
+  })
+
+  it('keeps the copy icon after typing and deleting the code text', async () => {
+    renderEditor()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'کد' }))
+    await user.click(
+      await screen.findByRole('menuitem', { name: 'JavaScript' }),
+    )
+    await user.keyboard('const a = 1{Enter}const b = 2')
+
+    const editor = await editorTextbox()
+    const frame = editor.querySelector('.code-block-frame')
+    expect(frame).not.toBeNull()
+
+    await user.keyboard('{Control>}a{/Control}{Backspace}')
+
+    const updatedFrame = editor.querySelector('.code-block-frame')
+    expect(updatedFrame).not.toBeNull()
+    const copyButton = within(updatedFrame as HTMLElement).getByRole('button', {
+      name: 'کپی',
+    })
+    expect(copyButton).toHaveAttribute('contenteditable', 'false')
+    expect(copyButton.querySelector('svg.lucide-clipboard-copy')).not.toBeNull()
+
+    await user.keyboard('const next = 2')
+    expect(copyButton.querySelector('svg.lucide-clipboard-copy')).not.toBeNull()
   })
 
   it('shows the code block bubble menu while the cursor is in the block and removes it', async () => {

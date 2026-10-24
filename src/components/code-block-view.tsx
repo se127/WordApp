@@ -177,6 +177,7 @@ export function CodeBlockView({ node, editor, getPos }: NodeViewProps) {
             className="absolute top-2 right-3 z-10 border border-border bg-white text-zinc-900 shadow-sm hover:bg-white hover:text-zinc-900 disabled:opacity-100 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-900 dark:hover:text-white"
             aria-label="کپی"
             aria-busy={copyState === 'copying'}
+            contentEditable={false}
             disabled={!isIdle}
             onClick={copyCode}
           >
