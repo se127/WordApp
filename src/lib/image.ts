@@ -43,6 +43,46 @@ export function copyDocumentImage(
   })
 }
 
+export function insertDocumentImages(
+  editor: Editor,
+  documentId: number,
+  files: File[],
+): Promise<void> {
+  const images = files.filter(isImageFile)
+
+  if (images.length === 0) {
+    return Promise.resolve()
+  }
+
+  return Promise.all(
+    images.map((file) =>
+      saveDocumentImage(file, documentId)
+        .then((src) => ({ src, alt: file.name }))
+        .catch(() => null),
+    ),
+  )
+    .then((results) => {
+      if (editor.isDestroyed) {
+        return
+      }
+
+      const saved = results.filter(
+        (image): image is { src: string; alt: string } => image !== null,
+      )
+
+      if (saved.length === 0) {
+        return
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContent(saved.map((image) => ({ type: 'image', attrs: image })))
+        .run()
+    })
+    .catch(() => {})
+}
+
 export function collectDocumentImages(
   documentId: number,
   savedBody: string,

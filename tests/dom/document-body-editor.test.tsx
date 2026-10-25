@@ -39,6 +39,16 @@ function installImageSave() {
   return installImageBridge().save
 }
 
+function draggedFiles(files: File[]) {
+  return {
+    dataTransfer: {
+      files,
+      types: ['Files'],
+      dropEffect: 'none',
+    },
+  }
+}
+
 afterEach(() => {
   Reflect.deleteProperty(window, 'WordApp')
 })
@@ -2352,6 +2362,172 @@ describe('DocumentBodyEditor', () => {
     })
     expect(save).not.toHaveBeenCalled()
     expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('shows the drop zone for file drags and hides it when the drag leaves', async () => {
+    renderEditor()
+    await editorTextbox()
+
+    expect(screen.queryByText('محل رها کردن فایل')).not.toBeInTheDocument()
+
+    fireEvent.dragEnter(document.body, draggedFiles([]))
+
+    const dropZone = document.querySelector('[data-slot="document-drop-zone"]')
+    const label = screen.getByText('محل رها کردن فایل')
+
+    expect(dropZone).toHaveClass(
+      'pointer-events-none',
+      'fixed',
+      'inset-0',
+      'items-center',
+      'justify-center',
+      'bg-background/80',
+    )
+    expect(dropZone).toHaveAttribute('dir', 'rtl')
+    expect(label.parentElement).toHaveClass(
+      'border-2',
+      'border-dashed',
+      'border-border',
+      'text-center',
+    )
+
+    fireEvent.dragLeave(document.body, draggedFiles([]))
+
+    expect(screen.queryByText('محل رها کردن فایل')).not.toBeInTheDocument()
+  })
+
+  it('does not show the drop zone for text drags', async () => {
+    renderEditor()
+    await editorTextbox()
+
+    fireEvent.dragEnter(document.body, {
+      dataTransfer: {
+        files: [],
+        types: ['text/plain'],
+        dropEffect: 'none',
+      },
+    })
+
+    expect(screen.queryByText('محل رها کردن فایل')).not.toBeInTheDocument()
+  })
+
+  it('adds an image dropped on the window and prevents the browser default', async () => {
+    const save = installImageSave()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const file = new File(['image-bytes'], 'dropped.png', {
+      type: 'image/png',
+    })
+
+    fireEvent.dragEnter(document.body, draggedFiles([file]))
+    expect(screen.getByText('محل رها کردن فایل')).toBeInTheDocument()
+
+    const notCancelled = fireEvent.drop(document.body, draggedFiles([file]))
+
+    expect(notCancelled).toBe(false)
+    expect(screen.queryByText('محل رها کردن فایل')).not.toBeInTheDocument()
+
+    const image = await waitFor(() => {
+      const element = editor.querySelector('img')
+      expect(element).not.toBeNull()
+      return element as HTMLImageElement
+    })
+
+    expect(save).toHaveBeenCalledExactlyOnceWith({
+      documentId: 7,
+      name: 'dropped.png',
+      type: 'image/png',
+      data: expect.any(ArrayBuffer),
+    })
+    expect(image).toHaveAttribute('src', savedImageSrc)
+    expect(image).toHaveAttribute('alt', 'dropped.png')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<img'),
+    )
+  })
+
+  it('adds every dropped image in the order they were dropped', async () => {
+    const pending = new Map<string, (saved: { src: string }) => void>()
+    const save = vi.fn(
+      (request: { name: string }) =>
+        new Promise<{ src: string }>((resolve) => {
+          pending.set(request.name, resolve)
+        }),
+    )
+    window.WordApp = {
+      images: { save },
+    } as unknown as Window['WordApp']
+    renderEditor()
+    const editor = await editorTextbox()
+    const firstSrc =
+      'wordapp-image://image/7/44444444-4444-4444-8444-444444444444.png'
+    const secondSrc =
+      'wordapp-image://image/7/55555555-5555-4555-8555-555555555555.png'
+
+    fireEvent.drop(
+      document.body,
+      draggedFiles([
+        new File(['first-bytes'], 'first.png', { type: 'image/png' }),
+        new File(['second-bytes'], 'second.png', { type: 'image/png' }),
+      ]),
+    )
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+
+    pending.get('second.png')?.({ src: secondSrc })
+    pending.get('first.png')?.({ src: firstSrc })
+
+    await waitFor(() => {
+      expect(
+        [...editor.querySelectorAll('img')].map((image) =>
+          image.getAttribute('src'),
+        ),
+      ).toEqual([firstSrc, secondSrc])
+    })
+    expect(
+      [...editor.querySelectorAll('img')].map((image) =>
+        image.getAttribute('alt'),
+      ),
+    ).toEqual(['first.png', 'second.png'])
+  })
+
+  it('ignores dropped files that are not images', async () => {
+    const save = installImageSave()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+
+    fireEvent.drop(
+      document.body,
+      draggedFiles([new File(['plain'], 'notes.txt', { type: 'text/plain' })]),
+    )
+
+    expect(editor.querySelector('img')).toBeNull()
+    expect(save).not.toHaveBeenCalled()
+    expect(onBodyChange).not.toHaveBeenCalled()
+  })
+
+  it('adds only the images when images and other files are dropped together', async () => {
+    const save = installImageSave()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+
+    fireEvent.drop(
+      document.body,
+      draggedFiles([
+        new File(['plain'], 'notes.txt', { type: 'text/plain' }),
+        new File(['image-bytes'], 'photo.png', { type: 'image/png' }),
+      ]),
+    )
+
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toHaveAttribute('alt', 'photo.png')
+    })
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ name: 'photo.png' }),
+    )
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('photo.png'),
+    )
   })
 
   it('stores a copy of a pasted image and inserts the copy', async () => {

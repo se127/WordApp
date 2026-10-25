@@ -1,4 +1,5 @@
 import { DocumentCodeBlockMenu } from '@/components/document-code-block-menu'
+import { DocumentDropZone } from '@/components/document-drop-zone'
 import { DocumentImageMenu } from '@/components/document-image-menu'
 import {
   DocumentLinkDialog,
@@ -50,8 +51,7 @@ import {
 import {
   DocumentImage,
   DocumentImageSelection,
-  isImageFile,
-  saveDocumentImage,
+  insertDocumentImages,
 } from '@/lib/image'
 import { getLinkRange } from '@/lib/link'
 import { formatNumber } from '@/lib/number'
@@ -475,6 +475,8 @@ function DocumentBodyEditor({
           <EditorContent editor={editor} className="min-h-full" />
         </div>
       </EditorScrollArea>
+
+      <DocumentDropZone editor={editor} documentId={documentId} />
     </div>
   )
 }
@@ -608,41 +610,7 @@ function EditorToolbar({
       return
     }
 
-    const images = files.filter(isImageFile)
-
-    if (images.length === 0) {
-      return
-    }
-
-    Promise.all(
-      images.map((file) =>
-        saveDocumentImage(file, documentId)
-          .then((src) => ({ src, alt: file.name }))
-          .catch(() => null),
-      ),
-    )
-      .then((results) => {
-        if (editor.isDestroyed) {
-          return
-        }
-
-        const saved = results.filter(
-          (image): image is { src: string; alt: string } => image !== null,
-        )
-
-        if (saved.length === 0) {
-          return
-        }
-
-        editor
-          .chain()
-          .focus()
-          .insertContent(
-            saved.map((image) => ({ type: 'image', attrs: image })),
-          )
-          .run()
-      })
-      .catch(() => {})
+    void insertDocumentImages(editor, documentId, files)
   }
 
   const setTextStyle = (value: string): void => {
