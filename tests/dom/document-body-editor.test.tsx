@@ -139,6 +139,21 @@ function placeCursorAtEnd(editor: HTMLElement): void {
   selection?.addRange(range)
 }
 
+function placeCursorInLink(editor: HTMLElement): void {
+  const text = editor.querySelector('a')?.firstChild
+
+  if (text === null || text === undefined) {
+    return
+  }
+
+  const range = document.createRange()
+  range.setStart(text, 1)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
 async function typeInEditor(text: string): Promise<HTMLElement> {
   const user = userEvent.setup()
   const editor = await editorTextbox()
@@ -1984,10 +1999,15 @@ describe('DocumentBodyEditor', () => {
 
     const editor = await editorTextbox()
     await user.click(editor)
-    await user.keyboard('{ArrowLeft}')
-    await user.click(
-      screen.getByRole('button', { name: 'افزودن / ویرایش لینک' }),
-    )
+    placeCursorInLink(editor)
+
+    const linkButton = screen.getByRole('button', {
+      name: 'افزودن / ویرایش لینک',
+    })
+    await waitFor(() => {
+      expect(linkButton).toHaveAttribute('data-variant', 'default')
+    })
+    await user.click(linkButton)
 
     const dialog = await screen.findByRole('dialog')
     const textInput = within(dialog).getByRole('textbox', { name: 'متن' })
@@ -2045,7 +2065,14 @@ describe('DocumentBodyEditor', () => {
 
     const editor = await editorTextbox()
     await user.click(editor)
-    await user.keyboard('{ArrowLeft}')
+    placeCursorInLink(editor)
+
+    const linkButton = screen.getByRole('button', {
+      name: 'افزودن / ویرایش لینک',
+    })
+    await waitFor(() => {
+      expect(linkButton).toHaveAttribute('data-variant', 'default')
+    })
 
     const editButton = await screen.findByRole('button', {
       name: 'ویرایش لینک',
@@ -2072,7 +2099,10 @@ describe('DocumentBodyEditor', () => {
     })
 
     await user.click(editor)
-    await user.keyboard('{ArrowLeft}')
+    placeCursorInLink(editor)
+    await waitFor(() => {
+      expect(linkButton).toHaveAttribute('data-variant', 'default')
+    })
     await user.click(await screen.findByRole('button', { name: 'حذف لینک' }))
 
     expect(editor.querySelector('a')).toBeNull()
