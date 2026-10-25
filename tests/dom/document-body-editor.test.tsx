@@ -2193,6 +2193,7 @@ describe('DocumentBodyEditor', () => {
 
     expect(input).toHaveAttribute('type', 'file')
     expect(input).toHaveAttribute('accept', 'image/*')
+    expect(input).toHaveAttribute('multiple')
 
     const clickSpy = vi.spyOn(input, 'click')
     await user.click(imageButton)
@@ -2223,6 +2224,82 @@ describe('DocumentBodyEditor', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith(
       expect.stringContaining('<img'),
     )
+  })
+
+  it('stores every picked image and inserts them in the order they were selected', async () => {
+    const pending = new Map<string, (saved: { src: string }) => void>()
+    const save = vi.fn(
+      (request: { name: string }) =>
+        new Promise<{ src: string }>((resolve) => {
+          pending.set(request.name, resolve)
+        }),
+    )
+    window.WordApp = {
+      images: { save },
+    } as unknown as Window['WordApp']
+    const { onBodyChange } = renderEditor()
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const input = screen.getByLabelText('انتخاب تصویر') as HTMLInputElement
+    const firstSrc =
+      'wordapp-image://image/7/44444444-4444-4444-8444-444444444444.png'
+    const secondSrc =
+      'wordapp-image://image/7/55555555-5555-4555-8555-555555555555.png'
+
+    await user.upload(input, [
+      new File(['first-bytes'], 'first.png', { type: 'image/png' }),
+      new File(['second-bytes'], 'second.png', { type: 'image/png' }),
+    ])
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+
+    pending.get('second.png')?.({ src: secondSrc })
+    pending.get('first.png')?.({ src: firstSrc })
+
+    await waitFor(() => {
+      expect(
+        [...editor.querySelectorAll('img')].map((image) =>
+          image.getAttribute('src'),
+        ),
+      ).toEqual([firstSrc, secondSrc])
+    })
+    expect(
+      [...editor.querySelectorAll('img')].map((image) =>
+        image.getAttribute('alt'),
+      ),
+    ).toEqual(['first.png', 'second.png'])
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('second.png'),
+    )
+  })
+
+  it('inserts the picked images that can be stored when another one fails', async () => {
+    const save = vi.fn(async (request: { name: string }) => {
+      if (request.name === 'broken.png') {
+        throw new Error('The image could not be stored.')
+      }
+
+      return { src: savedImageSrc }
+    })
+    window.WordApp = {
+      images: { save },
+    } as unknown as Window['WordApp']
+    renderEditor()
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const input = screen.getByLabelText('انتخاب تصویر') as HTMLInputElement
+
+    await user.upload(input, [
+      new File(['broken-bytes'], 'broken.png', { type: 'image/png' }),
+      new File(['image-bytes'], 'photo.png', { type: 'image/png' }),
+    ])
+
+    await waitFor(() => {
+      const images = [...editor.querySelectorAll('img')]
+      expect(images).toHaveLength(1)
+      expect(images[0]).toHaveAttribute('alt', 'photo.png')
+    })
+    expect(save).toHaveBeenCalledTimes(2)
   })
 
   it('does not insert an image when the file cannot be stored', async () => {

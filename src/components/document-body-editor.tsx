@@ -603,18 +603,44 @@ function EditorToolbar({
     imageInputRef.current?.click()
   }
 
-  const insertImage = (file: File): void => {
-    if (editor === null || !isImageFile(file)) {
+  const insertImages = (files: File[]): void => {
+    if (editor === null) {
       return
     }
 
-    saveDocumentImage(file, documentId)
-      .then((src) => {
+    const images = files.filter(isImageFile)
+
+    if (images.length === 0) {
+      return
+    }
+
+    Promise.all(
+      images.map((file) =>
+        saveDocumentImage(file, documentId)
+          .then((src) => ({ src, alt: file.name }))
+          .catch(() => null),
+      ),
+    )
+      .then((results) => {
         if (editor.isDestroyed) {
           return
         }
 
-        editor.chain().focus().setImage({ src, alt: file.name }).run()
+        const saved = results.filter(
+          (image): image is { src: string; alt: string } => image !== null,
+        )
+
+        if (saved.length === 0) {
+          return
+        }
+
+        editor
+          .chain()
+          .focus()
+          .insertContent(
+            saved.map((image) => ({ type: 'image', attrs: image })),
+          )
+          .run()
       })
       .catch(() => {})
   }
@@ -1117,13 +1143,12 @@ function EditorToolbar({
         accept="image/*"
         aria-label="انتخاب تصویر"
         className="hidden"
+        multiple
         onChange={(event) => {
-          const file = event.target.files?.[0]
+          const files = [...(event.target.files ?? [])]
           event.target.value = ''
 
-          if (file !== undefined) {
-            insertImage(file)
-          }
+          insertImages(files)
         }}
       />
     </>
