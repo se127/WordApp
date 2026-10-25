@@ -20,8 +20,10 @@
 
 - Never run `bun dev`, `bun run dev`, `vite`, `bun run dist`, or `electron-builder`, not
   even for verification; the user runs the app and builds installers.
-- `bun run build` and `bun run test` are the only exceptions: they compile or test
-  without launching Electron and are required by the pre-commit checks.
+- `bun run test` and `bun run build` do not launch Electron, but they are not free
+  verification steps: run them only through the end-of-batch pre-commit checks below,
+  or when the user explicitly asks for that one check. Never run them mid-change on
+  your own.
 
 ## Naming and source style
 
@@ -271,8 +273,13 @@ reaches compiled components, so keep the wiring intact and treat every skip as a
 
 - Write tests for code you add or change in the same change; remove tests made redundant
   by removed code. Tests live in `tests/dom/` (renderer, happy-dom) and `tests/node/`
-  (main/preload, Node). Run `bun run test`; use `bun run test:watch` while developing and
-  `bun run test:coverage` for the opt-in report in `coverage/`.
+  (main/preload, Node).
+- While working, run only the narrowest test that proves the change:
+  `bun run test -- tests/dom/<file>.test.tsx -t "<test name>"`, or the matching
+  `tests/node/<file>.test.ts`. Run the whole file only when you changed its shared
+  helpers. The full suite is a pre-commit gate, not a development loop.
+- Never start `bun run test:watch` (it never exits). `bun run test:coverage` is opt-in
+  and only for the `coverage/` report.
 - Do not test vendored `src/components/ui`; test the app's behavior around it.
 - Pin layout structurally, not only by text: title bar child order, RTL tab sequence
   with `user.tab()`, page wrapper classes, and full-bleed toolbar classes.
@@ -281,19 +288,27 @@ reaches compiled components, so keep the wiring intact and treat every skip as a
   order, loading states, toolbar), `document-body-editor.test.tsx` (editor styles, code
   blocks), `documents-selection.test.tsx` (selection toggle).
 
-## Pre-commit checks — once per request batch
+## Pre-commit checks — only when the user is ready to stage
 
-Implement all requested changes and tests first, then ask whether any request is left.
-If the user says no, run these five checks in order and fix everything they report:
+The five checks below are one expensive gate. Run it once, at the end of the request
+batch, and never while a request is still open.
 
-1. `bun run lint`
-2. `bun run format` (Prettier)
-3. `bun run test` (Vitest)
-4. `bun run check:react-compiler`
-5. `bun run build`
+1. Finish every requested change and its tests. While working, run only the narrowest
+   test that proves each change, as described under Tests.
+2. When you believe nothing is left, ask two things: whether any request remains, and
+   whether the user is ready to stage and commit. Run the gate only after they answer
+   yes to both. "No requests left" alone is not permission to run the checks.
+3. After the user confirms, run the checks in order:
+   - `bun run lint`
+   - `bun run format` (Prettier)
+   - `bun run test` (Vitest)
+   - `bun run check:react-compiler`
+   - `bun run build`
+4. If a check fails, fix it and re-run all five from the start. Those re-runs stay
+   inside the same gate.
 
-If a check fails, fix it and re-run all five from the start. Only then say the work is
-ready to stage. If the user asks for a specific check earlier, run that one then.
+Never run the gate after each edit, after each fix, or "just to be sure" in the middle
+of a batch. If the user asks for one specific check earlier, run only that one.
 
 ## Commits
 
