@@ -34,6 +34,10 @@ function renderToolbar({
 
   window.WordApp = {
     platform: 'win32',
+    clipboard: {
+      read: vi.fn(async () => null),
+      write: vi.fn(async () => {}),
+    },
     lifecycle: {
       onBeforeClose: vi.fn(() => () => {}),
       closeReady: vi.fn(),

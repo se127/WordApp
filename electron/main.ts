@@ -1,6 +1,8 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -9,6 +11,8 @@ import {
 } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import path from 'node:path'
+import { isClipboardWritePayload } from './clipboard.ts'
+import type { ClipboardContent } from './clipboard.ts'
 import {
   openDatabase,
   parseDbDelayArgument,
@@ -36,6 +40,8 @@ import {
 } from './images.ts'
 import {
   appBeforeCloseChannel,
+  appClipboardReadChannel,
+  appClipboardWriteChannel,
   appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
@@ -330,6 +336,42 @@ function createWindow(closeTimeoutMs: number): void {
       }
     })
   }
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (
+      input.type !== 'keyDown' ||
+      input.isAutoRepeat ||
+      !input.control ||
+      input.alt ||
+      input.meta ||
+      input.shift
+    ) {
+      return
+    }
+
+    if (
+      input.code !== 'KeyX' &&
+      input.code !== 'KeyC' &&
+      input.code !== 'KeyV'
+    ) {
+      return
+    }
+
+    const webContents = mainWindow.webContents
+    event.preventDefault()
+
+    if (input.code === 'KeyX') {
+      webContents.cut()
+      return
+    }
+
+    if (input.code === 'KeyC') {
+      webContents.copy()
+      return
+    }
+
+    webContents.paste()
+  })
 
   mainWindow.webContents.on(
     'did-fail-load',
@@ -688,6 +730,48 @@ async function startApp(): Promise<void> {
   ipcMain.handle(imagesCollectChannel, (_event, value: unknown) =>
     isImageCollectRequest(value) ? imageStore.collect(value) : undefined,
   )
+  ipcMain.handle(
+    appClipboardReadChannel,
+    async (): Promise<ClipboardContent | null> => {
+      const [item] = await clipboard.read()
+
+      if (item === undefined) {
+        return null
+      }
+
+      let text = ''
+      let html = ''
+      let image: Uint8Array | null = null
+
+      if (item.types.includes('text/plain')) {
+        text = await (await item.getType('text/plain')).text()
+      }
+
+      if (item.types.includes('text/html')) {
+        html = await (await item.getType('text/html')).text()
+      }
+
+      if (item.types.includes('image/png')) {
+        const blob = await item.getType('image/png')
+        image = new Uint8Array(await blob.arrayBuffer())
+      }
+
+      if (text === '' && html === '' && image === null) {
+        return null
+      }
+
+      return { text, html, image }
+    },
+  )
+  ipcMain.handle(appClipboardWriteChannel, async (_event, value: unknown) => {
+    if (!isClipboardWritePayload(value)) {
+      return
+    }
+
+    await clipboard.write([
+      new ClipboardItem({ 'text/plain': value.text, 'text/html': value.html }),
+    ])
+  })
 
   app.on('will-quit', () => {
     database.close()

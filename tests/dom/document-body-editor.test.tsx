@@ -1,6 +1,7 @@
 import { DocumentBodyEditor } from '@/components/document-body-editor'
 import { DirectionProvider } from '@/components/ui/direction'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import type { ClipboardContent } from '@/types/global'
 import {
   fireEvent,
   render,
@@ -29,10 +30,13 @@ function installImageBridge() {
   const save = vi.fn(async () => ({ src: savedImageSrc }))
   const copy = vi.fn(async () => ({ src: pastedImageSrc }))
   const collect = vi.fn(async () => {})
+  const read = vi.fn(async (): Promise<ClipboardContent | null> => null)
+  const write = vi.fn(async () => {})
   window.WordApp = {
+    clipboard: { read, write },
     images: { save, copy, collect },
   } as unknown as Window['WordApp']
-  return { save, copy, collect }
+  return { save, copy, collect, read, write }
 }
 
 function installImageSave() {
@@ -3598,5 +3602,115 @@ describe('DocumentBodyEditor', () => {
     await user.keyboard('{Control>}a{/Control}{Backspace}')
 
     expect(onBodyChange).toHaveBeenLastCalledWith('')
+  })
+
+  it('opens the RTL edit menu with the label before the shortcut', async () => {
+    installImageBridge()
+    renderEditor({ body: '<p>متن</p>' })
+
+    const editor = await editorTextbox()
+    fireEvent.contextMenu(editor)
+
+    const menu = await screen.findByRole('menu')
+    expect(menu).toHaveAttribute('data-slot', 'document-context-menu')
+
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((item) => item.firstElementChild?.textContent)).toEqual([
+      'برش',
+      'کپی',
+      'چسباندن',
+      'انتخاب همه',
+    ])
+    expect(
+      items.map(
+        (item) =>
+          item.querySelector('[data-slot="document-context-menu-shortcut"]')
+            ?.textContent,
+      ),
+    ).toEqual(['Ctrl+X', 'Ctrl+C', 'Ctrl+V', 'Ctrl+A'])
+    expect(items[0]).toHaveAttribute('data-disabled')
+    expect(items[1]).toHaveAttribute('data-disabled')
+    expect(items[2]).toHaveAttribute('data-disabled')
+    expect(items[3]).not.toHaveAttribute('data-disabled')
+  })
+
+  it('keeps the caret collapsed when the menu opens without a selection', async () => {
+    installImageBridge()
+    const { onBodyChange } = renderEditor({ body: '<p>متن</p>' })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    fireEvent.contextMenu(editor, { clientX: 10, clientY: 10 })
+
+    const items = await screen.findAllByRole('menuitem')
+    expect(items[0]).toHaveAttribute('data-disabled')
+    expect(items[1]).toHaveAttribute('data-disabled')
+
+    await user.keyboard('{Escape}')
+    await user.keyboard('x')
+
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('متن'),
+    )
+  })
+
+  it('pastes the clipboard content into the editor from the menu', async () => {
+    const { read } = installImageBridge()
+    read.mockResolvedValue({ text: 'چسبانده', html: '', image: null })
+    const { onBodyChange } = renderEditor({ body: '<p>متن</p>' })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    fireEvent.contextMenu(editor)
+
+    const paste = await screen.findByRole('menuitem', { name: /چسباندن/ })
+    await waitFor(() => {
+      expect(paste).not.toHaveAttribute('data-disabled')
+    })
+    await user.click(paste)
+
+    await waitFor(() => {
+      expect(vi.mocked(onBodyChange).mock.calls.at(-1)?.[0]).toContain(
+        'چسبانده',
+      )
+    })
+  })
+
+  it('copies the selection and cuts it from the document', async () => {
+    const { write } = installImageBridge()
+    const { onBodyChange } = renderEditor({ body: '<p>متن</p>' })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    await user.click(editor)
+    await user.keyboard('{Control>}a{/Control}')
+
+    fireEvent.contextMenu(editor)
+    await user.click(await screen.findByRole('menuitem', { name: /برش/ }))
+
+    expect(write).toHaveBeenCalledWith({
+      text: 'متن',
+      html: expect.stringContaining('متن'),
+    })
+    await waitFor(() => {
+      expect(onBodyChange).toHaveBeenLastCalledWith('')
+    })
+  })
+
+  it('selects the whole document from the menu and keeps focus in the editor', async () => {
+    installImageBridge()
+    const { onBodyChange } = renderEditor({ body: '<p>یک</p><p>دو</p>' })
+    const user = userEvent.setup()
+
+    const editor = await editorTextbox()
+    fireEvent.contextMenu(editor)
+    await user.click(
+      await screen.findByRole('menuitem', { name: /انتخاب همه/ }),
+    )
+
+    expect(editor).toHaveFocus()
+    await user.keyboard('x')
+
+    expect(onBodyChange).toHaveBeenLastCalledWith('<p dir="rtl">x</p>')
   })
 })

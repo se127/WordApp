@@ -11,6 +11,8 @@ import {
 } from 'vitest'
 import {
   appBeforeCloseChannel,
+  appClipboardReadChannel,
+  appClipboardWriteChannel,
   appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
@@ -43,9 +45,12 @@ const mocks = vi.hoisted(() => {
     on: vi.fn(),
     once: vi.fn(),
     webContents: {
+      copy: vi.fn(),
+      cut: vi.fn(),
       getURL: vi.fn(() => 'file:///C:/fake/wordapp/dist/index.html'),
       getZoomLevel: vi.fn(() => 0),
       on: vi.fn(),
+      paste: vi.fn(),
       reload: vi.fn(),
       reloadIgnoringCache: vi.fn(),
       send: vi.fn(),
@@ -90,6 +95,17 @@ const mocks = vi.hoisted(() => {
 
   const clearImageStore = vi.fn(async () => {})
   const createImageStore = vi.fn(async () => imageStore)
+  const clipboard = {
+    read: vi.fn(async (): Promise<unknown[]> => []),
+    write: vi.fn(async () => {}),
+  }
+  const ClipboardItem = class {
+    readonly items: Record<string, unknown>
+
+    constructor(items: Record<string, unknown>) {
+      this.items = items
+    }
+  }
 
   const parseSeedArgument = vi.fn((value: string) =>
     value === '' ? [] : [{ table: 'documents', count: 3 }],
@@ -130,9 +146,13 @@ const mocks = vi.hoisted(() => {
 
   return {
     BrowserWindow,
-    Menu: { setApplicationMenu: vi.fn() },
+    Menu: {
+      setApplicationMenu: vi.fn(),
+    },
     app,
     clearImageStore,
+    clipboard,
+    ClipboardItem,
     created,
     createImageStore,
     database,
@@ -165,6 +185,8 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
   app: mocks.app,
   BrowserWindow: mocks.BrowserWindow,
+  clipboard: mocks.clipboard,
+  ClipboardItem: mocks.ClipboardItem,
   dialog: mocks.dialog,
   ipcMain: mocks.ipcMain,
   Menu: mocks.Menu,
@@ -295,11 +317,6 @@ describe('packaged app', () => {
     expect(options.show).toBe(false)
     expect(options.autoHideMenuBar).toBe(true)
     expect(options.webPreferences?.devTools).toBe(false)
-    expect(
-      asMock(mocks.win.webContents.on).mock.calls.some(
-        ([event]) => event === 'before-input-event',
-      ),
-    ).toBe(false)
     expect(options.webPreferences?.preload).toBe(
       path.join('C:/fake/wordapp', 'dist-electron', 'preload.cjs'),
     )
@@ -1621,6 +1638,121 @@ describe('images', () => {
       ),
     ).toBeUndefined()
     expect(mocks.imageStore.collect).not.toHaveBeenCalled()
+  })
+})
+
+describe('clipboard', () => {
+  it('reads text, html, and the image from the clipboard', async () => {
+    await importMain()
+    const read = handlerFor('handle', appClipboardReadChannel)
+
+    mocks.clipboard.read.mockResolvedValue([
+      {
+        types: ['text/plain', 'text/html', 'image/png'],
+        getType: vi.fn(async (type: string) =>
+          type === 'image/png'
+            ? new Blob([new Uint8Array([1, 2, 3])])
+            : new Blob([type === 'text/html' ? '<p>متن</p>' : 'متن']),
+        ),
+      },
+    ])
+
+    await expect(read({})).resolves.toEqual({
+      text: 'متن',
+      html: '<p>متن</p>',
+      image: new Uint8Array([1, 2, 3]),
+    })
+  })
+
+  it('reports an empty clipboard as null', async () => {
+    await importMain()
+    const read = handlerFor('handle', appClipboardReadChannel)
+
+    mocks.clipboard.read.mockResolvedValue([])
+
+    await expect(read({})).resolves.toBeNull()
+  })
+
+  it('writes valid clipboard payloads and ignores malformed ones', async () => {
+    await importMain()
+    const write = handlerFor('handle', appClipboardWriteChannel)
+
+    await write({}, { text: 'متن', html: '<p>متن</p>' })
+    await write({}, { text: 1, html: '' })
+    await write({}, undefined)
+
+    expect(mocks.clipboard.write).toHaveBeenCalledOnce()
+    const [items] = mocks.clipboard.write.mock.calls[0] as unknown as [
+      Array<{ items: Record<string, unknown> }>,
+    ]
+    expect(items).toHaveLength(1)
+    expect(items[0]).toBeInstanceOf(mocks.ClipboardItem)
+    expect(items[0].items).toEqual({
+      'text/plain': 'متن',
+      'text/html': '<p>متن</p>',
+    })
+  })
+})
+
+describe('clipboard shortcuts', () => {
+  it('runs cut, copy, and paste for the keyboard shortcuts', async () => {
+    await importMain({ isPackaged: true })
+    const onKey = listenerOn(mocks.win.webContents, 'before-input-event')
+    const preventDefault = vi.fn()
+
+    for (const code of ['KeyX', 'KeyC', 'KeyV']) {
+      onKey(
+        { preventDefault },
+        {
+          type: 'keyDown',
+          code,
+          control: true,
+          alt: false,
+          meta: false,
+          shift: false,
+          isAutoRepeat: false,
+        },
+      )
+    }
+
+    expect(preventDefault).toHaveBeenCalledTimes(3)
+    expect(mocks.win.webContents.cut).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.copy).toHaveBeenCalledOnce()
+    expect(mocks.win.webContents.paste).toHaveBeenCalledOnce()
+  })
+
+  it('leaves other keys to the page', async () => {
+    await importMain({ isPackaged: true })
+    const onKey = listenerOn(mocks.win.webContents, 'before-input-event')
+    const preventDefault = vi.fn()
+
+    onKey(
+      { preventDefault },
+      {
+        type: 'keyDown',
+        code: 'KeyA',
+        control: true,
+        alt: false,
+        meta: false,
+        shift: false,
+        isAutoRepeat: false,
+      },
+    )
+    onKey(
+      { preventDefault },
+      {
+        type: 'keyDown',
+        code: 'KeyV',
+        control: true,
+        alt: false,
+        meta: false,
+        shift: true,
+        isAutoRepeat: false,
+      },
+    )
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(mocks.win.webContents.paste).not.toHaveBeenCalled()
   })
 })
 

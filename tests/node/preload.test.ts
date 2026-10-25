@@ -38,6 +38,8 @@ describe('preload bridge', () => {
     const api = await importPreload()
 
     expect(api.platform).toBe(process.platform)
+    expect(typeof api.clipboard.read).toBe('function')
+    expect(typeof api.clipboard.write).toBe('function')
     expect(typeof api.documents.create).toBe('function')
     expect(typeof api.documents.get).toBe('function')
     expect(typeof api.documents.count).toBe('function')
@@ -49,6 +51,21 @@ describe('preload bridge', () => {
     expect(typeof api.images.save).toBe('function')
     expect(typeof api.images.copy).toBe('function')
     expect(typeof api.images.collect).toBe('function')
+  })
+
+  it('forwards clipboard calls over the clipboard channels', async () => {
+    const content = { text: 'متن', html: '<p>متن</p>', image: null }
+    mocks.invoke.mockResolvedValue(content)
+    const api = await importPreload()
+
+    await expect(api.clipboard.read()).resolves.toEqual(content)
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:app:clipboard-read')
+
+    await api.clipboard.write({ text: 'متن', html: '<p>متن</p>' })
+    expect(mocks.invoke).toHaveBeenCalledWith('wordapp:app:clipboard-write', {
+      text: 'متن',
+      html: '<p>متن</p>',
+    })
   })
 
   it('forwards document calls over the document channels', async () => {

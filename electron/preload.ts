@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ClipboardContent, ClipboardWritePayload } from './clipboard.ts'
 import type {
   DocumentChanges,
   DocumentListOptions,
@@ -6,6 +7,8 @@ import type {
 } from './database.ts'
 import {
   appBeforeCloseChannel,
+  appClipboardReadChannel,
+  appClipboardWriteChannel,
   appCloseCancelledChannel,
   appCloseReadyChannel,
   documentsCancelChannel,
@@ -29,6 +32,12 @@ import type {
 
 contextBridge.exposeInMainWorld('WordApp', {
   platform: process.platform,
+  clipboard: {
+    read: (): Promise<ClipboardContent | null> =>
+      ipcRenderer.invoke(appClipboardReadChannel),
+    write: (payload: ClipboardWritePayload): Promise<void> =>
+      ipcRenderer.invoke(appClipboardWriteChannel, payload),
+  },
   lifecycle: {
     onBeforeClose: (listener: () => void): (() => void) => {
       const handler = (): void => listener()

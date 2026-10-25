@@ -1,4 +1,5 @@
 import { DocumentCodeBlockMenu } from '@/components/document-code-block-menu'
+import { DocumentContextMenu } from '@/components/document-context-menu'
 import { DocumentDropZone } from '@/components/document-drop-zone'
 import { DocumentImageMenu } from '@/components/document-image-menu'
 import {
@@ -472,7 +473,9 @@ function DocumentBodyEditor({
           dir="rtl"
           className="document-body-prose prose min-h-full max-w-none text-foreground prose-neutral dark:text-white dark:prose-invert"
         >
-          <EditorContent editor={editor} className="min-h-full" />
+          <DocumentContextMenu editor={editor}>
+            <EditorContent editor={editor} className="min-h-full" />
+          </DocumentContextMenu>
         </div>
       </EditorScrollArea>
 

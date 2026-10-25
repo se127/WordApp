@@ -42,10 +42,25 @@ export type SavedImage = {
   src: string
 }
 
+export type ClipboardContent = {
+  text: string
+  html: string
+  image: Uint8Array | null
+}
+
+export type ClipboardWritePayload = {
+  text: string
+  html: string
+}
+
 declare global {
   interface Window {
     WordApp: {
       platform: string
+      clipboard: {
+        read: () => Promise<ClipboardContent | null>
+        write: (payload: ClipboardWritePayload) => Promise<void>
+      }
       lifecycle: {
         onBeforeClose: (listener: () => void) => () => void
         closeReady: () => void

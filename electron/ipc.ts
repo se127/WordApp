@@ -1,4 +1,6 @@
 export const appBeforeCloseChannel = 'wordapp:app:before-close'
+export const appClipboardReadChannel = 'wordapp:app:clipboard-read'
+export const appClipboardWriteChannel = 'wordapp:app:clipboard-write'
 export const appCloseCancelledChannel = 'wordapp:app:close-cancelled'
 export const appCloseReadyChannel = 'wordapp:app:close-ready'
 export const documentsCreateChannel = 'wordapp:documents:create'
