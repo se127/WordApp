@@ -98,3 +98,54 @@ describe('collectDocumentImages', () => {
     })
   })
 })
+
+describe('imageBubbleMenuAnchor', () => {
+  it('anchors the menu inside the top-right corner of the image', async () => {
+    const { imageBubbleMenuAnchor } = await importImageModule()
+    const image = document.createElement('img')
+    vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(100, 200, 300, 150),
+    )
+
+    expect(imageBubbleMenuAnchor(image).getBoundingClientRect()).toEqual({
+      x: 392,
+      y: 208,
+      width: 0,
+      height: 0,
+      top: 208,
+      right: 392,
+      bottom: 208,
+      left: 392,
+    })
+  })
+
+  it('re-reads the image rect every time the menu position updates', async () => {
+    const { imageBubbleMenuAnchor } = await importImageModule()
+    const image = document.createElement('img')
+    const rect = vi.spyOn(image, 'getBoundingClientRect')
+    rect.mockReturnValueOnce(new DOMRect(100, 200, 300, 150))
+    rect.mockReturnValueOnce(new DOMRect(100, 120, 300, 150))
+    const anchor = imageBubbleMenuAnchor(image)
+
+    expect(anchor.getBoundingClientRect().top).toBe(208)
+    expect(anchor.getBoundingClientRect().top).toBe(128)
+  })
+})
+
+describe('editorScrollTarget', () => {
+  it('uses the scroll viewport that wraps the editor', async () => {
+    const { editorScrollTarget } = await importImageModule()
+    const viewport = document.createElement('div')
+    viewport.setAttribute('data-slot', 'scroll-area-viewport')
+    const editor = document.createElement('div')
+    viewport.append(editor)
+
+    expect(editorScrollTarget(editor)).toBe(viewport)
+  })
+
+  it('falls back to the window when the editor has no scroll viewport', async () => {
+    const { editorScrollTarget } = await importImageModule()
+
+    expect(editorScrollTarget(document.createElement('div'))).toBe(window)
+  })
+})

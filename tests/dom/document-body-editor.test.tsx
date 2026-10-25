@@ -455,10 +455,21 @@ describe('DocumentBodyEditor', () => {
     const compactStyles = editorStyles.replace(/\s+/g, ' ')
 
     expect(compactStyles).toContain(
-      '.document-body-editor .ProseMirror img { display: block; max-width: 100%; height: auto; margin-inline: auto; margin-block: 0 1.25em; }',
+      '.document-body-editor .ProseMirror img { display: block; max-width: calc(100% - 2rem); height: auto; margin-inline: auto; margin-block: 0 1.25em; }',
     )
     expect(compactStyles).toContain(
       '.document-body-editor .ProseMirror img.ProseMirror-selectednode { outline: 2px solid var(--ring); outline-offset: 2px; }',
+    )
+  })
+
+  it('keeps the image bubble menu inside the editor scroll area', async () => {
+    const editorStyles = await readFile(
+      'src/components/document-body-editor.css',
+      'utf8',
+    )
+
+    expect(editorStyles.replace(/\s+/g, ' ')).toContain(
+      '.document-body-editor .document-body-prose { position: relative; flex: 1; color: var(--foreground); }',
     )
   })
 
@@ -2459,6 +2470,117 @@ describe('DocumentBodyEditor', () => {
     expect(onBodyChange).toHaveBeenLastCalledWith(
       expect.stringContaining('قبل'),
     )
+  })
+
+  it('keeps the image bubble menu anchored to the image while the editor scrolls', async () => {
+    renderEditor({
+      body: `<p>قبل</p><img src="${storedImageSrc}" alt="تصویر"><p>بعد</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    const rect = vi
+      .spyOn(image, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(100, 300, 400, 200))
+
+    await user.hover(image)
+
+    const deleteButton = await screen.findByRole('button', {
+      name: 'حذف تصویر',
+    })
+    const menu = deleteButton.closest('[data-slot="image-bubble-menu"]')
+
+    if (!(menu instanceof HTMLElement)) {
+      throw new Error('Image bubble menu is missing')
+    }
+
+    await waitFor(() => expect(menu.style.top).toBe('308px'))
+
+    rect.mockReturnValue(new DOMRect(100, 100, 400, 200))
+    const viewport = editor.closest('[data-slot="scroll-area-viewport"]')
+
+    if (!(viewport instanceof HTMLElement)) {
+      throw new Error('Scroll viewport is missing')
+    }
+
+    fireEvent.scroll(viewport)
+
+    await waitFor(() => expect(menu.style.top).toBe('108px'))
+  })
+
+  it('repositions the image bubble menu when the image loads', async () => {
+    renderEditor({ body: `<img src="${storedImageSrc}" alt="تصویر">` })
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    const deleteButton = await screen.findByRole('button', {
+      name: 'حذف تصویر',
+    })
+    const menu = deleteButton.closest('[data-slot="image-bubble-menu"]')
+
+    if (!(menu instanceof HTMLElement)) {
+      throw new Error('Image bubble menu is missing')
+    }
+
+    vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(100, 300, 400, 200),
+    )
+
+    fireEvent.load(image)
+
+    await waitFor(() => expect(menu.style.top).toBe('308px'))
+  })
+
+  it('shows the image bubble menu on load when the body is a selected image', async () => {
+    renderEditor({ body: `<img src="${storedImageSrc}" alt="تصویر">` })
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+
+    if (image === null) {
+      throw new Error('Image is missing')
+    }
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف تصویر' }),
+    ).toBeInTheDocument()
+    expect(image).toHaveClass('ProseMirror-selectednode')
+  })
+
+  it('shows the image bubble menu when hovering an image after load', async () => {
+    renderEditor({
+      body: `<img src="${storedImageSrc}" alt="تصویر"><p>متن</p>`,
+    })
+    const user = userEvent.setup()
+    const editor = await editorTextbox()
+    const image = editor.querySelector('img')
+    const paragraph = editor.querySelector('p')
+
+    if (image === null || paragraph === null) {
+      throw new Error('Image or paragraph is missing')
+    }
+
+    await user.click(paragraph)
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'حذف تصویر' }),
+      ).not.toBeInTheDocument(),
+    )
+
+    await user.hover(image)
+
+    expect(
+      await screen.findByRole('button', { name: 'حذف تصویر' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the stored image file when the image leaves the editor and comes back', async () => {

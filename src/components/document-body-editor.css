@@ -16,6 +16,7 @@
 }
 
 .document-body-editor .document-body-prose {
+  position: relative;
   flex: 1;
   color: var(--foreground);
 }
@@ -95,7 +96,7 @@
 
 .document-body-editor .ProseMirror img {
   display: block;
-  max-width: 100%;
+  max-width: calc(100% - 2rem);
   height: auto;
   margin-inline: auto;
   margin-block: 0 1.25em;

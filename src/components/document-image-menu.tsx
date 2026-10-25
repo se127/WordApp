@@ -4,7 +4,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { imagePosition, selectedImagePosition } from '@/lib/image'
+import {
+  editorScrollTarget,
+  imageBubbleMenuAnchor,
+  imagePosition,
+  selectedImagePosition,
+} from '@/lib/image'
 import { PluginKey } from '@tiptap/pm/state'
 import type { Editor } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
@@ -15,6 +20,7 @@ const imageBubbleMenuKey = new PluginKey('imageBubbleMenu')
 const hideDelay = 150
 
 function DocumentImageMenu({ editor }: { editor: Editor | null }) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
   const hoveredImageRef = useRef<HTMLImageElement | null>(null)
   const hideTimerRef = useRef<number | null>(null)
 
@@ -50,20 +56,30 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
     hideTimerRef.current = window.setTimeout(hideMenu, hideDelay)
   }, [clearHideTimer, hideMenu])
 
+  const revealMenu = useCallback((): void => {
+    if (editor === null || editor.isDestroyed) {
+      return
+    }
+
+    const menu = menuRef.current
+
+    if (menu !== null && !menu.isConnected) {
+      editor.view.dispatch(editor.state.tr.setMeta(imageBubbleMenuKey, 'hide'))
+    }
+
+    editor.view.dispatch(editor.state.tr.setMeta(imageBubbleMenuKey, 'show'))
+    editor.view.dispatch(
+      editor.state.tr.setMeta(imageBubbleMenuKey, 'updatePosition'),
+    )
+  }, [editor])
+
   const showMenu = useCallback(
     (image: HTMLImageElement): void => {
-      if (editor === null || editor.isDestroyed) {
-        return
-      }
-
       clearHideTimer()
       hoveredImageRef.current = image
-      editor.view.dispatch(editor.state.tr.setMeta(imageBubbleMenuKey, 'show'))
-      editor.view.dispatch(
-        editor.state.tr.setMeta(imageBubbleMenuKey, 'updatePosition'),
-      )
+      revealMenu()
     },
-    [clearHideTimer, editor],
+    [clearHideTimer, revealMenu],
   )
 
   useEffect(() => {
@@ -72,6 +88,7 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
     }
 
     const editorDom = editor.view.dom
+    const scrollTarget = editorScrollTarget(editorDom)
 
     const handleMouseOver = (event: MouseEvent): void => {
       if (event.target instanceof HTMLImageElement) {
@@ -85,6 +102,26 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
       }
     }
 
+    const handleScroll = (): void => {
+      if (editor.isDestroyed) {
+        return
+      }
+
+      editor.view.dispatch(
+        editor.state.tr.setMeta(imageBubbleMenuKey, 'updatePosition'),
+      )
+    }
+
+    const handleImageLoad = (event: Event): void => {
+      if (!(event.target instanceof HTMLImageElement) || editor.isDestroyed) {
+        return
+      }
+
+      editor.view.dispatch(
+        editor.state.tr.setMeta(imageBubbleMenuKey, 'updatePosition'),
+      )
+    }
+
     const handleBlur = (): void => {
       clearHideTimer()
       hoveredImageRef.current = null
@@ -92,15 +129,26 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
 
     editorDom.addEventListener('mouseover', handleMouseOver)
     editorDom.addEventListener('mouseout', handleMouseOut)
+    editorDom.addEventListener('load', handleImageLoad, true)
+    scrollTarget.addEventListener('scroll', handleScroll, { passive: true })
     editor.on('blur', handleBlur)
 
+    const revealFrame = window.requestAnimationFrame(() => {
+      if (selectedImagePosition(editor.view) !== null) {
+        revealMenu()
+      }
+    })
+
     return () => {
+      window.cancelAnimationFrame(revealFrame)
       clearHideTimer()
       editorDom.removeEventListener('mouseover', handleMouseOver)
       editorDom.removeEventListener('mouseout', handleMouseOut)
+      editorDom.removeEventListener('load', handleImageLoad, true)
+      scrollTarget.removeEventListener('scroll', handleScroll)
       editor.off('blur', handleBlur)
     }
-  }, [clearHideTimer, editor, scheduleHide, showMenu])
+  }, [clearHideTimer, editor, revealMenu, scheduleHide, showMenu])
 
   if (editor === null) {
     return null
@@ -110,7 +158,7 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
     const hoveredImage = hoveredImageRef.current
 
     if (hoveredImage !== null && hoveredImage.isConnected) {
-      return hoveredImage
+      return imageBubbleMenuAnchor(hoveredImage)
     }
 
     const position = selectedImagePosition(editor.view)
@@ -121,7 +169,7 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
 
     const image = editor.view.nodeDOM(position)
 
-    return image instanceof HTMLElement ? image : null
+    return image instanceof HTMLElement ? imageBubbleMenuAnchor(image) : null
   }
 
   const deleteImage = (): void => {
@@ -142,6 +190,7 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
 
   return (
     <BubbleMenu
+      ref={menuRef}
       editor={editor}
       pluginKey={imageBubbleMenuKey}
       updateDelay={0}
@@ -154,7 +203,7 @@ function DocumentImageMenu({ editor }: { editor: Editor | null }) {
         )
       }}
       getReferencedVirtualElement={referenceImage}
-      options={{ placement: 'right' }}
+      options={{ placement: 'bottom-start', offset: 0, flip: false }}
       dir="rtl"
       data-slot="image-bubble-menu"
       className="rounded-xl border bg-popover p-1 text-popover-foreground shadow-md"

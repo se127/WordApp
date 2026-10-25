@@ -85,6 +85,38 @@ export function selectedImagePosition(view: EditorView): number | null {
   return selection.node.type.name === 'image' ? selection.from : null
 }
 
+const imageBubbleMenuInset = 8
+const editorScrollViewportSelector = '[data-slot="scroll-area-viewport"]'
+
+export function imageBubbleMenuAnchor(image: HTMLElement) {
+  const point = () => {
+    const rect = image.getBoundingClientRect()
+    const x = rect.right - imageBubbleMenuInset
+    const y = rect.top + imageBubbleMenuInset
+
+    return {
+      x,
+      y,
+      width: 0,
+      height: 0,
+      top: y,
+      right: x,
+      bottom: y,
+      left: x,
+    }
+  }
+
+  return {
+    getBoundingClientRect: point,
+    getClientRects: () => [point()],
+    contextElement: image,
+  }
+}
+
+export function editorScrollTarget(element: HTMLElement): HTMLElement | Window {
+  return element.closest<HTMLElement>(editorScrollViewportSelector) ?? window
+}
+
 function imageSelectionPlugin(): Plugin {
   return new Plugin({
     props: {
