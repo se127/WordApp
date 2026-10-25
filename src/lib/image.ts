@@ -18,6 +18,29 @@ export function isImageFile(file: File): boolean {
   )
 }
 
+function imageSaveName(file: File): string {
+  return file.name.trim() === '' ? 'clipboard' : file.name
+}
+
+function clipboardImageFiles(event: ClipboardEvent): File[] {
+  const data = event.clipboardData
+
+  if (data === null) {
+    return []
+  }
+
+  const files = Array.from(data.files).filter(isImageFile)
+
+  if (files.length > 0) {
+    return files
+  }
+
+  return Array.from(data.items)
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null && isImageFile(file))
+}
+
 export function saveDocumentImage(
   file: File,
   documentId: number,
@@ -26,7 +49,7 @@ export function saveDocumentImage(
     return window.WordApp.images
       .save({
         documentId,
-        name: file.name,
+        name: imageSaveName(file),
         type: file.type,
         data,
       })
@@ -306,40 +329,49 @@ function imagePastePlugin(editor: Editor, documentId: number): Plugin {
       handlePaste: (_view, event, slice) => {
         const sources = localImageSourcesInSlice(slice)
 
-        if (sources.length === 0) {
+        if (sources.length > 0) {
+          event.preventDefault()
+
+          Promise.all(
+            sources.map((src) =>
+              copyDocumentImage(src, documentId)
+                .then((copy) => [src, copy] as const)
+                .catch(() => null),
+            ),
+          )
+            .then((pairs) => {
+              if (editor.isDestroyed) {
+                return
+              }
+
+              const replacements = new Map(
+                pairs.filter(
+                  (pair): pair is readonly [string, string] => pair !== null,
+                ),
+              )
+
+              const content =
+                replacements.size === 0
+                  ? slice
+                  : mapSliceImageSources(slice, replacements)
+
+              editor.view.dispatch(
+                editor.state.tr.replaceSelection(content).scrollIntoView(),
+              )
+            })
+            .catch(() => {})
+
+          return true
+        }
+
+        const files = clipboardImageFiles(event)
+
+        if (files.length === 0) {
           return false
         }
 
         event.preventDefault()
-
-        Promise.all(
-          sources.map((src) =>
-            copyDocumentImage(src, documentId)
-              .then((copy) => [src, copy] as const)
-              .catch(() => null),
-          ),
-        )
-          .then((pairs) => {
-            if (editor.isDestroyed) {
-              return
-            }
-
-            const replacements = new Map(
-              pairs.filter(
-                (pair): pair is readonly [string, string] => pair !== null,
-              ),
-            )
-
-            const content =
-              replacements.size === 0
-                ? slice
-                : mapSliceImageSources(slice, replacements)
-
-            editor.view.dispatch(
-              editor.state.tr.replaceSelection(content).scrollIntoView(),
-            )
-          })
-          .catch(() => {})
+        void insertDocumentImages(editor, documentId, files)
 
         return true
       },

@@ -61,6 +61,22 @@ describe('saveDocumentImage', () => {
       data: expect.any(ArrayBuffer),
     })
   })
+
+  it('falls back to a clipboard name when the file has no name', async () => {
+    const { saveDocumentImage } = await importImageModule()
+
+    await saveDocumentImage(
+      new File(['image-bytes'], '', { type: 'image/png' }),
+      7,
+    )
+
+    expect(images.save).toHaveBeenCalledExactlyOnceWith({
+      documentId: 7,
+      name: 'clipboard',
+      type: 'image/png',
+      data: expect.any(ArrayBuffer),
+    })
+  })
 })
 
 describe('copyDocumentImage', () => {

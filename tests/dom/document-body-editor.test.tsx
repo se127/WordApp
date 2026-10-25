@@ -49,6 +49,20 @@ function draggedFiles(files: File[]) {
   }
 }
 
+function clipboardWithFiles(files: File[], html = '') {
+  const clipboardData = new DataTransfer()
+
+  for (const file of files) {
+    clipboardData.items.add(file)
+  }
+
+  if (html !== '') {
+    clipboardData.setData('text/html', html)
+  }
+
+  return clipboardData
+}
+
 afterEach(() => {
   Reflect.deleteProperty(window, 'WordApp')
 })
@@ -2599,6 +2613,166 @@ describe('DocumentBodyEditor', () => {
     expect(copy).toHaveBeenCalledWith({ documentId: 7, src: storedImageSrc })
     expect(onBodyChange).toHaveBeenLastCalledWith(
       expect.stringContaining(storedImageSrc),
+    )
+  })
+
+  it('saves and inserts a pasted image file', async () => {
+    const { save } = installImageBridge()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const file = new File(['image-bytes'], 'pasted.png', { type: 'image/png' })
+
+    const notCancelled = fireEvent.paste(editor, {
+      clipboardData: clipboardWithFiles([file]),
+    })
+
+    expect(notCancelled).toBe(false)
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith({
+        documentId: 7,
+        name: 'pasted.png',
+        type: 'image/png',
+        data: expect.any(ArrayBuffer),
+      }),
+    )
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toHaveAttribute('src', savedImageSrc)
+    })
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(savedImageSrc),
+    )
+  })
+
+  it('reads a pasted image from clipboard items when files is empty', async () => {
+    const { save } = installImageBridge()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const clipboardData = clipboardWithFiles([
+      new File(['image-bytes'], 'item.png', { type: 'image/png' }),
+    ])
+    Object.defineProperty(clipboardData, 'files', { value: [] })
+
+    fireEvent.paste(editor, { clipboardData })
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ name: 'item.png' }),
+      ),
+    )
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toHaveAttribute('src', savedImageSrc)
+    })
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(savedImageSrc),
+    )
+  })
+
+  it('inserts every pasted image in clipboard order', async () => {
+    const pending = new Map<string, (saved: { src: string }) => void>()
+    const save = vi.fn(
+      (request: { name: string }) =>
+        new Promise<{ src: string }>((resolve) => {
+          pending.set(request.name, resolve)
+        }),
+    )
+    window.WordApp = {
+      images: { save },
+    } as unknown as Window['WordApp']
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const firstSrc =
+      'wordapp-image://image/7/44444444-4444-4444-8444-444444444444.png'
+    const secondSrc =
+      'wordapp-image://image/7/55555555-5555-4555-8555-555555555555.png'
+
+    fireEvent.paste(editor, {
+      clipboardData: clipboardWithFiles([
+        new File(['first-bytes'], 'first.png', { type: 'image/png' }),
+        new File(['second-bytes'], 'second.png', { type: 'image/png' }),
+      ]),
+    })
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+
+    pending.get('second.png')?.({ src: secondSrc })
+    pending.get('first.png')?.({ src: firstSrc })
+
+    await waitFor(() => {
+      expect(
+        [...editor.querySelectorAll('img')].map((image) =>
+          image.getAttribute('src'),
+        ),
+      ).toEqual([firstSrc, secondSrc])
+    })
+    expect(
+      [...editor.querySelectorAll('img')].map((image) =>
+        image.getAttribute('alt'),
+      ),
+    ).toEqual(['first.png', 'second.png'])
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(secondSrc),
+    )
+  })
+
+  it('prefers the clipboard image file over pasted remote HTML', async () => {
+    const { save } = installImageBridge()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+
+    fireEvent.paste(editor, {
+      clipboardData: clipboardWithFiles(
+        [new File(['image-bytes'], 'pasted.png', { type: 'image/png' })],
+        '<p><img src="https://example.com/photo.png" alt="remote"></p>',
+      ),
+    })
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ name: 'pasted.png' }),
+      ),
+    )
+    await waitFor(() => {
+      expect(editor.querySelector('img')).toHaveAttribute('src', savedImageSrc)
+    })
+    expect(editor.innerHTML).not.toContain('https://example.com')
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining(savedImageSrc),
+    )
+  })
+
+  it('pastes text when the clipboard file is not an image', async () => {
+    const { save } = installImageBridge()
+    const { onBodyChange } = renderEditor()
+    const editor = await editorTextbox()
+    const clipboardData = clipboardWithFiles([
+      new File(['notes'], 'notes.txt', { type: 'text/plain' }),
+    ])
+    clipboardData.setData('text/plain', 'متن تازه')
+
+    fireEvent.paste(editor, { clipboardData })
+
+    await waitFor(() => expect(editor).toHaveTextContent('متن تازه'))
+    expect(save).not.toHaveBeenCalled()
+    expect(onBodyChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('متن تازه'),
+    )
+  })
+
+  it('saves a pasted image that has no file name', async () => {
+    const { save } = installImageBridge()
+    renderEditor()
+    const editor = await editorTextbox()
+
+    fireEvent.paste(editor, {
+      clipboardData: clipboardWithFiles([
+        new File(['image-bytes'], '', { type: 'image/png' }),
+      ]),
+    })
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ name: 'clipboard' }),
+      ),
     )
   })
 
