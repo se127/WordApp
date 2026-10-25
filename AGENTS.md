@@ -295,9 +295,11 @@ batch, and never while a request is still open.
 
 1. Finish every requested change and its tests. While working, run only the narrowest
    test that proves each change, as described under Tests.
-2. When you believe nothing is left, ask two things: whether any request remains, and
-   whether the user is ready to stage and commit. Run the gate only after they answer
-   yes to both. "No requests left" alone is not permission to run the checks.
+2. When you believe nothing is left, ask whether any request remains and whether the
+   user is ready to stage and commit. Never attach a release question to that message:
+   the release decision is asked on its own, as described under Releases. Run the gate
+   only after they answer yes to both. "No requests left" alone is not permission to
+   run the checks.
 3. After the user confirms, run the checks in order:
    - `bun run lint`
    - `bun run format` (Prettier)
@@ -309,6 +311,44 @@ batch, and never while a request is still open.
 
 Never run the gate after each edit, after each fix, or "just to be sure" in the middle
 of a batch. If the user asks for one specific check earlier, run only that one.
+
+## Releases — ask first
+
+The release workflow (`.github/workflows/release.yml`) publishes the Windows installer
+from a `v*` tag. The tag must be `v` plus the exact `version` in `package.json`; the
+workflow fails before packaging when they differ, and the installer filename comes from
+`package.json`, not the tag.
+
+A release is three irreversible steps the user must approve by name: the version bump,
+the tag, and the tag push. Until the release question below is answered explicitly, do
+not edit `version` in `package.json`, create a tag, or push a tag.
+
+- Every batch ends with the release question, in its own message, unless the user
+  already answered it for that batch. A docs-only change still gets the question; never
+  decide on the user's behalf that no release is needed.
+- Ask it alone. Never fold it into a commit, push, merge, or staging question:
+  "Want me to push `main`, and should this batch ship a release?" makes a bare "yes"
+  ambiguous, and an ambiguous answer is not approval.
+- Name the next semantic version (patch for a fix, minor for a feature, major for a
+  breaking change) and the tag, e.g. "Should this batch ship `0.1.1` as tag `v0.1.1`?".
+- Only an answer that directly approves that request counts. A bare "yes" to a message
+  that also asked about pushing, committing, or merging approves only those things;
+  re-ask the release question by itself. If any part of the answer is unclear, ask
+  again instead of inferring a yes. Approval covers one release only: a request to
+  commit, stage, push, or "continue" is never release approval.
+- Only after that explicit yes: set `version` in `package.json`, include the bump in the
+  batch commit, and run the gate once on the final tree that carries the bumped
+  version. Never bump after the gate has already run.
+- Before committing, read `git diff --cached` and confirm the only version change is
+  the approved number. If the user approved only the commit, `package.json` keeps its
+  current version and the commit must not touch it.
+- At the final push, restate the version and tag in the update, then push `main`,
+  create an annotated tag `v<version>` on that commit, and push the tag. Never move,
+  delete, or reuse a tag whose release is already public; bump to a new version
+  instead.
+- Watch the workflow through success and verify the release contains
+  `WordApp-Setup-<version>-x64.exe`, `latest.yml`, and the matching `.blockmap`.
+- CI packages the installer. Do not run `bun run dist` or electron-builder locally.
 
 ## Commits
 

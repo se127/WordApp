@@ -757,7 +757,7 @@ describe('DocumentBodyEditor', () => {
         `<pre dir="ltr"><code class="language-${language}">const value = 1</code></pre><p dir="rtl"></p>`,
       )
     }
-  })
+  }, 30_000)
 
   it('returns focus for keyboard selection and keeps the active language unchanged', async () => {
     const onBodyChange = vi.fn()

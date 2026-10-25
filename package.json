@@ -1,7 +1,7 @@
 {
   "name": "wordapp",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "WordApp desktop application for Windows",
   "author": "saeid ebrahimi <saeid.ebrahimi127@gmail.com>",
   "type": "module",
